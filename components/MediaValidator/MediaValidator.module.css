@@ -1,0 +1,308 @@
+/* ============================================
+   MediaValidator - Design System Pixel Poule
+   ============================================ */
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: var(--spacing-xl);
+}
+
+.header {
+  margin-bottom: var(--spacing-xl);
+}
+
+.title {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-black);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-xs);
+}
+
+.count {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-regular);
+  color: var(--color-gray-600);
+  background: var(--color-gray-100);
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-radius: 100px;
+}
+
+.subtitle {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-thin);
+  color: var(--color-gray-500);
+  margin: 0;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xl);
+}
+
+.item {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  padding: var(--spacing-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.fileInfo {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: var(--spacing-md);
+  border-bottom: 1px solid var(--color-gray-100);
+}
+
+.filename {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-regular);
+  color: var(--color-black);
+  margin: 0;
+  word-break: break-word;
+}
+
+.fileSize {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-thin);
+  color: var(--color-gray-500);
+  margin: 0;
+  white-space: nowrap;
+  margin-left: var(--spacing-md);
+}
+
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.suggestionsLabel {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-black);
+  margin: 0;
+}
+
+.suggestionGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--spacing-md);
+}
+
+.suggestionCard {
+  background: var(--color-gray-100);
+  border: 1px solid transparent;
+  cursor: pointer;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: transform var(--transition-fast), border-color var(--transition-fast);
+}
+
+.suggestionCard:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-black);
+}
+
+.suggestionPoster {
+  position: relative;
+  aspect-ratio: 2/3;
+  background: var(--color-gray-200);
+}
+
+.posterImage {
+  object-fit: cover;
+}
+
+.confidenceBadge {
+  position: absolute;
+  top: var(--spacing-xs);
+  right: var(--spacing-xs);
+  background: var(--color-black);
+  color: var(--color-white);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  padding: var(--spacing-xs) var(--spacing-sm);
+}
+
+.suggestionInfo {
+  padding: var(--spacing-sm);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.suggestionTitle {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-black);
+  margin: 0;
+  line-height: 1.3;
+}
+
+.suggestionOriginal {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-thin);
+  color: var(--color-gray-500);
+  margin: 0;
+  font-style: italic;
+}
+
+.suggestionYear {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-regular);
+  color: var(--color-gray-600);
+  margin: 0;
+}
+
+.noSuggestions {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-thin);
+  font-style: italic;
+  color: var(--color-gray-500);
+  margin: 0;
+  padding: var(--spacing-lg);
+  text-align: center;
+  background: var(--color-gray-100);
+}
+
+.manualSearch {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-top: var(--spacing-md);
+  padding-top: var(--spacing-md);
+  border-top: 1px solid var(--color-gray-100);
+}
+
+.searchInput {
+  flex: 1;
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-regular);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--color-gray-300);
+  padding: var(--spacing-sm) 0;
+  color: var(--color-black);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.searchInput:focus {
+  border-bottom-color: var(--color-black);
+}
+
+.searchInput::placeholder {
+  color: var(--color-gray-400);
+  font-weight: var(--font-weight-thin);
+}
+
+.searchButton {
+  background: var(--color-black);
+  color: var(--color-white);
+  border: 1px solid var(--color-black);
+  padding: var(--spacing-sm) var(--spacing-lg);
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-bold);
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform var(--transition-fast);
+  min-width: 120px;
+}
+
+.searchButton:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+.searchButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.loading {
+  display: flex;
+  gap: 4px;
+  justify-content: center;
+}
+
+.dot {
+  width: 4px;
+  height: 4px;
+  background: var(--color-white);
+  border-radius: 50%;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+.dot:nth-child(2) { 
+  animation-delay: 0.2s; 
+}
+
+.dot:nth-child(3) { 
+  animation-delay: 0.4s; 
+}
+
+@keyframes pulse {
+  0%, 80%, 100% {
+    opacity: 0.3;
+    transform: scale(1);
+  }
+  40% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 300px;
+  background: var(--color-gray-100);
+}
+
+.emptyText {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-thin);
+  color: var(--color-gray-600);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .container {
+    padding: var(--spacing-md);
+  }
+  
+  .fileInfo {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--spacing-xs);
+  }
+  
+  .fileSize {
+    margin-left: 0;
+  }
+  
+  .suggestionGrid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  }
+  
+  .manualSearch {
+    flex-direction: column;
+  }
+  
+  .searchButton {
+    width: 100%;
+  }
+}
+
+
+
+

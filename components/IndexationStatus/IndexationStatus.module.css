@@ -1,0 +1,180 @@
+/* ============================================
+   IndexationStatus - Design System Pixel Poule
+   ============================================ */
+
+.container {
+  background: var(--color-white);
+  border: 1px solid var(--color-gray-200);
+  padding: var(--spacing-lg);
+  margin-bottom: var(--spacing-xl);
+}
+
+.title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-black);
+  margin: 0 0 var(--spacing-lg) 0;
+}
+
+.mainStats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--spacing-lg);
+  margin-bottom: var(--spacing-xl);
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+}
+
+.statValue {
+  font-size: var(--font-size-2xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-black);
+  line-height: 1;
+}
+
+.statPercent {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-regular);
+  color: var(--color-gray-500);
+  margin-left: var(--spacing-xs);
+}
+
+.statLabel {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+  color: var(--color-gray-600);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.viewButton {
+  background: transparent;
+  border: 1px solid var(--color-black);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-bold);
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform var(--transition-fast);
+}
+
+.viewButton:hover {
+  transform: translateY(-2px);
+}
+
+.confidence {
+  padding: var(--spacing-md) 0;
+  border-top: 1px solid var(--color-gray-100);
+}
+
+.confidenceTitle {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-black);
+  margin: 0 0 var(--spacing-md) 0;
+}
+
+.confidenceBar {
+  display: flex;
+  height: 24px;
+  background: var(--color-gray-100);
+  overflow: hidden;
+}
+
+.confidenceSegment {
+  height: 100%;
+  transition: width var(--transition-normal);
+}
+
+.confidenceSegment.high {
+  background: var(--color-black);
+}
+
+.confidenceSegment.medium {
+  background: var(--color-gray-500);
+}
+
+.confidenceSegment.low {
+  background: var(--color-gray-300);
+}
+
+.confidenceLegend {
+  display: flex;
+  gap: var(--spacing-lg);
+  margin-top: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+.legendItem {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.legendDot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+.legendDot.high {
+  background: var(--color-black);
+}
+
+.legendDot.medium {
+  background: var(--color-gray-500);
+}
+
+.legendDot.low {
+  background: var(--color-gray-300);
+}
+
+.legendLabel {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-regular);
+  color: var(--color-gray-600);
+}
+
+.subtitles {
+  padding: var(--spacing-md) 0;
+  border-top: 1px solid var(--color-gray-100);
+}
+
+.subtitleStat {
+  display: flex;
+  align-items: baseline;
+  gap: var(--spacing-sm);
+}
+
+.subtitleValue {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-black);
+}
+
+.subtitleLabel {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-thin);
+  color: var(--color-gray-600);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .mainStats {
+    grid-template-columns: 1fr;
+  }
+  
+  .confidenceLegend {
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+}
+
+
+
+
