@@ -415,13 +415,22 @@ export default function AdminPage() {
                       <div className={styles.fileActions}>
                         {/* Bouton pour ouvrir dans le Finder */}
                         {(file.status === 'unidentified' || file.status === 'error') && (
-                          <button
-                            className={styles.revealButton}
-                            onClick={() => handleRevealFile(file.filepath)}
-                            title="Ouvrir dans le Finder"
-                          >
-                            📁 Finder
-                          </button>
+                          <>
+                            <button
+                              className={styles.revealButton}
+                              onClick={() => handleRevealFile(file.filepath)}
+                              title="Ouvrir dans le Finder"
+                            >
+                              📁 Finder
+                            </button>
+                            <a
+                              href="/admin/validate"
+                              className={styles.validateLink}
+                              title="Valider manuellement sur TMDB"
+                            >
+                              🔍 Valider
+                            </a>
+                          </>
                         )}
                         
                         <span className={`${styles.statusBadge} ${styles[file.status]}`}>
@@ -449,8 +458,12 @@ export default function AdminPage() {
                   {unidentifiedCount > 0 && (
                     <li>
                       <strong>{unidentifiedCount} fichier(s) non identifié(s)</strong>: 
-                      Utilisez l&apos;outil de <a href="/admin/validate">validation manuelle</a> pour rechercher 
-                      manuellement sur TMDB et associer les bonnes métadonnées.
+                      <ol style={{ marginTop: 'var(--spacing-xs)', paddingLeft: 'var(--spacing-lg)' }}>
+                        <li>Cliquez sur <strong>📁 Finder</strong> pour ouvrir et renommer le fichier</li>
+                        <li>Format recommandé: <code>Titre du Film (Année).ext</code></li>
+                        <li>Relancez le scan pour réindexer</li>
+                        <li>Si toujours non trouvé: cliquez sur <strong>🔍 Valider</strong> pour une <a href="/admin/validate">validation manuelle</a> sur TMDB</li>
+                      </ol>
                     </li>
                   )}
                   {errorsCount > 0 && (
