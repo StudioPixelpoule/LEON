@@ -9,6 +9,7 @@ import HeroSection from '@/components/HeroSection/HeroSection'
 import MovieRow from '@/components/MovieRow/MovieRow'
 import MovieModal from '@/components/MovieModal/MovieModalWithTV'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
+import { groupMoviesByCategories, selectTopCategories } from '@/lib/genreClassification'
 import styles from './films.module.css'
 
 export default function FilmsPage() {
@@ -65,23 +66,12 @@ export default function FilmsPage() {
     .sort((a, b) => (b.rating || 0) - (a.rating || 0))
     .slice(0, 20)
   
-  const genreGroups = validMovies.reduce((acc, movie) => {
-    if (movie.genres) {
-      movie.genres.forEach(genre => {
-        if (!acc[genre]) acc[genre] = []
-        acc[genre].push(movie)
-      })
-    }
-    return acc
-  }, {} as Record<string, GroupedMedia[]>)
+  // Utiliser le système de classification intelligent
+  // Chaque film sera dans maximum 2 catégories
+  const genreGroups = groupMoviesByCategories(validMovies)
   
-  const topGenres = Object.entries(genreGroups)
-    .sort((a, b) => b[1].length - a[1].length)
-    .slice(0, 6)
-    .map(([genre, movies]) => ({
-      genre,
-      movies: movies.slice(0, 20)
-    }))
+  // Sélectionner les meilleures catégories (les plus fournies et pertinentes)
+  const topGenres = selectTopCategories(genreGroups, 6)
   
   async function handlePlayClick(filepath: string) {
     try {
