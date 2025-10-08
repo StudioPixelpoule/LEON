@@ -487,6 +487,11 @@
   color: #374151;
 }
 
+.statusBadge.no_poster {
+  background: rgba(245, 158, 11, 0.1);
+  color: #92400e;
+}
+
 /* Recommandations */
 .recommendations {
   background: rgba(59, 130, 246, 0.05);

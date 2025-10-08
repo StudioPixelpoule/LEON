@@ -23,12 +23,13 @@ import {
 export interface ProcessedFile {
   filename: string
   filepath: string
-  status: 'new' | 'updated' | 'skipped' | 'error' | 'unidentified'
+  status: 'new' | 'updated' | 'skipped' | 'error' | 'unidentified' | 'no_poster'
   tmdbMatch?: {
     title: string
     year: number
     confidence: number
     tmdbId: number
+    hasPoster: boolean
   }
   error?: string
   reason?: string
@@ -105,6 +106,7 @@ export async function POST() {
     let mediumConfidence = 0
     let lowConfidence = 0
     let unidentified = 0
+    let noPoster = 0
     
     // Rapport détaillé
     const processedFiles: ProcessedFile[] = []
@@ -187,17 +189,30 @@ export async function POST() {
             if (mediaDetails) {
               console.log(`📊 Métadonnées reçues: ${mediaDetails.title}`)
               
+              // Vérifier si TMDB a un poster pour ce film
+              const hasPoster = mediaDetails.poster_path !== null && mediaDetails.poster_path !== undefined
+              
+              if (!hasPoster) {
+                console.log(`⚠️  Film trouvé mais sans poster sur TMDB`)
+              }
+              
               // Ajouter au rapport
+              if (!hasPoster) {
+                noPoster++
+              }
+              
               processedFiles.push({
                 filename: file.filename,
                 filepath: file.filepath,
-                status: existing ? 'updated' : 'new',
+                status: hasPoster ? (existing ? 'updated' : 'new') : 'no_poster',
                 tmdbMatch: {
                   title: mediaDetails.title,
                   year: matchYear,
                   confidence,
-                  tmdbId: bestMatch.id
-                }
+                  tmdbId: bestMatch.id,
+                  hasPoster
+                },
+                reason: !hasPoster ? `Film identifié sur TMDB mais aucun poster disponible dans leur base` : undefined
               })
             } else {
               console.log(`⚠️  Échec récupération métadonnées TMDB`)
@@ -347,6 +362,10 @@ export async function POST() {
     console.log(`   🔄 Mis à jour: ${updated}`)
     console.log(`   🗑️  Supprimés: ${deleted}`)
     console.log(`   ❌ Erreurs: ${errors}`)
+    console.log(`   ❓ Non identifiés: ${unidentified}`)
+    if (noPoster > 0) {
+      console.log(`   🖼️  Sans poster TMDB: ${noPoster}`)
+    }
     console.log(`   🎯 Taux identification: ${identificationRate}%`)
     if (duplicates.length > 0) {
       console.log(`   ⚠️  Doublons détectés: ${duplicates.length} films en double`)
@@ -370,6 +389,7 @@ export async function POST() {
           low: lowConfidence
         },
         unidentified,
+        noPoster,
         duplicates: duplicates.length
       },
       report: {

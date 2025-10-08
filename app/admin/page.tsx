@@ -10,12 +10,13 @@ import styles from './admin.module.css'
 interface ProcessedFile {
   filename: string
   filepath: string
-  status: 'new' | 'updated' | 'skipped' | 'error' | 'unidentified' | 'deleted'
+  status: 'new' | 'updated' | 'skipped' | 'error' | 'unidentified' | 'deleted' | 'no_poster'
   tmdbMatch?: {
     title: string
     year: number
     confidence: number
     tmdbId: number
+    hasPoster: boolean
   }
   error?: string
   reason?: string
@@ -50,6 +51,7 @@ interface ScanResult {
       low: number
     }
     unidentified: number
+    noPoster: number
     duplicates: number
   }
   report: {
@@ -62,7 +64,7 @@ interface ScanResult {
 export default function AdminPage() {
   const [scanning, setScanning] = useState(false)
   const [result, setResult] = useState<ScanResult | null>(null)
-  const [activeTab, setActiveTab] = useState<'all' | 'unidentified' | 'errors' | 'deleted' | 'duplicates'>('all')
+  const [activeTab, setActiveTab] = useState<'all' | 'unidentified' | 'errors' | 'deleted' | 'duplicates' | 'no_poster'>('all')
   
   async function handleRevealFile(filepath: string) {
     try {
@@ -118,6 +120,8 @@ export default function AdminPage() {
         return allFiles.filter(f => f.status === 'error')
       case 'deleted':
         return result.report.deleted
+      case 'no_poster':
+        return allFiles.filter(f => f.status === 'no_poster')
       default:
         return allFiles
     }
@@ -131,6 +135,7 @@ export default function AdminPage() {
       case 'error': return '❌'
       case 'unidentified': return '❓'
       case 'deleted': return '🗑️'
+      case 'no_poster': return '🖼️'
       default: return '📄'
     }
   }
@@ -143,6 +148,7 @@ export default function AdminPage() {
       case 'error': return 'Erreur'
       case 'unidentified': return 'Non identifié'
       case 'deleted': return 'Supprimé'
+      case 'no_poster': return 'Sans poster TMDB'
       default: return status
     }
   }
@@ -150,6 +156,7 @@ export default function AdminPage() {
   const filteredFiles = getFilteredFiles()
   const unidentifiedCount = result?.report.processed.filter(f => f.status === 'unidentified').length || 0
   const errorsCount = result?.report.processed.filter(f => f.status === 'error').length || 0
+  const noPosterCount = result?.stats.noPoster || 0
   const duplicatesCount = result?.stats.duplicates || 0
   
   return (
@@ -244,6 +251,14 @@ export default function AdminPage() {
                 </div>
               )}
               
+              {noPosterCount > 0 && (
+                <div className={`${styles.statCard} ${styles.warning}`}>
+                  <div className={styles.statIcon}>🖼️</div>
+                  <div className={styles.statValue}>{noPosterCount}</div>
+                  <div className={styles.statLabel}>Sans poster TMDB</div>
+                </div>
+              )}
+              
               {duplicatesCount > 0 && (
                 <div className={`${styles.statCard} ${styles.warning}`}>
                   <div className={styles.statIcon}>👥</div>
@@ -307,6 +322,14 @@ export default function AdminPage() {
                       onClick={() => setActiveTab('errors')}
                     >
                       Erreurs ({errorsCount})
+                    </button>
+                  )}
+                  {noPosterCount > 0 && (
+                    <button 
+                      className={activeTab === 'no_poster' ? styles.tabActive : styles.tab}
+                      onClick={() => setActiveTab('no_poster')}
+                    >
+                      Sans poster TMDB ({noPosterCount})
                     </button>
                   )}
                   {result.stats.deleted > 0 && (
@@ -444,7 +467,7 @@ export default function AdminPage() {
             </div>
             
             {/* Actions recommandées */}
-            {(unidentifiedCount > 0 || errorsCount > 0 || duplicatesCount > 0) && (
+            {(unidentifiedCount > 0 || errorsCount > 0 || noPosterCount > 0 || duplicatesCount > 0) && (
               <div className={styles.recommendations}>
                 <h4 className={styles.recommendationsTitle}>💡 Actions recommandées</h4>
                 <ul className={styles.recommendationsList}>
@@ -464,6 +487,13 @@ export default function AdminPage() {
                         <li>Relancez le scan pour réindexer</li>
                         <li>Si toujours non trouvé: cliquez sur <strong>🔍 Valider</strong> pour une <a href="/admin/validate">validation manuelle</a> sur TMDB</li>
                       </ol>
+                    </li>
+                  )}
+                  {noPosterCount > 0 && (
+                    <li>
+                      <strong>{noPosterCount} film(s) sans poster TMDB</strong>: 
+                      Ces films sont correctement identifiés mais TMDB n&apos;a pas de jaquette dans leur base. 
+                      Vous pouvez uploader une jaquette personnalisée via <a href="/admin/validate">validation manuelle</a>.
                     </li>
                   )}
                   {errorsCount > 0 && (
