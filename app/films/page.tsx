@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react'
 import HeroSection from '@/components/HeroSection/HeroSection'
 import MovieRow from '@/components/MovieRow/MovieRow'
 import MovieModal from '@/components/MovieModal/MovieModalWithTV'
+import SmartSearch from '@/components/SmartSearch/SmartSearch'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
 import { groupMoviesByCategories, selectTopCategories } from '@/lib/genreClassification'
 import styles from './films.module.css'
@@ -135,6 +136,11 @@ export default function FilmsPage() {
               ({displayedMovieIds.size} affichés dans les catégories, {notDisplayedCount} dans "Tous les films")
             </p>
           )}
+        </div>
+        
+        {/* Recherche intelligente */}
+        <div className={styles.searchSection}>
+          <SmartSearch movies={validMovies} onMovieClick={setSelectedMovie} />
         </div>
         
         <div className={styles.rows}>
