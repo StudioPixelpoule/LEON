@@ -59,19 +59,27 @@ export default function FilmsPage() {
   
   const recentMovies = [...validMovies]
     .sort((a, b) => new Date(b.release_date || 0).getTime() - new Date(a.release_date || 0).getTime())
-    .slice(0, 20)
+    .slice(0, 30) // Augmenté à 30 films
   
   const topRated = [...validMovies]
     .filter(m => m.rating && m.rating >= 7)
     .sort((a, b) => (b.rating || 0) - (a.rating || 0))
-    .slice(0, 20)
+    .slice(0, 30) // Augmenté à 30 films
   
   // Utiliser le système de classification intelligent
   // Chaque film sera dans maximum 2 catégories
   const genreGroups = groupMoviesByCategories(validMovies)
   
-  // Sélectionner les meilleures catégories (les plus fournies et pertinentes)
-  const topGenres = selectTopCategories(genreGroups, 6)
+  // Sélectionner TOUTES les catégories qui ont au moins 3 films
+  const topGenres = selectTopCategories(genreGroups, 99) // Pas de limite sur le nombre de catégories
+  
+  // Compter les films uniques affichés
+  const displayedMovieIds = new Set<string>()
+  recentMovies.forEach(m => displayedMovieIds.add(m.id))
+  topRated.forEach(m => displayedMovieIds.add(m.id))
+  topGenres.forEach(({ movies }) => movies.forEach(m => displayedMovieIds.add(m.id)))
+  
+  const notDisplayedCount = validMovies.length - displayedMovieIds.size
   
   async function handlePlayClick(filepath: string) {
     try {
@@ -124,6 +132,11 @@ export default function FilmsPage() {
         <div className={styles.header}>
           <h1>Films</h1>
           <p>{validMovies.length} films disponibles</p>
+          {notDisplayedCount > 0 && (
+            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: 'var(--spacing-xs)' }}>
+              ({displayedMovieIds.size} affichés dans les catégories, {notDisplayedCount} dans "Tous les films")
+            </p>
+          )}
         </div>
         
         <div className={styles.rows}>
@@ -156,9 +169,18 @@ export default function FilmsPage() {
               movies={movies}
               onMovieClick={setSelectedMovie}
             />
-            {index < topGenres.length - 1 && <div className={styles.separator}></div>}
+            <div className={styles.separator}></div>
           </div>
         ))}
+        
+        {/* Section "Tous les films" pour afficher TOUS les films */}
+        {validMovies.length > 0 && (
+          <MovieRow
+            title="Tous les films"
+            movies={validMovies}
+            onMovieClick={setSelectedMovie}
+          />
+        )}
         </div>
       </div>
       
