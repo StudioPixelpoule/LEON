@@ -196,7 +196,10 @@ export default function AdminPage() {
           <>
             {/* Statistiques */}
             <div className={styles.stats}>
-              <div className={styles.statCard}>
+              <div 
+                className={`${styles.statCard} ${activeTab === 'all' ? styles.statCardActive : ''}`}
+                onClick={() => setActiveTab('all')}
+              >
                 <div className={styles.statIcon}>📁</div>
                 <div className={styles.statValue}>{result.stats.total}</div>
                 <div className={styles.statLabel}>Fichiers scannés</div>
@@ -221,7 +224,10 @@ export default function AdminPage() {
               </div>
               
               {result.stats.deleted > 0 && (
-                <div className={styles.statCard}>
+                <div 
+                  className={`${styles.statCard} ${styles.clickable} ${activeTab === 'deleted' ? styles.statCardActive : ''}`}
+                  onClick={() => setActiveTab('deleted')}
+                >
                   <div className={styles.statIcon}>🗑️</div>
                   <div className={styles.statValue}>{result.stats.deleted}</div>
                   <div className={styles.statLabel}>Supprimés</div>
@@ -229,7 +235,10 @@ export default function AdminPage() {
               )}
               
               {result.stats.errors > 0 && (
-                <div className={`${styles.statCard} ${styles.error}`}>
+                <div 
+                  className={`${styles.statCard} ${styles.error} ${styles.clickable} ${activeTab === 'errors' ? styles.statCardActive : ''}`}
+                  onClick={() => setActiveTab('errors')}
+                >
                   <div className={styles.statIcon}>❌</div>
                   <div className={styles.statValue}>{result.stats.errors}</div>
                   <div className={styles.statLabel}>Erreurs</div>
@@ -237,7 +246,10 @@ export default function AdminPage() {
               )}
               
               {unidentifiedCount > 0 && (
-                <div className={`${styles.statCard} ${styles.warning}`}>
+                <div 
+                  className={`${styles.statCard} ${styles.warning} ${styles.clickable} ${activeTab === 'unidentified' ? styles.statCardActive : ''}`}
+                  onClick={() => setActiveTab('unidentified')}
+                >
                   <div className={styles.statIcon}>❓</div>
                   <div className={styles.statValue}>{unidentifiedCount}</div>
                   <div className={styles.statLabel}>Non identifiés</div>
@@ -245,7 +257,10 @@ export default function AdminPage() {
               )}
               
               {duplicatesCount > 0 && (
-                <div className={`${styles.statCard} ${styles.warning}`}>
+                <div 
+                  className={`${styles.statCard} ${styles.warning} ${styles.clickable} ${activeTab === 'duplicates' ? styles.statCardActive : ''}`}
+                  onClick={() => setActiveTab('duplicates')}
+                >
                   <div className={styles.statIcon}>👥</div>
                   <div className={styles.statValue}>{duplicatesCount}</div>
                   <div className={styles.statLabel}>Doublons</div>
