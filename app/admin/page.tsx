@@ -64,6 +64,25 @@ export default function AdminPage() {
   const [result, setResult] = useState<ScanResult | null>(null)
   const [activeTab, setActiveTab] = useState<'all' | 'unidentified' | 'errors' | 'deleted' | 'duplicates'>('all')
   
+  async function handleRevealFile(filepath: string) {
+    try {
+      const response = await fetch('/api/reveal-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filepath })
+      })
+      
+      const data = await response.json()
+      
+      if (!data.success) {
+        alert('Erreur: ' + (data.error || 'Impossible d\'ouvrir le fichier'))
+      }
+    } catch (error) {
+      console.error('Erreur révélation fichier:', error)
+      alert('Erreur lors de l\'ouverture du fichier dans le Finder')
+    }
+  }
+  
   async function handleScan() {
     try {
       setScanning(true)
@@ -336,6 +355,13 @@ export default function AdminPage() {
                               <div className={styles.duplicateFileName}>{file.filename}</div>
                               <div className={styles.duplicateFilePath}>{file.filepath}</div>
                             </div>
+                            <button
+                              className={styles.revealButtonSmall}
+                              onClick={() => handleRevealFile(file.filepath)}
+                              title="Ouvrir dans le Finder"
+                            >
+                              📁
+                            </button>
                           </div>
                         ))}
                       </div>
@@ -386,7 +412,18 @@ export default function AdminPage() {
                         )}
                       </div>
                       
-                      <div className={styles.fileStatus}>
+                      <div className={styles.fileActions}>
+                        {/* Bouton pour ouvrir dans le Finder */}
+                        {(file.status === 'unidentified' || file.status === 'error') && (
+                          <button
+                            className={styles.revealButton}
+                            onClick={() => handleRevealFile(file.filepath)}
+                            title="Ouvrir dans le Finder"
+                          >
+                            📁 Finder
+                          </button>
+                        )}
+                        
                         <span className={`${styles.statusBadge} ${styles[file.status]}`}>
                           {getStatusLabel(file.status)}
                         </span>
