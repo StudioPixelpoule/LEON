@@ -5,6 +5,7 @@
 'use client'
 
 import { useState } from 'react'
+import Header from '@/components/Header/Header'
 import styles from './admin.module.css'
 
 interface ProcessedFile {
@@ -160,11 +161,14 @@ export default function AdminPage() {
   const duplicatesCount = result?.stats.duplicates || 0
   
   return (
-    <div className={styles.container}>
-      <header className={styles.header}>
-        <h1 className={styles.title}>LEON - Administration</h1>
-        <a href="/films" className={styles.backLink}>← Retour aux films</a>
-      </header>
+    <>
+      <Header />
+      
+      <div className={styles.container}>
+        <header className={styles.header}>
+          <h1 className={styles.title}>LEON - Administration</h1>
+          <a href="/films" className={styles.backLink}>← Retour aux films</a>
+        </header>
       
       <div className={styles.content}>
         {/* Section Scan */}
@@ -513,5 +517,6 @@ export default function AdminPage() {
         )}
       </div>
     </div>
+    </>
   )
 }

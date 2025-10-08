@@ -1,6 +1,5 @@
 import type { Metadata } from 'next'
 import { Nunito } from 'next/font/google'
-import Header from '@/components/Header/Header'
 import '@/styles/globals.css'
 
 const nunito = Nunito({ 
@@ -22,7 +21,6 @@ export default function RootLayout({
   return (
     <html lang="fr">
       <body className={nunito.className}>
-        <Header />
         {children}
       </body>
     </html>

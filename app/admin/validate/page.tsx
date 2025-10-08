@@ -8,6 +8,7 @@
 import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import Link from 'next/link'
+import Header from '@/components/Header/Header'
 import styles from './validate.module.css'
 
 type Media = {
@@ -262,29 +263,36 @@ export default function ValidatePage() {
   
   if (filteredMedia.length === 0) {
     return (
+      <>
+        <Header />
+        
+        <div className={styles.container}>
+          <header className={styles.header}>
+            <Link href="/admin" className={styles.backLink}>← Retour Admin</Link>
+            <h1>Validation manuelle</h1>
+          </header>
+          <div className={styles.empty}>
+            <p>Tous les médias sont identifiés</p>
+              <div className={styles.filters}>
+                <button onClick={() => setFilter('all')}>Voir tous</button>
+                <button onClick={() => setFilter('no_tmdb')}>Sans TMDB ID</button>
+                <button onClick={() => setFilter('no_poster')}>Sans poster</button>
+              </div>
+            </div>
+          </div>
+        </>
+      )
+  }
+  
+  return (
+    <>
+      <Header />
+      
       <div className={styles.container}>
         <header className={styles.header}>
           <Link href="/admin" className={styles.backLink}>← Retour Admin</Link>
           <h1>Validation manuelle</h1>
-        </header>
-      <div className={styles.empty}>
-        <p>Tous les médias sont identifiés</p>
-          <div className={styles.filters}>
-            <button onClick={() => setFilter('all')}>Voir tous</button>
-            <button onClick={() => setFilter('no_tmdb')}>Sans TMDB ID</button>
-            <button onClick={() => setFilter('no_poster')}>Sans poster</button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-  
-  return (
-    <div className={styles.container}>
-      <header className={styles.header}>
-        <Link href="/admin" className={styles.backLink}>← Retour Admin</Link>
-        <h1>Validation manuelle</h1>
-        <p className={styles.progress}>
+          <p className={styles.progress}>
           {currentIndex + 1} / {filteredMedia.length} médias à traiter
         </p>
       </header>
@@ -434,6 +442,7 @@ export default function ValidatePage() {
         </div>
       )}
     </div>
+    </>
   )
 }
 

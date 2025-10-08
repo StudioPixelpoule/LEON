@@ -9,6 +9,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Image from 'next/image'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
+import { normalizeString, similarity } from './searchUtils'
 import styles from './SmartSearch.module.css'
 
 interface SmartSearchProps {
@@ -23,62 +24,6 @@ export default function SmartSearch({ movies, onMovieClick }: SmartSearchProps) 
   const [selectedIndex, setSelectedIndex] = useState(0)
   const searchRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-
-  // Normaliser une chaîne pour la recherche (enlever accents, minuscules, etc.)
-  function normalizeString(str: string): string {
-    return str
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '') // Enlever les accents
-      .replace(/[^a-z0-9\s]/g, '') // Enlever la ponctuation
-      .trim()
-  }
-
-  // Calculer la similarité entre deux chaînes (algorithme de Levenshtein simplifié)
-  function similarity(a: string, b: string): number {
-    const longer = a.length > b.length ? a : b
-    const shorter = a.length > b.length ? b : a
-    
-    if (longer.length === 0) return 1.0
-    
-    // Bonus si le mot est au début
-    if (longer.startsWith(shorter)) return 0.95
-    
-    // Bonus si le mot est contenu
-    if (longer.includes(shorter)) return 0.85
-    
-    // Sinon, calcul basique de similarité
-    const editDistance = levenshteinDistance(a, b)
-    return (longer.length - editDistance) / longer.length
-  }
-
-  function levenshteinDistance(a: string, b: string): number {
-    const matrix: number[][] = []
-    
-    for (let i = 0; i <= b.length; i++) {
-      matrix[i] = [i]
-    }
-    
-    for (let j = 0; j <= a.length; j++) {
-      matrix[0][j] = j
-    }
-    
-    for (let i = 1; i <= b.length; i++) {
-      for (let j = 1; j <= a.length; j++) {
-        if (b.charAt(i - 1) === a.charAt(j - 1)) {
-          matrix[i][j] = matrix[i - 1][j - 1]
-        } else {
-          matrix[i][j] = Math.min(
-            matrix[i - 1][j - 1] + 1,
-            matrix[i][j - 1] + 1,
-            matrix[i - 1][j] + 1
-          )
-        }
-      }
-    }
-    
-    return matrix[b.length][a.length]
-  }
 
   // Recherche intelligente
   function searchMovies(searchQuery: string) {
@@ -251,7 +196,11 @@ export default function SmartSearch({ movies, onMovieClick }: SmartSearchProps) 
   return (
     <div className={styles.container} ref={searchRef}>
       <div className={styles.searchBox}>
-        <div className={styles.icon}>🔍</div>
+        <div className={styles.icon}>
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+            <path d="M21 21L15 15M17 10C17 13.866 13.866 17 10 17C6.13401 17 3 13.866 3 10C3 6.13401 6.13401 3 10 3C13.866 3 17 6.13401 17 10Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </div>
         <input
           ref={inputRef}
           type="text"
@@ -329,7 +278,11 @@ export default function SmartSearch({ movies, onMovieClick }: SmartSearchProps) 
 
       {isOpen && results.length === 0 && query.length >= 2 && (
         <div className={styles.noResults}>
-          <div className={styles.noResultsIcon}>🔍</div>
+          <div className={styles.noResultsIcon}>
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
+              <path d="M21 21L15 15M17 10C17 13.866 13.866 17 10 17C6.13401 17 3 13.866 3 10C3 6.13401 6.13401 3 10 3C13.866 3 17 6.13401 17 10Z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
           <div className={styles.noResultsText}>Aucun résultat pour "{query}"</div>
           <div className={styles.noResultsHint}>
             Essayez avec un autre titre, acteur ou réalisateur

@@ -26,7 +26,8 @@
 }
 
 .icon {
-  font-size: 1.25rem;
+  display: flex;
+  align-items: center;
   margin-right: var(--spacing-sm);
   color: var(--color-text-secondary);
   flex-shrink: 0;
@@ -208,9 +209,12 @@
 }
 
 .noResultsIcon {
-  font-size: 3rem;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   margin-bottom: var(--spacing-md);
   opacity: 0.3;
+  color: var(--color-text-secondary);
 }
 
 .noResultsText {

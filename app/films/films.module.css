@@ -35,10 +35,6 @@
   color: rgba(255, 255, 255, 0.7);
 }
 
-.searchSection {
-  margin-bottom: var(--spacing-2xl);
-  padding: 0 var(--spacing-xl);
-}
 
 .rows {
   position: relative;

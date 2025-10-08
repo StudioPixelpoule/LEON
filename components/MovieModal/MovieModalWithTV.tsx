@@ -109,12 +109,15 @@ export default function MovieModal({ movie, onClose, onPlayClick }: MovieModalPr
               
               {/* Pour les films : bouton Lire direct */}
               {!isTVShow && movie.pcloud_fileid && (
-                <button 
-                  className={styles.playButton}
-                  onClick={() => onPlayClick(movie.pcloud_fileid!)}
-                >
-                  ▶ Lire
-                </button>
+              <button 
+                className={styles.playButton}
+                onClick={() => onPlayClick(movie.pcloud_fileid!)}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5V19L19 12L8 5Z"/>
+                </svg>
+                Lire
+              </button>
               )}
               
               {/* Pour les séries : afficher le nombre de saisons/épisodes */}
@@ -143,7 +146,12 @@ export default function MovieModal({ movie, onClose, onPlayClick }: MovieModalPr
             {movie.rating && (
               <>
                 <span className={styles.separator}>·</span>
-                <span>★ {movie.rating}/10</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
+                  </svg>
+                  {movie.rating}/10
+                </span>
               </>
             )}
           </div>
@@ -242,7 +250,11 @@ export default function MovieModal({ movie, onClose, onPlayClick }: MovieModalPr
                           <p className={styles.episodeOverview}>{episode.overview}</p>
                         )}
                       </div>
-                      <button className={styles.episodePlayButton}>▶</button>
+                      <button className={styles.episodePlayButton}>
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M8 5V19L19 12L8 5Z"/>
+                        </svg>
+                      </button>
                     </div>
                   ))}
                 </div>

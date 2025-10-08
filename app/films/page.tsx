@@ -5,10 +5,10 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Header from '@/components/Header/Header'
 import HeroSection from '@/components/HeroSection/HeroSection'
 import MovieRow from '@/components/MovieRow/MovieRow'
 import MovieModal from '@/components/MovieModal/MovieModalWithTV'
-import SmartSearch from '@/components/SmartSearch/SmartSearch'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
 import { groupMoviesByCategories, selectTopCategories } from '@/lib/genreClassification'
 import styles from './films.module.css'
@@ -36,10 +36,10 @@ export default function FilmsPage() {
         
         setMovies(movieList)
         
-        // Sélectionner un film aléatoire pour le hero
+        // Sélectionner un film COMPLÈTEMENT aléatoire pour le hero parmi tous les films avec backdrop
         const withBackdrop = movieList.filter(m => m.backdrop_url)
         if (withBackdrop.length > 0) {
-          const randomIndex = Math.floor(Math.random() * Math.min(20, withBackdrop.length))
+          const randomIndex = Math.floor(Math.random() * withBackdrop.length)
           setHeroMovie(withBackdrop[randomIndex])
         }
       } catch (error) {
@@ -118,30 +118,28 @@ export default function FilmsPage() {
   }
   
   return (
-    <main className={styles.main}>
-      {heroMovie && (
-        <HeroSection 
-          movie={heroMovie} 
-          onPlayClick={() => heroMovie.pcloud_fileid && handlePlayClick(heroMovie.pcloud_fileid)}
-          onInfoClick={() => setSelectedMovie(heroMovie)}
-        />
-      )}
+    <>
+      <Header movies={validMovies} onMovieClick={setSelectedMovie} />
       
-      <div className={styles.content}>
-        <div className={styles.header}>
-          <h1>Films</h1>
-          <p>{validMovies.length} films disponibles</p>
-          {notDisplayedCount > 0 && (
-            <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: 'var(--spacing-xs)' }}>
-              ({displayedMovieIds.size} affichés dans les catégories, {notDisplayedCount} dans "Tous les films")
-            </p>
-          )}
-        </div>
+      <main className={styles.main}>
+        {heroMovie && (
+          <HeroSection 
+            movie={heroMovie} 
+            onPlayClick={() => heroMovie.pcloud_fileid && handlePlayClick(heroMovie.pcloud_fileid)}
+            onInfoClick={() => setSelectedMovie(heroMovie)}
+          />
+        )}
         
-        {/* Recherche intelligente */}
-        <div className={styles.searchSection}>
-          <SmartSearch movies={validMovies} onMovieClick={setSelectedMovie} />
-        </div>
+        <div className={styles.content}>
+          <div className={styles.header}>
+            <h1>Films</h1>
+            <p>{validMovies.length} films disponibles</p>
+            {notDisplayedCount > 0 && (
+              <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: 'var(--spacing-xs)' }}>
+                ({displayedMovieIds.size} affichés dans les catégories, {notDisplayedCount} dans "Tous les films")
+              </p>
+            )}
+          </div>
         
         <div className={styles.rows}>
         {recentMovies.length > 0 && (
@@ -195,7 +193,8 @@ export default function FilmsPage() {
           onPlayClick={(filepath) => handlePlayClick(filepath)}
         />
       )}
-    </main>
+      </main>
+    </>
   )
 }
 
