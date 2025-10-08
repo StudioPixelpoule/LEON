@@ -24,6 +24,7 @@ export interface GroupedMedia {
   director: any | null
   subtitles: any | null
   quality: string | null
+  created_at: string | null
 }
 
 export async function GET(request: Request) {
@@ -79,6 +80,7 @@ export async function GET(request: Request) {
       director: movie.director,
       subtitles: movie.subtitles,
       quality: movie.quality,
+      created_at: movie.created_at,
     })) || []
     
     return NextResponse.json({

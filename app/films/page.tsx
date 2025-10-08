@@ -57,9 +57,10 @@ export default function FilmsPage() {
     m.tmdb_id
   )
   
+  // Films VRAIMENT récemment ajoutés dans LEON (par created_at)
   const recentMovies = [...validMovies]
-    .sort((a, b) => new Date(b.release_date || 0).getTime() - new Date(a.release_date || 0).getTime())
-    .slice(0, 30) // Augmenté à 30 films
+    .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
+    .slice(0, 30)
   
   const topRated = [...validMovies]
     .filter(m => m.rating && m.rating >= 7)
