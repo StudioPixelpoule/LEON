@@ -21,6 +21,18 @@ interface ProcessedFile {
   reason?: string
 }
 
+interface Duplicate {
+  tmdbId: number
+  title: string
+  year: number
+  count: number
+  files: {
+    filename: string
+    filepath: string
+    status: string
+  }[]
+}
+
 interface ScanResult {
   success: boolean
   message: string
@@ -38,17 +50,19 @@ interface ScanResult {
       low: number
     }
     unidentified: number
+    duplicates: number
   }
   report: {
     processed: ProcessedFile[]
     deleted: ProcessedFile[]
+    duplicates: Duplicate[]
   }
 }
 
 export default function AdminPage() {
   const [scanning, setScanning] = useState(false)
   const [result, setResult] = useState<ScanResult | null>(null)
-  const [activeTab, setActiveTab] = useState<'all' | 'unidentified' | 'errors' | 'deleted'>('all')
+  const [activeTab, setActiveTab] = useState<'all' | 'unidentified' | 'errors' | 'deleted' | 'duplicates'>('all')
   
   async function handleScan() {
     try {
@@ -117,6 +131,7 @@ export default function AdminPage() {
   const filteredFiles = getFilteredFiles()
   const unidentifiedCount = result?.report.processed.filter(f => f.status === 'unidentified').length || 0
   const errorsCount = result?.report.processed.filter(f => f.status === 'error').length || 0
+  const duplicatesCount = result?.stats.duplicates || 0
   
   return (
     <div className={styles.container}>
@@ -209,6 +224,14 @@ export default function AdminPage() {
                   <div className={styles.statLabel}>Non identifiés</div>
                 </div>
               )}
+              
+              {duplicatesCount > 0 && (
+                <div className={`${styles.statCard} ${styles.warning}`}>
+                  <div className={styles.statIcon}>👥</div>
+                  <div className={styles.statValue}>{duplicatesCount}</div>
+                  <div className={styles.statLabel}>Doublons</div>
+                </div>
+              )}
             </div>
             
             {/* Taux d'identification */}
@@ -275,11 +298,53 @@ export default function AdminPage() {
                       Supprimés ({result.stats.deleted})
                     </button>
                   )}
+                  {duplicatesCount > 0 && (
+                    <button 
+                      className={activeTab === 'duplicates' ? styles.tabActive : styles.tab}
+                      onClick={() => setActiveTab('duplicates')}
+                    >
+                      Doublons ({duplicatesCount})
+                    </button>
+                  )}
                 </div>
               </div>
               
               <div className={styles.fileList}>
-                {filteredFiles.length === 0 ? (
+                {activeTab === 'duplicates' && result.report.duplicates.length > 0 ? (
+                  // Affichage spécial pour les doublons
+                  result.report.duplicates.map((duplicate, index) => (
+                    <div key={index} className={styles.duplicateGroup}>
+                      <div className={styles.duplicateHeader}>
+                        <div className={styles.duplicateTitle}>
+                          <span className={styles.duplicateIcon}>👥</span>
+                          <span className={styles.duplicateName}>
+                            {duplicate.title} {duplicate.year > 0 && `(${duplicate.year})`}
+                          </span>
+                          <span className={styles.duplicateCount}>
+                            {duplicate.count} fichiers
+                          </span>
+                        </div>
+                        <div className={styles.duplicateTmdb}>
+                          TMDB ID: {duplicate.tmdbId}
+                        </div>
+                      </div>
+                      <div className={styles.duplicateFiles}>
+                        {duplicate.files.map((file, fileIndex) => (
+                          <div key={fileIndex} className={styles.duplicateFile}>
+                            <div className={styles.duplicateFileIcon}>📄</div>
+                            <div className={styles.duplicateFileInfo}>
+                              <div className={styles.duplicateFileName}>{file.filename}</div>
+                              <div className={styles.duplicateFilePath}>{file.filepath}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className={styles.duplicateAction}>
+                        💡 Conservez la meilleure version et supprimez les autres fichiers en local
+                      </div>
+                    </div>
+                  ))
+                ) : filteredFiles.length === 0 ? (
                   <div className={styles.emptyState}>
                     Aucun fichier à afficher dans cette catégorie
                   </div>
@@ -333,10 +398,17 @@ export default function AdminPage() {
             </div>
             
             {/* Actions recommandées */}
-            {(unidentifiedCount > 0 || errorsCount > 0) && (
+            {(unidentifiedCount > 0 || errorsCount > 0 || duplicatesCount > 0) && (
               <div className={styles.recommendations}>
                 <h4 className={styles.recommendationsTitle}>💡 Actions recommandées</h4>
                 <ul className={styles.recommendationsList}>
+                  {duplicatesCount > 0 && (
+                    <li>
+                      <strong>{duplicatesCount} film(s) en double détecté(s)</strong>: 
+                      Consultez l&apos;onglet &quot;Doublons&quot; pour voir quels fichiers correspondent au même film. 
+                      Conservez la meilleure version (qualité, taille) et supprimez les autres dans votre dossier local.
+                    </li>
+                  )}
                   {unidentifiedCount > 0 && (
                     <li>
                       <strong>{unidentifiedCount} fichier(s) non identifié(s)</strong>: 

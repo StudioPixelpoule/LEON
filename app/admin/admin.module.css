@@ -500,6 +500,115 @@
   font-size: 0.9em;
 }
 
+/* Doublons */
+.duplicateGroup {
+  border: 2px solid rgba(245, 158, 11, 0.3);
+  border-radius: 2px;
+  margin-bottom: var(--spacing-lg);
+  overflow: hidden;
+  background: rgba(245, 158, 11, 0.02);
+}
+
+.duplicateHeader {
+  padding: var(--spacing-lg);
+  background: rgba(245, 158, 11, 0.1);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.2);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.duplicateTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex: 1;
+}
+
+.duplicateIcon {
+  font-size: 1.5rem;
+}
+
+.duplicateName {
+  font-size: var(--font-size-base);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text-primary);
+}
+
+.duplicateCount {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 2px;
+  font-weight: var(--font-weight-medium);
+}
+
+.duplicateTmdb {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  font-family: 'SF Mono', 'Monaco', 'Courier New', monospace;
+}
+
+.duplicateFiles {
+  padding: var(--spacing-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+}
+
+.duplicateFile {
+  display: flex;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-sm) var(--spacing-md);
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 2px;
+  transition: all 150ms ease;
+}
+
+.duplicateFile:hover {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(0, 0, 0, 0.2);
+}
+
+.duplicateFileIcon {
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.duplicateFileInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.duplicateFileName {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  margin-bottom: var(--spacing-xs);
+}
+
+.duplicateFilePath {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  font-family: 'SF Mono', 'Monaco', 'Courier New', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.duplicateAction {
+  padding: var(--spacing-md) var(--spacing-lg);
+  background: rgba(245, 158, 11, 0.1);
+  border-top: 1px solid rgba(245, 158, 11, 0.2);
+  font-size: var(--font-size-xs);
+  color: #92400e;
+  text-align: center;
+  font-weight: var(--font-weight-medium);
+}
+
 /* Responsive */
 @media (max-width: 1024px) {
   .scanHeader {
@@ -552,6 +661,16 @@
   .tab,
   .tabActive {
     width: 100%;
+  }
+  
+  .duplicateHeader {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+  
+  .duplicateFilePath {
+    white-space: normal;
+    word-break: break-all;
   }
 }
 

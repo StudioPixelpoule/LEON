@@ -312,6 +312,34 @@ export async function POST() {
       ? Math.round(((totalProcessed - unidentified) / totalProcessed) * 100)
       : 0
     
+    // Détecter les doublons (même TMDB ID)
+    const tmdbMap = new Map<number, ProcessedFile[]>()
+    
+    processedFiles.forEach(file => {
+      if (file.tmdbMatch?.tmdbId) {
+        const tmdbId = file.tmdbMatch.tmdbId
+        if (!tmdbMap.has(tmdbId)) {
+          tmdbMap.set(tmdbId, [])
+        }
+        tmdbMap.get(tmdbId)!.push(file)
+      }
+    })
+    
+    // Identifier les doublons (TMDB ID avec plus d'un fichier)
+    const duplicates = Array.from(tmdbMap.entries())
+      .filter(([_, files]) => files.length > 1)
+      .map(([tmdbId, files]) => ({
+        tmdbId,
+        title: files[0].tmdbMatch!.title,
+        year: files[0].tmdbMatch!.year,
+        count: files.length,
+        files: files.map(f => ({
+          filename: f.filename,
+          filepath: f.filepath,
+          status: f.status
+        }))
+      }))
+    
     console.log(`\n📊 RÉSUMÉ DU SCAN`)
     console.log(`   Total fichiers: ${videoFiles.length}`)
     console.log(`   ✅ Déjà à jour: ${skipped}`)
@@ -319,7 +347,11 @@ export async function POST() {
     console.log(`   🔄 Mis à jour: ${updated}`)
     console.log(`   🗑️  Supprimés: ${deleted}`)
     console.log(`   ❌ Erreurs: ${errors}`)
-    console.log(`   🎯 Taux identification: ${identificationRate}%\n`)
+    console.log(`   🎯 Taux identification: ${identificationRate}%`)
+    if (duplicates.length > 0) {
+      console.log(`   ⚠️  Doublons détectés: ${duplicates.length} films en double`)
+    }
+    console.log('')
     
     return NextResponse.json({
       success: true,
@@ -337,11 +369,13 @@ export async function POST() {
           medium: mediumConfidence,
           low: lowConfidence
         },
-        unidentified
+        unidentified,
+        duplicates: duplicates.length
       },
       report: {
         processed: processedFiles,
-        deleted: deletedFiles
+        deleted: deletedFiles,
+        duplicates
       }
     })
     
