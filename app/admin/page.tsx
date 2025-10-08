@@ -1,54 +1,54 @@
 /**
- * Page d'administration
- * Permet de lancer le scan pCloud manuellement
+ * Page d'administration avec rapport détaillé du scan
  */
 
 'use client'
 
 import { useState } from 'react'
+import styles from './admin.module.css'
 
-type ScanResult = {
+interface ProcessedFile {
+  filename: string
+  filepath: string
+  status: 'new' | 'updated' | 'skipped' | 'error' | 'unidentified' | 'deleted'
+  tmdbMatch?: {
+    title: string
+    year: number
+    confidence: number
+    tmdbId: number
+  }
+  error?: string
+  reason?: string
+}
+
+interface ScanResult {
   success: boolean
   message: string
-  stats?: {
+  stats: {
     total: number
-    indexed: number
+    new: number
     updated: number
+    skipped: number
+    deleted: number
     errors: number
+    identificationRate: number
+    confidence: {
+      high: number
+      medium: number
+      low: number
+    }
+    unidentified: number
+  }
+  report: {
+    processed: ProcessedFile[]
+    deleted: ProcessedFile[]
   }
 }
 
 export default function AdminPage() {
   const [scanning, setScanning] = useState(false)
-  const [truncating, setTruncating] = useState(false)
   const [result, setResult] = useState<ScanResult | null>(null)
-  
-  async function handleTruncate() {
-    if (!confirm('⚠️ ATTENTION : Cela va supprimer TOUS les films de la base de données. Êtes-vous sûr ?')) {
-      return
-    }
-    
-    try {
-      setTruncating(true)
-      setResult(null)
-      
-      const response = await fetch('/api/truncate', {
-        method: 'POST'
-      })
-      
-      const data = await response.json()
-      setResult(data)
-      
-    } catch (error) {
-      console.error('Erreur truncate:', error)
-      setResult({
-        success: false,
-        message: 'Erreur lors du vidage de la base'
-      })
-    } finally {
-      setTruncating(false)
-    }
-  }
+  const [activeTab, setActiveTab] = useState<'all' | 'unidentified' | 'errors' | 'deleted'>('all')
   
   async function handleScan() {
     try {
@@ -61,208 +61,305 @@ export default function AdminPage() {
       
       const data = await response.json()
       setResult(data)
+      setActiveTab('all')
       
     } catch (error) {
       console.error('Erreur scan:', error)
-      setResult({
-        success: false,
-        message: 'Erreur lors du scan'
-      })
     } finally {
       setScanning(false)
     }
   }
   
+  const getFilteredFiles = () => {
+    if (!result) return []
+    
+    const allFiles = [
+      ...result.report.processed,
+      ...result.report.deleted
+    ]
+    
+    switch (activeTab) {
+      case 'unidentified':
+        return allFiles.filter(f => f.status === 'unidentified')
+      case 'errors':
+        return allFiles.filter(f => f.status === 'error')
+      case 'deleted':
+        return result.report.deleted
+      default:
+        return allFiles
+    }
+  }
+  
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'new': return '🆕'
+      case 'updated': return '🔄'
+      case 'skipped': return '✅'
+      case 'error': return '❌'
+      case 'unidentified': return '❓'
+      case 'deleted': return '🗑️'
+      default: return '📄'
+    }
+  }
+  
+  const getStatusLabel = (status: string) => {
+    switch (status) {
+      case 'new': return 'Nouveau'
+      case 'updated': return 'Mis à jour'
+      case 'skipped': return 'Déjà à jour'
+      case 'error': return 'Erreur'
+      case 'unidentified': return 'Non identifié'
+      case 'deleted': return 'Supprimé'
+      default: return status
+    }
+  }
+  
+  const filteredFiles = getFilteredFiles()
+  const unidentifiedCount = result?.report.processed.filter(f => f.status === 'unidentified').length || 0
+  const errorsCount = result?.report.processed.filter(f => f.status === 'error').length || 0
+  
   return (
-    <div className="container">
-      <header className="header">
-        <h1 className="logo">LEON - Administration</h1>
+    <div className={styles.container}>
+      <header className={styles.header}>
+        <h1 className={styles.title}>LEON - Administration</h1>
+        <a href="/films" className={styles.backLink}>← Retour aux films</a>
       </header>
       
-      <div style={{ maxWidth: '600px', margin: '0 auto' }}>
-        {/* Lien vers validation manuelle films */}
-        <div style={{ 
-          marginBottom: 'var(--spacing-2xl)',
-          padding: 'var(--spacing-lg)',
-          background: 'var(--color-gray-100)',
-          borderRadius: '4px',
-          border: '1px solid var(--color-gray-200)'
-        }}>
-          <h3 style={{ 
-            fontSize: 'var(--font-size-lg)', 
-            marginBottom: 'var(--spacing-sm)',
-            fontWeight: 'var(--font-weight-bold)'
-          }}>
-            Validation manuelle
-          </h3>
-          <p style={{ 
-            marginBottom: 'var(--spacing-md)',
-            color: 'var(--color-gray-600)',
-            lineHeight: '1.6',
-            fontSize: 'var(--font-size-sm)'
-          }}>
-            Corrigez les titres non identifiés, recherchez sur TMDB et uploadez des jaquettes personnalisées.
-          </p>
-          <a 
-            href="/admin/validate"
-            style={{
-              display: 'inline-block',
-              padding: 'var(--spacing-sm) var(--spacing-md)',
-              background: 'var(--color-black)',
-              color: 'var(--color-white)',
-              textDecoration: 'none',
-              borderRadius: '4px',
-              fontSize: 'var(--font-size-sm)',
-              fontWeight: 'var(--font-weight-bold)',
-              transition: 'transform var(--transition-fast)'
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.transform = 'translateY(-2px)'}
-            onMouseLeave={(e) => e.currentTarget.style.transform = 'translateY(0)'}
-          >
-            → Accéder à la validation
-          </a>
-        </div>
-        
-        <h2 style={{ 
-          fontSize: 'var(--font-size-xl)', 
-          marginBottom: 'var(--spacing-lg)',
-          fontWeight: 'var(--font-weight-bold)'
-        }}>
-          Indexation pCloud
-        </h2>
-        
-        <p style={{ 
-          marginBottom: 'var(--spacing-lg)',
-          color: 'var(--color-gray-500)',
-          lineHeight: '1.7'
-        }}>
-          Cette action va scanner votre dossier pCloud configuré et indexer tous les 
-          fichiers MP4 dans la base de données. Les métadonnées seront récupérées 
-          automatiquement depuis TMDB.
-        </p>
-        
-        <div style={{ display: 'flex', gap: 'var(--spacing-md)', marginBottom: 'var(--spacing-lg)' }}>
-          <button 
-            onClick={handleTruncate} 
-            disabled={truncating || scanning}
-            className="secondaryButton"
-            style={{ flex: 1 }}
-          >
-            {truncating ? 'Vidage...' : '🗑️ Vider la base'}
-          </button>
-          
-          <button 
-            onClick={handleScan} 
-            disabled={scanning || truncating}
-            className="primaryButton"
-            style={{ flex: 2 }}
-          >
-            {scanning ? 'Scan en cours...' : '🔄 Lancer le scan'}
-          </button>
-        </div>
-        
-        {scanning && (
-          <div style={{ textAlign: 'center', padding: 'var(--spacing-xl)' }}>
-            <div className="downloadingState">
-              <span className="dot"></span>
-              <span className="dot"></span>
-              <span className="dot"></span>
+      <div className={styles.content}>
+        {/* Section Scan */}
+        <div className={styles.scanSection}>
+          <div className={styles.scanHeader}>
+            <div>
+              <h2 className={styles.sectionTitle}>Scan intelligent</h2>
+              <p className={styles.sectionSubtitle}>
+                Détecte automatiquement les nouveaux fichiers, les modifications et les suppressions
+              </p>
             </div>
-            <p style={{ 
-              marginTop: 'var(--spacing-md)',
-              fontSize: 'var(--font-size-sm)',
-              color: 'var(--color-gray-500)'
-            }}>
-              Indexation en cours (cela peut prendre plusieurs minutes)...
-            </p>
-            <button 
-              onClick={() => window.location.reload()}
-              className="secondaryButton"
-              style={{ marginTop: 'var(--spacing-md)' }}
-            >
-              ⏸️ Arrêter l'attente
-            </button>
-            <p style={{ 
-              marginTop: 'var(--spacing-sm)',
-              fontSize: 'var(--font-size-xs)',
-              color: 'var(--color-gray-400)'
-            }}>
-              (Le scan continuera en arrière-plan sur le serveur)
-            </p>
+            <div className={styles.actions}>
+              <a href="/admin/validate" className={styles.validateButton}>
+                🔍 Validation manuelle
+              </a>
+              <button 
+                onClick={handleScan} 
+                disabled={scanning}
+                className={styles.scanButton}
+              >
+                {scanning ? '⏳ Scan en cours...' : '🔄 Lancer le scan'}
+              </button>
+            </div>
           </div>
-        )}
+          
+          {scanning && (
+            <div className={styles.scanning}>
+              <div className={styles.spinner}></div>
+              <p>Analyse en cours... Cela peut prendre plusieurs minutes.</p>
+            </div>
+          )}
+        </div>
         
+        {/* Résultats du scan */}
         {result && (
-          <div style={{
-            padding: 'var(--spacing-lg)',
-            background: result.success ? 'var(--color-gray-100)' : 'var(--color-red)',
-            color: result.success ? 'var(--color-black)' : 'var(--color-white)',
-            borderRadius: '2px'
-          }}>
-            <h3 style={{ 
-              fontSize: 'var(--font-size-lg)',
-              fontWeight: 'var(--font-weight-bold)',
-              marginBottom: 'var(--spacing-sm)'
-            }}>
-              {result.success ? '✓ Scan terminé' : '✗ Erreur'}
-            </h3>
+          <>
+            {/* Statistiques */}
+            <div className={styles.stats}>
+              <div className={styles.statCard}>
+                <div className={styles.statIcon}>📁</div>
+                <div className={styles.statValue}>{result.stats.total}</div>
+                <div className={styles.statLabel}>Fichiers scannés</div>
+              </div>
+              
+              <div className={styles.statCard}>
+                <div className={styles.statIcon}>🆕</div>
+                <div className={styles.statValue}>{result.stats.new}</div>
+                <div className={styles.statLabel}>Nouveaux</div>
+              </div>
+              
+              <div className={styles.statCard}>
+                <div className={styles.statIcon}>🔄</div>
+                <div className={styles.statValue}>{result.stats.updated}</div>
+                <div className={styles.statLabel}>Mis à jour</div>
+              </div>
+              
+              <div className={styles.statCard}>
+                <div className={styles.statIcon}>✅</div>
+                <div className={styles.statValue}>{result.stats.skipped}</div>
+                <div className={styles.statLabel}>Déjà à jour</div>
+              </div>
+              
+              {result.stats.deleted > 0 && (
+                <div className={styles.statCard}>
+                  <div className={styles.statIcon}>🗑️</div>
+                  <div className={styles.statValue}>{result.stats.deleted}</div>
+                  <div className={styles.statLabel}>Supprimés</div>
+                </div>
+              )}
+              
+              {result.stats.errors > 0 && (
+                <div className={`${styles.statCard} ${styles.error}`}>
+                  <div className={styles.statIcon}>❌</div>
+                  <div className={styles.statValue}>{result.stats.errors}</div>
+                  <div className={styles.statLabel}>Erreurs</div>
+                </div>
+              )}
+              
+              {unidentifiedCount > 0 && (
+                <div className={`${styles.statCard} ${styles.warning}`}>
+                  <div className={styles.statIcon}>❓</div>
+                  <div className={styles.statValue}>{unidentifiedCount}</div>
+                  <div className={styles.statLabel}>Non identifiés</div>
+                </div>
+              )}
+            </div>
             
-            <p style={{ marginBottom: 'var(--spacing-md)' }}>
-              {result.message}
-            </p>
-            
-            {result.stats && (
-              <div style={{ 
-                display: 'grid', 
-                gridTemplateColumns: 'repeat(2, 1fr)',
-                gap: 'var(--spacing-sm)',
-                fontSize: 'var(--font-size-sm)'
-              }}>
-                <div>
-                  <strong>Total :</strong> {result.stats.total}
+            {/* Taux d'identification */}
+            <div className={styles.identification}>
+              <div className={styles.identificationHeader}>
+                <span className={styles.identificationLabel}>Taux d&apos;identification TMDB</span>
+                <span className={styles.identificationValue}>{result.stats.identificationRate}%</span>
+              </div>
+              <div className={styles.progressBar}>
+                <div 
+                  className={styles.progressFill}
+                  style={{ width: `${result.stats.identificationRate}%` }}
+                />
+              </div>
+              <div className={styles.confidenceBreakdown}>
+                <div className={styles.confidenceItem}>
+                  <span className={styles.confidenceDot} style={{ backgroundColor: '#22c55e' }} />
+                  <span>Haute: {result.stats.confidence.high}</span>
                 </div>
-                <div>
-                  <strong>Indexés :</strong> {result.stats.indexed}
+                <div className={styles.confidenceItem}>
+                  <span className={styles.confidenceDot} style={{ backgroundColor: '#f59e0b' }} />
+                  <span>Moyenne: {result.stats.confidence.medium}</span>
                 </div>
-                <div>
-                  <strong>Mis à jour :</strong> {result.stats.updated}
-                </div>
-                <div>
-                  <strong>Erreurs :</strong> {result.stats.errors}
+                <div className={styles.confidenceItem}>
+                  <span className={styles.confidenceDot} style={{ backgroundColor: '#ef4444' }} />
+                  <span>Faible: {result.stats.confidence.low}</span>
                 </div>
               </div>
+            </div>
+            
+            {/* Rapport détaillé */}
+            <div className={styles.report}>
+              <div className={styles.reportHeader}>
+                <h3 className={styles.reportTitle}>📊 Rapport détaillé</h3>
+                
+                <div className={styles.tabs}>
+                  <button 
+                    className={activeTab === 'all' ? styles.tabActive : styles.tab}
+                    onClick={() => setActiveTab('all')}
+                  >
+                    Tous ({result.report.processed.length + result.report.deleted.length})
+                  </button>
+                  {unidentifiedCount > 0 && (
+                    <button 
+                      className={activeTab === 'unidentified' ? styles.tabActive : styles.tab}
+                      onClick={() => setActiveTab('unidentified')}
+                    >
+                      Non identifiés ({unidentifiedCount})
+                    </button>
+                  )}
+                  {errorsCount > 0 && (
+                    <button 
+                      className={activeTab === 'errors' ? styles.tabActive : styles.tab}
+                      onClick={() => setActiveTab('errors')}
+                    >
+                      Erreurs ({errorsCount})
+                    </button>
+                  )}
+                  {result.stats.deleted > 0 && (
+                    <button 
+                      className={activeTab === 'deleted' ? styles.tabActive : styles.tab}
+                      onClick={() => setActiveTab('deleted')}
+                    >
+                      Supprimés ({result.stats.deleted})
+                    </button>
+                  )}
+                </div>
+              </div>
+              
+              <div className={styles.fileList}>
+                {filteredFiles.length === 0 ? (
+                  <div className={styles.emptyState}>
+                    Aucun fichier à afficher dans cette catégorie
+                  </div>
+                ) : (
+                  filteredFiles.map((file, index) => (
+                    <div key={index} className={styles.fileItem}>
+                      <div className={styles.fileIcon}>
+                        {getStatusIcon(file.status)}
+                      </div>
+                      
+                      <div className={styles.fileInfo}>
+                        <div className={styles.fileName}>{file.filename}</div>
+                        <div className={styles.filePath}>{file.filepath}</div>
+                        
+                        {file.tmdbMatch && (
+                          <div className={styles.tmdbMatch}>
+                            <span className={styles.tmdbTitle}>
+                              → {file.tmdbMatch.title}
+                            </span>
+                            {file.tmdbMatch.year > 0 && (
+                              <span className={styles.tmdbYear}>({file.tmdbMatch.year})</span>
+                            )}
+                            <span className={styles.tmdbConfidence}>
+                              {file.tmdbMatch.confidence}% confiance
+                            </span>
+                          </div>
+                        )}
+                        
+                        {file.reason && (
+                          <div className={styles.fileReason}>
+                            <span className={styles.reasonLabel}>Raison:</span> {file.reason}
+                          </div>
+                        )}
+                        
+                        {file.error && (
+                          <div className={styles.fileError}>
+                            <span className={styles.errorLabel}>Erreur:</span> {file.error}
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className={styles.fileStatus}>
+                        <span className={`${styles.statusBadge} ${styles[file.status]}`}>
+                          {getStatusLabel(file.status)}
+                        </span>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+            
+            {/* Actions recommandées */}
+            {(unidentifiedCount > 0 || errorsCount > 0) && (
+              <div className={styles.recommendations}>
+                <h4 className={styles.recommendationsTitle}>💡 Actions recommandées</h4>
+                <ul className={styles.recommendationsList}>
+                  {unidentifiedCount > 0 && (
+                    <li>
+                      <strong>{unidentifiedCount} fichier(s) non identifié(s)</strong>: 
+                      Utilisez l&apos;outil de <a href="/admin/validate">validation manuelle</a> pour rechercher 
+                      manuellement sur TMDB et associer les bonnes métadonnées.
+                    </li>
+                  )}
+                  {errorsCount > 0 && (
+                    <li>
+                      <strong>{errorsCount} erreur(s) détectée(s)</strong>: 
+                      Vérifiez les messages d&apos;erreur ci-dessus et corrigez les problèmes identifiés.
+                    </li>
+                  )}
+                  <li>
+                    Vous pouvez renommer les fichiers pour améliorer la reconnaissance automatique. 
+                    Format recommandé: <code>Titre du Film (Année).ext</code>
+                  </li>
+                </ul>
+              </div>
             )}
-          </div>
+          </>
         )}
-        
-        <div style={{ 
-          marginTop: 'var(--spacing-2xl)',
-          padding: 'var(--spacing-lg)',
-          background: 'var(--color-gray-100)'
-        }}>
-          <h3 style={{ 
-            fontSize: 'var(--font-size-base)',
-            fontWeight: 'var(--font-weight-bold)',
-            marginBottom: 'var(--spacing-sm)'
-          }}>
-            ℹ️ Informations
-          </h3>
-          <ul style={{ 
-            listStyle: 'none',
-            fontSize: 'var(--font-size-sm)',
-            color: 'var(--color-gray-600)',
-            lineHeight: '1.8'
-          }}>
-            <li>• Indexation par batch de 100 films</li>
-            <li>• Métadonnées récupérées depuis TMDB (français)</li>
-            <li>• Détection automatique des sous-titres</li>
-            <li>• Parsing intelligent des noms de fichiers</li>
-          </ul>
-        </div>
       </div>
     </div>
   )
 }
-
-
-

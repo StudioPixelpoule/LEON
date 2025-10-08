@@ -19,6 +19,21 @@ import {
   type LocalMediaFile 
 } from '@/lib/localScanner'
 
+// Types pour le rapport détaillé
+export interface ProcessedFile {
+  filename: string
+  filepath: string
+  status: 'new' | 'updated' | 'skipped' | 'error' | 'unidentified'
+  tmdbMatch?: {
+    title: string
+    year: number
+    confidence: number
+    tmdbId: number
+  }
+  error?: string
+  reason?: string
+}
+
 export async function POST() {
   try {
     // 1. Vérifier que le dossier pCloud Drive est accessible
@@ -42,15 +57,62 @@ export async function POST() {
       })
     }
     
-    // 3. Indexation par batch de 100 (optimisation MacBook Air M1)
+    // 3. Récupérer tous les médias existants en base
+    console.log('📊 Récupération des médias existants en base...')
+    const { data: existingMedia, error: fetchError } = await supabase
+      .from('media')
+      .select('id, pcloud_fileid, title, tmdb_id, poster_url, file_size, updated_at')
+    
+    if (fetchError) {
+      console.error('Erreur récupération médias existants:', fetchError)
+    }
+    
+    const existingMap = new Map(
+      (existingMedia || []).map(m => [m.pcloud_fileid, m])
+    )
+    
+    // 4. Créer un Set des fichiers scannés pour comparaison
+    const scannedFilepaths = new Set(videoFiles.map(f => f.filepath))
+    
+    // 5. Identifier les médias à supprimer (présents en base mais plus sur le disque)
+    const mediasToDelete = Array.from(existingMap.values()).filter(
+      media => !scannedFilepaths.has(media.pcloud_fileid)
+    )
+    
+    if (mediasToDelete.length > 0) {
+      console.log(`🗑️  Suppression de ${mediasToDelete.length} médias qui n'existent plus...`)
+      const idsToDelete = mediasToDelete.map(m => m.id)
+      const { error: deleteError } = await supabase
+        .from('media')
+        .delete()
+        .in('id', idsToDelete)
+      
+      if (deleteError) {
+        console.error('Erreur suppression médias:', deleteError)
+      } else {
+        console.log(`✅ ${mediasToDelete.length} médias supprimés`)
+      }
+    }
+    
+    // 6. Indexation par batch de 100 (optimisation MacBook Air M1)
     const BATCH_SIZE = 100
     let indexed = 0
     let updated = 0
+    let skipped = 0
+    let deleted = mediasToDelete.length
     let errors = 0
     let highConfidence = 0
     let mediumConfidence = 0
     let lowConfidence = 0
     let unidentified = 0
+    
+    // Rapport détaillé
+    const processedFiles: ProcessedFile[] = []
+    const deletedFiles = mediasToDelete.map(m => ({
+      filename: m.title || 'Inconnu',
+      filepath: m.pcloud_fileid,
+      status: 'deleted' as const
+    }))
     
     console.log(`🎬 Début du scan: ${videoFiles.length} fichiers trouvés`)
     
@@ -60,23 +122,35 @@ export async function POST() {
       
       for (const file of batch) {
         try {
-          // Vérifier si déjà indexé (par filepath au lieu de fileid)
-          const { data: existing } = await supabase
-            .from('media')
-            .select('id, poster_url, tmdb_id')
-            .eq('pcloud_fileid', file.filepath)
-            .single()
+          // Vérifier si déjà indexé
+          const existing = existingMap.get(file.filepath)
           
-          // Si déjà indexé ET a des métadonnées complètes, skip
-          if (existing && existing.poster_url && existing.tmdb_id) {
-            console.log(`⏭️  Déjà indexé avec métadonnées: ${file.filename}`)
-            updated++
+          // Si déjà indexé ET a des métadonnées complètes ET taille identique, skip
+          if (existing && existing.poster_url && existing.tmdb_id && existing.file_size === formatFileSize(file.size)) {
+            console.log(`⏭️  Déjà à jour: ${file.filename}`)
+            skipped++
+            processedFiles.push({
+              filename: file.filename,
+              filepath: file.filepath,
+              status: 'skipped',
+              reason: 'Déjà à jour avec métadonnées complètes',
+              tmdbMatch: {
+                title: existing.title,
+                year: 0,
+                confidence: 100,
+                tmdbId: existing.tmdb_id
+              }
+            })
             continue
           }
           
-          // Si existe mais sans métadonnées, on va les ajouter
+          // Si existe mais métadonnées incomplètes ou taille changée, on met à jour
           if (existing) {
-            console.log(`🔄 Mise à jour métadonnées: ${file.filename}`)
+            if (existing.file_size !== formatFileSize(file.size)) {
+              console.log(`🔄 Fichier modifié (taille changée): ${file.filename}`)
+            } else {
+              console.log(`🔄 Mise à jour métadonnées: ${file.filename}`)
+            }
           }
           
           console.log(`🔍 Analyse: ${file.filename}`)
@@ -98,7 +172,8 @@ export async function POST() {
             const bestMatch = movieResults[0]
             confidence = 85 // Confiance élevée pour le premier résultat
             
-            console.log(`✅ Match trouvé: ${bestMatch.title} (${bestMatch.release_date ? new Date(bestMatch.release_date).getFullYear() : '?'}) - Confiance: ${confidence}%`)
+            const matchYear = bestMatch.release_date ? new Date(bestMatch.release_date).getFullYear() : 0
+            console.log(`✅ Match trouvé: ${bestMatch.title} (${matchYear || '?'}) - Confiance: ${confidence}%`)
             
             // Comptabiliser par niveau de confiance
             if (confidence >= 80) highConfidence++
@@ -111,12 +186,39 @@ export async function POST() {
             
             if (mediaDetails) {
               console.log(`📊 Métadonnées reçues: ${mediaDetails.title}`)
+              
+              // Ajouter au rapport
+              processedFiles.push({
+                filename: file.filename,
+                filepath: file.filepath,
+                status: existing ? 'updated' : 'new',
+                tmdbMatch: {
+                  title: mediaDetails.title,
+                  year: matchYear,
+                  confidence,
+                  tmdbId: bestMatch.id
+                }
+              })
             } else {
               console.log(`⚠️  Échec récupération métadonnées TMDB`)
+              processedFiles.push({
+                filename: file.filename,
+                filepath: file.filepath,
+                status: 'error',
+                error: 'Échec récupération métadonnées TMDB'
+              })
             }
           } else {
             console.log(`❌ Aucun match trouvé`)
             unidentified++
+            
+            // Ajouter au rapport des non-identifiés
+            processedFiles.push({
+              filename: file.filename,
+              filepath: file.filepath,
+              status: 'unidentified',
+              reason: `Recherche TMDB: "${cleanName}"${year ? ` (${year})` : ''} - Aucun résultat`
+            })
           }
           
           // Rechercher les sous-titres localement
@@ -177,30 +279,57 @@ export async function POST() {
           if (upsertError) {
             console.error(`❌ Erreur upsert ${file.filename}:`, upsertError)
             errors++
+            
+            // Mise à jour du rapport en cas d'erreur
+            const existingReport = processedFiles.find(f => f.filepath === file.filepath)
+            if (existingReport) {
+              existingReport.status = 'error'
+              existingReport.error = upsertError.message || 'Erreur base de données'
+            }
           } else {
             console.log(`💾 ${existing ? 'Mis à jour' : 'Indexé'}: ${file.filename}`)
-            indexed++
+            if (existing) updated++
+            else indexed++
           }
           
         } catch (error) {
           console.error(`Erreur traitement ${file.filename}:`, error)
           errors++
+          
+          processedFiles.push({
+            filename: file.filename,
+            filepath: file.filepath,
+            status: 'error',
+            error: error instanceof Error ? error.message : 'Erreur inconnue'
+          })
         }
       }
     }
     
     // Calculer les statistiques de reconnaissance
-    const identificationRate = videoFiles.length > 0
-      ? Math.round(((indexed - unidentified) / indexed) * 100)
+    const totalProcessed = indexed + updated
+    const identificationRate = totalProcessed > 0
+      ? Math.round(((totalProcessed - unidentified) / totalProcessed) * 100)
       : 0
+    
+    console.log(`\n📊 RÉSUMÉ DU SCAN`)
+    console.log(`   Total fichiers: ${videoFiles.length}`)
+    console.log(`   ✅ Déjà à jour: ${skipped}`)
+    console.log(`   🆕 Nouveaux: ${indexed}`)
+    console.log(`   🔄 Mis à jour: ${updated}`)
+    console.log(`   🗑️  Supprimés: ${deleted}`)
+    console.log(`   ❌ Erreurs: ${errors}`)
+    console.log(`   🎯 Taux identification: ${identificationRate}%\n`)
     
     return NextResponse.json({
       success: true,
-      message: 'Scan terminé',
+      message: 'Scan intelligent terminé',
       stats: {
         total: videoFiles.length,
-        indexed,
+        new: indexed,
         updated,
+        skipped,
+        deleted,
         errors,
         identificationRate,
         confidence: {
@@ -209,6 +338,10 @@ export async function POST() {
           low: lowConfidence
         },
         unidentified
+      },
+      report: {
+        processed: processedFiles,
+        deleted: deletedFiles
       }
     })
     
