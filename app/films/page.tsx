@@ -51,11 +51,8 @@ export default function FilmsPage() {
     loadMovies()
   }, [])
   
-  const validMovies = movies.filter(m => 
-    m.poster_url && 
-    m.poster_url !== '/placeholder-poster.png' &&
-    m.tmdb_id
-  )
+  // Afficher TOUS les films, même sans poster (placeholder utilisé)
+  const validMovies = movies.filter(m => m.tmdb_id) // Uniquement ceux identifiés sur TMDB
   
   // Films VRAIMENT récemment ajoutés dans LEON (par created_at)
   const recentMovies = [...validMovies]

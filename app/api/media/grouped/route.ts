@@ -33,11 +33,10 @@ export async function GET(request: Request) {
     const sortBy = searchParams.get('sort') || 'recent' // 'recent', 'rating', 'title'
     const limit = parseInt(searchParams.get('limit') || '0', 10)
     
-    // Récupérer tous les films
+    // Récupérer TOUS les films (même sans poster)
     const query = supabase
       .from('media')
       .select('*')
-      .not('poster_url', 'is', null) // Uniquement ceux avec poster
     
     if (sortBy === 'recent') {
       query.order('created_at', { ascending: false })
