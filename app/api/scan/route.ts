@@ -401,8 +401,12 @@ export async function POST() {
     
   } catch (error) {
     console.error('Erreur scan:', error)
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue lors du scan'
     return NextResponse.json(
-      { error: 'Erreur lors du scan' },
+      { 
+        error: errorMessage,
+        details: process.env.NODE_ENV === 'development' ? String(error) : undefined
+      },
       { status: 500 }
     )
   }

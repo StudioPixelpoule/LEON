@@ -95,23 +95,39 @@ export default function AdminPage() {
         method: 'POST'
       })
       
+      if (!response.ok) {
+        const errorData = await response.json()
+        alert(`Erreur lors du scan: ${errorData.error || 'Erreur inconnue'}`)
+        setScanning(false)
+        return
+      }
+      
       const data = await response.json()
+      
+      // Vérifier que la structure est correcte
+      if (!data.report || !data.report.processed) {
+        alert('Erreur: Réponse du serveur invalide')
+        setScanning(false)
+        return
+      }
+      
       setResult(data)
       setActiveTab('all')
       
     } catch (error) {
       console.error('Erreur scan:', error)
+      alert('Erreur lors du scan: ' + (error instanceof Error ? error.message : 'Erreur inconnue'))
     } finally {
       setScanning(false)
     }
   }
   
   const getFilteredFiles = () => {
-    if (!result) return []
+    if (!result || !result.report) return []
     
     const allFiles = [
-      ...result.report.processed,
-      ...result.report.deleted
+      ...(result.report.processed || []),
+      ...(result.report.deleted || [])
     ]
     
     switch (activeTab) {
@@ -120,7 +136,7 @@ export default function AdminPage() {
       case 'errors':
         return allFiles.filter(f => f.status === 'error')
       case 'deleted':
-        return result.report.deleted
+        return result.report.deleted || []
       case 'no_poster':
         return allFiles.filter(f => f.status === 'no_poster')
       default:
