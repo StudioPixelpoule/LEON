@@ -640,13 +640,28 @@ export default function SimpleVideoPlayer({
             msg = 'Erreur de décodage - Format vidéo incompatible'
             break
           case 4:
+            // ⚠️ Limiter les tentatives pour éviter boucle infinie
+            if (retryCountRef.current >= 3) {
+              console.error('❌ Échec après 3 tentatives')
+              msg = 'Format vidéo non supporté. Le transcodage a échoué.'
+              setError(msg)
+              setIsLoading(false)
+              return
+            }
+            
+            retryCountRef.current++
             msg = 'Format non supporté - Transcodage en cours...'
-            console.log('🔄 Tentative de rechargement...')
-            // Pour l'erreur 4, on réessaye après un délai
+            console.log(`🔄 Tentative de rechargement ${retryCountRef.current}/3...`)
+            
+            // Réessayer après un délai
             setTimeout(() => {
-              if (video.src) {
+              if (video.src && !video.src.includes('blob:')) { // ⚠️ Ne pas recharger si URL blob corrompue
                 video.load()
                 tryAutoplay()
+              } else {
+                console.error('❌ URL blob invalide, arrêt des tentatives')
+                setError('Erreur de lecture vidéo. Veuillez réessayer.')
+                setIsLoading(false)
               }
             }, 2000)
             return // Ne pas afficher l'erreur tout de suite
@@ -834,8 +849,14 @@ export default function SimpleVideoPlayer({
     })
     
     // ✅ Gestion d'erreur améliorée
-    trackElement.addEventListener('error', async () => {
+    trackElement.addEventListener('error', async (e) => {
+      e.preventDefault() // ⚠️ Empêcher propagation de l'erreur à la vidéo
+      e.stopPropagation()
+      
       console.error(`❌ Erreur chargement sous-titres: ${track.language}`)
+      
+      // ⚠️ Retirer l'élément track défaillant pour éviter erreur vidéo
+      trackElement.remove()
       
       // Récupérer le détail de l'erreur depuis l'API
       try {
@@ -854,10 +875,14 @@ export default function SimpleVideoPlayer({
         
         // Réinitialiser la sélection
         setSelectedSubtitle(null)
+        
+        // ✅ Masquer l'erreur après 5 secondes
+        setTimeout(() => setError(null), 5000)
       } catch (err) {
         console.error('❌ Erreur récupération détails:', err)
         setError(`Impossible de charger les sous-titres "${track.language}"`)
         setSelectedSubtitle(null)
+        setTimeout(() => setError(null), 5000)
       }
     })
   }, [subtitleTracks, getFilepath])
