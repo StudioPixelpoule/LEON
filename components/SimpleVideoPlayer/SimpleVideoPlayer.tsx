@@ -250,10 +250,6 @@ export default function SimpleVideoPlayer({
           console.log('📋 Manifest HLS chargé')
           retryCountRef.current = 0
           
-          // 🔧 FORCER le démarrage à 0s
-          video.currentTime = 0
-          console.log(`🎯 Position forcée à 0s (était: ${video.currentTime}s)`)
-          
           // 🧹 Nettoyer l'ancien intervalle si existant
           if (bufferCheckIntervalRef.current) {
             clearInterval(bufferCheckIntervalRef.current)

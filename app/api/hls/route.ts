@@ -96,10 +96,8 @@ export async function GET(request: NextRequest) {
       // OPTIMISATIONS MAXIMALES pour chargement rapide
       const ffmpegArgs = [
         '-hwaccel', 'auto',          // Accélération matérielle automatique
-        '-ss', '0',                  // 🔧 FORCER le démarrage à 0s exactement
         '-i', filepath,
-        '-copyts',                   // 🔧 Conserver les timestamps originaux
-        '-start_at_zero',            // 🔧 Forcer le démarrage à zéro
+        // ✅ Ne pas utiliser -copyts/-start_at_zero pour éviter les décalages de timestamps
         // Sélectionner la piste vidéo et audio
         '-map', '0:v:0',              // Toujours prendre la première piste vidéo
         ...(audioTrack && audioTrack !== '0' 
