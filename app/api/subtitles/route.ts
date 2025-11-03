@@ -53,9 +53,30 @@ export async function GET(request: NextRequest) {
     
     if (incompatibleCodecs.includes(codec)) {
       console.warn(`⚠️ Codec incompatible: ${codec} (image-based)`)
+      
+      // 🔄 FALLBACK : Chercher des sous-titres SRT externes
+      console.log('🔍 Recherche sous-titres SRT externes...')
+      const externalResponse = await fetch(
+        `${request.nextUrl.origin}/api/subtitles/external?path=${encodeURIComponent(filepath)}&lang=fr`
+      )
+      
+      if (externalResponse.ok) {
+        console.log('✅ Sous-titres externes trouvés !')
+        const vttContent = await externalResponse.text()
+        return new NextResponse(vttContent, {
+          headers: {
+            'Content-Type': 'text/vtt; charset=utf-8',
+            'Cache-Control': 'public, max-age=3600',
+          }
+        })
+      }
+      
+      // Pas de fallback disponible
+      console.warn('⚠️ Aucun sous-titre externe disponible')
       return NextResponse.json({ 
-        error: `Format de sous-titre incompatible (${codec}). Seuls les sous-titres texte (SRT, ASS, SSA) sont supportés.`,
-        codec: codec
+        error: `Format de sous-titre incompatible (${codec}). Téléchargez un fichier .srt et placez-le à côté de la vidéo.`,
+        codec: codec,
+        suggestion: 'Téléchargez des sous-titres depuis OpenSubtitles.org'
       }, { status: 415 })
     }
     
