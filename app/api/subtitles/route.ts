@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
     if (incompatibleCodecs.includes(codec)) {
       console.warn(`⚠️ Codec incompatible: ${codec} (image-based)`)
       
-      // 🔄 FALLBACK : Chercher des sous-titres SRT externes
+      // 🔄 FALLBACK 1 : Chercher des sous-titres SRT externes
       console.log('🔍 Recherche sous-titres SRT externes...')
       const externalResponse = await fetch(
         `${request.nextUrl.origin}/api/subtitles/external?path=${encodeURIComponent(filepath)}&lang=fr`
@@ -71,12 +71,41 @@ export async function GET(request: NextRequest) {
         })
       }
       
+      // 🔄 FALLBACK 2 : Télécharger automatiquement depuis OpenSubtitles
+      console.log('📥 Tentative de téléchargement automatique...')
+      const searchResponse = await fetch(
+        `${request.nextUrl.origin}/api/subtitles/search?path=${encodeURIComponent(filepath)}&lang=fra`
+      )
+      
+      if (searchResponse.ok) {
+        const searchData = await searchResponse.json()
+        
+        if (searchData.success && searchData.redirectTo) {
+          console.log('✅ Sous-titres téléchargés automatiquement !')
+          
+          // Recharger les sous-titres externes maintenant qu'ils ont été téléchargés
+          const retryExternal = await fetch(
+            `${request.nextUrl.origin}${searchData.redirectTo}`
+          )
+          
+          if (retryExternal.ok) {
+            const vttContent = await retryExternal.text()
+            return new NextResponse(vttContent, {
+              headers: {
+                'Content-Type': 'text/vtt; charset=utf-8',
+                'Cache-Control': 'public, max-age=3600',
+              }
+            })
+          }
+        }
+      }
+      
       // Pas de fallback disponible
-      console.warn('⚠️ Aucun sous-titre externe disponible')
+      console.warn('⚠️ Aucun sous-titre disponible (intégré, externe, ou téléchargeable)')
       return NextResponse.json({ 
-        error: `Format de sous-titre incompatible (${codec}). Téléchargez un fichier .srt et placez-le à côté de la vidéo.`,
+        error: `Format de sous-titre incompatible (${codec}). Aucun sous-titre texte disponible pour ce film.`,
         codec: codec,
-        suggestion: 'Téléchargez des sous-titres depuis OpenSubtitles.org'
+        suggestion: 'Téléchargez manuellement des sous-titres depuis OpenSubtitles.org et placez-les à côté de la vidéo.'
       }, { status: 415 })
     }
     
