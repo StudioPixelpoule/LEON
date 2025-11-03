@@ -81,6 +81,7 @@ export default function SimpleVideoPlayer({
   const isChangingTrack = useRef(false)
   const hasStartedPlaying = useRef(false)
   const bufferCheckIntervalRef = useRef<NodeJS.Timeout | null>(null) // 🔧 Pour nettoyer l'intervalle buffer
+  const lastTimeRef = useRef(0) // 🔧 Pour détecter les vrais sauts (pas les faux positifs)
 
   // Extraire le filepath depuis l'URL
   const getFilepath = useCallback(() => {
@@ -343,7 +344,8 @@ export default function SimpleVideoPlayer({
           }, 250) // Check toutes les 250ms
         })
         
-        // 🛡️ PROTECTION: Surveillance du buffer en continu pour éviter de rattraper FFmpeg
+        // 🛡️ PROTECTION: Surveillance légère du buffer (seuil d'urgence uniquement)
+        // HLS.js gère déjà le buffer automatiquement, on intervient seulement en cas critique
         let bufferWatchdog: NodeJS.Timeout | null = null
         
         hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
@@ -352,7 +354,7 @@ export default function SimpleVideoPlayer({
           // console.log(`📦 Fragment ${frag.sn} | start: ${frag.start.toFixed(2)}s`)
         })
         
-        // 🔍 Surveiller le buffer toutes les 2 secondes pendant la lecture
+        // 🔍 Surveiller le buffer uniquement en cas d'urgence (< 2s)
         const startBufferWatchdog = () => {
           if (bufferWatchdog) clearInterval(bufferWatchdog)
           
@@ -362,20 +364,20 @@ export default function SimpleVideoPlayer({
               const bufferedEnd = video.buffered.end(video.buffered.length - 1)
               const bufferAhead = bufferedEnd - currentPos
               
-              // 🚨 Si moins de 10s de buffer restant, PAUSE automatique
-              if (bufferAhead < 10) {
-                console.warn(`⚠️ Buffer faible ! (${bufferAhead.toFixed(1)}s restants) → PAUSE`)
+              // 🚨 SEUIL D'URGENCE: Seulement si moins de 2s de buffer (vraiment critique)
+              if (bufferAhead < 2) {
+                console.warn(`⚠️ Buffer critique ! (${bufferAhead.toFixed(1)}s restants) → PAUSE`)
                 video.pause()
                 setIsPlaying(false)
                 setIsLoading(true)
                 
-                // Attendre d'avoir 20s de buffer avant de reprendre
+                // Attendre d'avoir au moins 6s de buffer avant de reprendre
                 const resumeCheck = setInterval(() => {
                   if (video.buffered.length > 0) {
                     const newBufferAhead = video.buffered.end(video.buffered.length - 1) - video.currentTime
-                    console.log(`📊 Rebuffering: ${newBufferAhead.toFixed(1)}s / 20s`)
+                    console.log(`📊 Rebuffering: ${newBufferAhead.toFixed(1)}s / 6s`)
                     
-                    if (newBufferAhead >= 20) {
+                    if (newBufferAhead >= 6) {
                       clearInterval(resumeCheck)
                       // 🎯 Muter temporairement pour l'autoplay
                       const wasMuted = video.muted
@@ -399,7 +401,7 @@ export default function SimpleVideoPlayer({
                 }, 1000)
               }
             }
-          }, 2000) // Check toutes les 2 secondes
+          }, 3000) // Check toutes les 3 secondes (moins agressif)
         }
         
         // Démarrer le watchdog après le premier play
@@ -573,19 +575,16 @@ export default function SimpleVideoPlayer({
     
     const handleTimeUpdate = () => {
       const currentPos = video.currentTime
+      const lastTime = lastTimeRef.current
       
-      // 🔍 DEBUG: Détecter les sauts anormaux
-      if (Math.abs(currentPos - currentTime) > 5 && currentTime > 0) {
-        console.warn(`⚠️ SAUT DÉTECTÉ: ${currentTime.toFixed(1)}s → ${currentPos.toFixed(1)}s (delta: ${(currentPos - currentTime).toFixed(1)}s)`)
+      // 🔍 DEBUG: Détecter les VRAIS sauts anormaux (pas les initialisations)
+      // On ignore les sauts de moins de 2s (seek normaux) et les initialisations (lastTime = 0)
+      if (Math.abs(currentPos - lastTime) > 10 && lastTime > 0.1 && !isSeeking) {
+        console.warn(`⚠️ SAUT DÉTECTÉ: ${lastTime.toFixed(1)}s → ${currentPos.toFixed(1)}s (delta: ${(currentPos - lastTime).toFixed(1)}s)`)
       }
       
-      // Vérifier si on a atteint la fin d'un segment HLS (reset inattendu)
-      if (currentPos < 1 && video.currentTime < currentTime - 1) {
-        console.warn(`⚠️ Reset détecté: ${currentTime} → ${currentPos}`)
-        // Ne pas mettre à jour si c'est un reset non voulu
-        return
-      }
-      
+      // Mettre à jour la référence
+      lastTimeRef.current = currentPos
       setCurrentTime(currentPos)
       
       // Ne PAS écraser la durée si on a déjà la vraie durée depuis l'API

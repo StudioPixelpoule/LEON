@@ -11,8 +11,8 @@ sleep 1
 # Créer un fichier temporaire pour capturer la sortie
 TEMP_LOG=$(mktemp)
 
-# Démarrer Next.js et capturer la sortie
-npm run dev:simple > "$TEMP_LOG" 2>&1 &
+# Démarrer Next.js et capturer la sortie (PORT FIXE 3000)
+npx next dev --port 3000 > "$TEMP_LOG" 2>&1 &
 NEXT_PID=$!
 
 echo "⏳ Attente du serveur Next.js..."
