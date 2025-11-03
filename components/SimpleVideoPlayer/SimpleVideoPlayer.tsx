@@ -220,13 +220,15 @@ export default function SimpleVideoPlayer({
         const hls = new Hls({
           debug: false,
           enableWorker: true,
-          startPosition: 0,
+          startPosition: -1,                // -1 = démarrer au début du buffer (accepte les micro-décalages)
           // Buffer optimisé (30-60s comme Netflix)
           maxBufferLength: 30,              // 30s ahead
           maxMaxBufferLength: 60,           // 60s max (au lieu de 600s)
           maxBufferSize: 30 * 1000 * 1000,  // 30MB (au lieu de 120MB)
           backBufferLength: 10,             // Garder 10s en arrière
           maxBufferHole: 0.5,               // Tolérance 500ms
+          nudgeOffset: 0.1,                 // Accepter les décalages jusqu'à 100ms
+          nudgeMaxRetry: 3,                 // Réessayer 3x avant d'abandonner
           // ✅ ACTIVER le prefetch pour anticiper les segments
           startFragPrefetch: true,
           // Timeouts agressifs
@@ -449,12 +451,14 @@ export default function SimpleVideoPlayer({
                   const newHls = new Hls({
                     debug: false,
                     enableWorker: true,
-                    startPosition: 0,
+                    startPosition: -1,
                     maxBufferLength: 30,
                     maxMaxBufferLength: 60,
                     maxBufferSize: 30 * 1000 * 1000,
                     backBufferLength: 10,
                     maxBufferHole: 0.5,
+                    nudgeOffset: 0.1,
+                    nudgeMaxRetry: 3,
                     startFragPrefetch: true,
                     progressive: true
                   })
@@ -735,12 +739,14 @@ export default function SimpleVideoPlayer({
       const hls = new Hls({
         debug: false,
         enableWorker: true,
-        startPosition: 0,
+        startPosition: -1,
         maxBufferLength: 30,
         maxMaxBufferLength: 60,
         maxBufferSize: 30 * 1000 * 1000,
         backBufferLength: 10,
         maxBufferHole: 0.5,
+        nudgeOffset: 0.1,
+        nudgeMaxRetry: 3,
         startFragPrefetch: true,
         progressive: true
       })
