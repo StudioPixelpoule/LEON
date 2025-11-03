@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { spawn } from 'child_process'
-import { Readable } from 'stream'
+import { exec } from 'child_process'
+import { promisify } from 'util'
+
+const execAsync = promisify(exec)
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
@@ -15,17 +18,57 @@ export async function GET(request: NextRequest) {
   const filepath = filepathRaw.normalize('NFC')
 
   try {
-    // Utiliser FFmpeg pour extraire les sous-titres et les convertir en WebVTT
-    // Utiliser l'index absolu du stream, pas l'index relatif des sous-titres
+    // 🔍 ÉTAPE 1 : Vérifier le codec du sous-titre AVANT extraction
+    console.log(`🔍 Vérification codec piste ${trackIndex}...`)
+    
+    const { stdout: probeOutput } = await execAsync(
+      `ffprobe -v quiet -print_format json -show_streams -select_streams ${trackIndex} "${filepath}"`
+    )
+    
+    const streamInfo = JSON.parse(probeOutput)
+    const stream = streamInfo?.streams?.[0]
+    
+    if (!stream) {
+      console.error(`❌ Piste ${trackIndex} introuvable`)
+      return NextResponse.json({ 
+        error: `Piste de sous-titre ${trackIndex} introuvable` 
+      }, { status: 404 })
+    }
+    
+    const codec = stream.codec_name
+    const codecType = stream.codec_type
+    
+    console.log(`📝 Codec détecté: ${codec} (type: ${codecType})`)
+    
+    // Vérifier que c'est bien un sous-titre
+    if (codecType !== 'subtitle') {
+      console.error(`❌ La piste ${trackIndex} n'est pas un sous-titre (type: ${codecType})`)
+      return NextResponse.json({ 
+        error: `La piste ${trackIndex} n'est pas un sous-titre` 
+      }, { status: 400 })
+    }
+    
+    // 🚫 Codecs incompatibles (image-based, pas de texte)
+    const incompatibleCodecs = ['hdmv_pgs_subtitle', 'dvd_subtitle', 'dvdsub', 'pgssub']
+    
+    if (incompatibleCodecs.includes(codec)) {
+      console.warn(`⚠️ Codec incompatible: ${codec} (image-based)`)
+      return NextResponse.json({ 
+        error: `Format de sous-titre incompatible (${codec}). Seuls les sous-titres texte (SRT, ASS, SSA) sont supportés.`,
+        codec: codec
+      }, { status: 415 })
+    }
+    
+    // ✅ ÉTAPE 2 : Extraction avec conversion WebVTT
+    console.log(`📝 Extraction sous-titres: stream ${trackIndex} de ${filepath.split('/').pop()}`)
+    
     const ffmpegArgs = [
       '-i', filepath,
-      '-map', `0:${trackIndex}`,     // Index absolu du stream dans le fichier
+      '-map', `0:${trackIndex}`,     // Index absolu du stream
       '-c:s', 'webvtt',              // Convertir en WebVTT
       '-f', 'webvtt',                // Format de sortie
       'pipe:1'                       // Sortie vers stdout
     ]
-    
-    console.log(`📝 Extraction sous-titres: stream ${trackIndex} de ${filepath.split('/').pop()}`)
 
     const ffmpeg = spawn('ffmpeg', ffmpegArgs)
     
@@ -43,13 +86,26 @@ export async function GET(request: NextRequest) {
     return new Promise<NextResponse>((resolve) => {
       ffmpeg.on('close', (code) => {
         if (code !== 0) {
-          console.error('Erreur FFmpeg:', errorData)
-          resolve(NextResponse.json({ error: 'Erreur extraction sous-titres' }, { status: 500 }))
+          // 🔍 Logger l'erreur complète pour debug
+          console.error(`❌ Erreur FFmpeg (code ${code}):`)
+          console.error('--- DÉBUT ERREUR FFmpeg ---')
+          console.error(errorData.split('\n').slice(-15).join('\n')) // 15 dernières lignes
+          console.error('--- FIN ERREUR FFmpeg ---')
+          
+          resolve(NextResponse.json({ 
+            error: 'Erreur extraction sous-titres',
+            codec: codec,
+            details: codec === 'ass' || codec === 'ssa' 
+              ? 'Conversion ASS/SSA échouée. Certains effets avancés ne sont pas compatibles WebVTT.'
+              : `Conversion ${codec} vers WebVTT échouée. Vérifiez les logs serveur.`
+          }, { status: 500 }))
         } else {
+          console.log(`✅ Sous-titres extraits: ${vttData.length} caractères`)
+          
           // Retourner les sous-titres WebVTT
           resolve(new NextResponse(vttData, {
             headers: {
-              'Content-Type': 'text/vtt',
+              'Content-Type': 'text/vtt; charset=utf-8',
               'Cache-Control': 'public, max-age=3600',
             }
           }))
@@ -57,12 +113,15 @@ export async function GET(request: NextRequest) {
       })
 
       ffmpeg.on('error', (err) => {
-        console.error('Erreur spawn FFmpeg:', err)
+        console.error('❌ Erreur spawn FFmpeg:', err)
         resolve(NextResponse.json({ error: 'FFmpeg non disponible' }, { status: 500 }))
       })
     })
   } catch (error) {
-    console.error('Erreur extraction sous-titres:', error)
-    return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })
+    console.error('❌ Erreur extraction sous-titres:', error)
+    return NextResponse.json({ 
+      error: 'Erreur serveur',
+      details: error instanceof Error ? error.message : 'Erreur inconnue'
+    }, { status: 500 })
   }
 }

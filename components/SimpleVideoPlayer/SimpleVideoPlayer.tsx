@@ -833,8 +833,32 @@ export default function SimpleVideoPlayer({
       }
     })
     
-    trackElement.addEventListener('error', () => {
+    // ✅ Gestion d'erreur améliorée
+    trackElement.addEventListener('error', async () => {
       console.error(`❌ Erreur chargement sous-titres: ${track.language}`)
+      
+      // Récupérer le détail de l'erreur depuis l'API
+      try {
+        const response = await fetch(`/api/subtitles?path=${encodeURIComponent(filepath)}&track=${track.index}`)
+        const data = await response.json()
+        
+        if (response.status === 415) {
+          // Format incompatible (PGS, VOBSUB)
+          console.warn(`⚠️ Format incompatible: ${data.codec}`)
+          setError(`Sous-titres "${track.language}" incompatibles (format image ${data.codec}). Seuls les sous-titres texte sont supportés.`)
+        } else {
+          // Autre erreur
+          console.error(`❌ Erreur: ${data.error}`)
+          setError(`Erreur sous-titres "${track.language}": ${data.details || data.error}`)
+        }
+        
+        // Réinitialiser la sélection
+        setSelectedSubtitle(null)
+      } catch (err) {
+        console.error('❌ Erreur récupération détails:', err)
+        setError(`Impossible de charger les sous-titres "${track.language}"`)
+        setSelectedSubtitle(null)
+      }
     })
   }, [subtitleTracks, getFilepath])
 
