@@ -1,0 +1,1139 @@
+'use client'
+
+import { useEffect, useRef, useState, useCallback } from 'react'
+import Hls from 'hls.js'
+import styles from './SimpleVideoPlayer.module.css'
+import menuStyles from './SettingsMenu.module.css'
+
+interface SimpleVideoPlayerProps {
+  src: string
+  title?: string
+  subtitle?: string
+  onClose: () => void
+  poster?: string
+}
+
+interface AudioTrack {
+  index: number
+  language: string
+  title?: string
+  codec?: string
+}
+
+interface SubtitleTrack {
+  index: number
+  language: string
+  title?: string
+  codec?: string
+  forced?: boolean
+}
+
+// Nettoyer FFmpeg
+async function cleanupFFmpeg() {
+  try {
+    await fetch('/api/cleanup-v2', { method: 'POST' })
+    console.log('🧹 Processus FFmpeg nettoyés (v2)')
+  } catch (error) {
+    console.error('Erreur nettoyage:', error)
+  }
+}
+
+export default function SimpleVideoPlayer({ 
+  src, 
+  title, 
+  subtitle, 
+  onClose,
+  poster
+}: SimpleVideoPlayerProps) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const progressRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const settingsMenuRef = useRef<HTMLDivElement>(null)
+  const hlsRef = useRef<Hls | null>(null)
+  const retryCountRef = useRef(0)
+  const maxRetries = 10
+  const realDurationRef = useRef<number>(0) // Durée réelle du fichier
+  
+  // États du lecteur
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+  const [buffered, setBuffered] = useState(0)
+  const [volume, setVolume] = useState(1)
+  const [isMuted, setIsMuted] = useState(false)
+  const [showControls, setShowControls] = useState(true)
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSeeking, setIsSeeking] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [isDragging, setIsDragging] = useState(false)
+  const [bufferReady, setBufferReady] = useState(false) // 🚦 Flag pour bloquer l'autoplay
+  
+  // Menu et pistes
+  const [showSettingsMenu, setShowSettingsMenu] = useState(false)
+  const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([])
+  const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([])
+  const [selectedAudio, setSelectedAudio] = useState(0)
+  const [selectedSubtitle, setSelectedSubtitle] = useState<number | null>(null)
+  
+  // Refs pour la gestion d'état
+  const hideControlsTimeout = useRef<NodeJS.Timeout>()
+  const currentVideoUrl = useRef(src)
+  const isChangingTrack = useRef(false)
+  const hasStartedPlaying = useRef(false)
+
+  // Extraire le filepath depuis l'URL
+  const getFilepath = useCallback(() => {
+    const urlParams = new URLSearchParams(src.split('?')[1] || '')
+    return urlParams.get('path')
+  }, [src])
+
+  // Charger les infos des pistes et la durée
+  useEffect(() => {
+    const filepath = getFilepath()
+    
+    if (!filepath) return
+
+    // Récupérer la durée (optionnel)
+    fetch(`/api/video-duration?path=${encodeURIComponent(filepath)}`)
+      .then(res => {
+        if (!res.ok) throw new Error('API video-duration non disponible')
+        return res.json()
+      })
+      .then(data => {
+        if (data.duration > 0) {
+          console.log(`⏱️ Durée: ${data.formatted}`)
+          realDurationRef.current = data.duration // Sauvegarder la vraie durée
+          setDuration(data.duration)
+        }
+      })
+      .catch(err => {
+        console.log('⚠️ API durée non disponible, récupération depuis la vidéo')
+      })
+    
+    // Récupérer les pistes (optionnel)
+    fetch(`/api/media-info?path=${encodeURIComponent(filepath)}`)
+      .then(res => {
+        if (!res.ok) throw new Error('API media-info non disponible')
+        return res.json()
+      })
+      .then(data => {
+        console.log('📀 Pistes détectées:', data)
+        setAudioTracks(data.audioTracks || [])
+        setSubtitleTracks(data.subtitleTracks || [])
+        
+        // Sélectionner la première piste audio par défaut
+        if (data.audioTracks?.length > 0) {
+          setSelectedAudio(0)
+        }
+      })
+      .catch(err => {
+        console.log('⚠️ API pistes non disponible, pas de changement de langue')
+      })
+  }, [getFilepath])
+
+  // Fermer le menu au clic extérieur
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (settingsMenuRef.current && 
+          !settingsMenuRef.current.contains(event.target as Node) &&
+          !(event.target as Element).closest('.settingsButton')) {
+        setShowSettingsMenu(false)
+      }
+    }
+
+    if (showSettingsMenu) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [showSettingsMenu])
+
+  // Raccourcis clavier
+  useEffect(() => {
+    const handleKeyPress = (e: KeyboardEvent) => {
+      if (!videoRef.current) return
+      
+      switch(e.key.toLowerCase()) {
+        case ' ':
+        case 'k':
+          e.preventDefault()
+          handlePlayPause()
+          break
+        case 'arrowleft':
+          e.preventDefault()
+          handleSkip(-10)
+          break
+        case 'arrowright':
+          e.preventDefault()
+          handleSkip(10)
+          break
+        case 'f':
+          e.preventDefault()
+          handleFullscreen()
+          break
+        case 'm':
+          e.preventDefault()
+          handleVolumeToggle()
+          break
+        case 'escape':
+          if (showSettingsMenu) {
+            setShowSettingsMenu(false)
+          } else if (document.fullscreenElement) {
+            document.exitFullscreen()
+          }
+          break
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyPress)
+    return () => document.removeEventListener('keydown', handleKeyPress)
+  }, [showSettingsMenu])
+
+  // Initialiser la vidéo
+  useEffect(() => {
+    if (!videoRef.current) return
+
+    const video = videoRef.current
+    
+    // Ne pas recharger si on est en train de changer de piste
+    if (isChangingTrack.current) {
+      isChangingTrack.current = false
+      return
+    }
+    
+    console.log('🎬 Chargement vidéo:', currentVideoUrl.current)
+    
+    // Nettoyer l'instance HLS précédente
+    if (hlsRef.current) {
+      hlsRef.current.destroy()
+      hlsRef.current = null
+    }
+    
+    // Vérifier si c'est une URL HLS
+    const isHLS = currentVideoUrl.current.includes('playlist=true') || currentVideoUrl.current.includes('.m3u8')
+    
+    if (isHLS) {
+      // Utiliser HLS.js pour les navigateurs non-Safari
+      if (Hls.isSupported()) {
+        console.log('📺 Utilisation de HLS.js')
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: false,
+          backBufferLength: 90,
+          maxBufferLength: 300,  // AUGMENTÉ : Buffer jusqu'à 5 minutes
+          maxMaxBufferLength: 600,  // AUGMENTÉ : Jusqu'à 10 minutes max
+          maxBufferSize: 120 * 1000 * 1000,  // 120MB
+          maxBufferHole: 0.5,
+          // Timeouts TRÈS généreux pour FFmpeg lent
+          manifestLoadingTimeOut: 90000,  // 90 secondes pour le manifest initial
+          manifestLoadingMaxRetry: 50,  // Énormément de retry
+          manifestLoadingRetryDelay: 2000,  // 2 secondes entre retry
+          levelLoadingTimeOut: 60000,
+          levelLoadingMaxRetry: 10,
+          levelLoadingRetryDelay: 2000,
+          fragLoadingTimeOut: 60000,
+          fragLoadingMaxRetry: 10,
+          fragLoadingRetryDelay: 2000,
+          // Options de performance - DÉSACTIVER prefetch pour laisser FFmpeg respirer
+          startFragPrefetch: false,  // ❌ NE PAS précharger agressivement
+          testBandwidth: false,
+          progressive: false,  // ❌ Désactiver le progressive pour forcer l'attente
+          startPosition: -1,
+          // Options spéciales pour gérer les playlists vides
+          liveSyncDurationCount: 3,  // AUGMENTÉ : Attendre 3 segments
+          liveMaxLatencyDurationCount: 10,  // AUGMENTÉ : Tolérer plus de latence
+          liveDurationInfinity: true,
+          initialLiveManifestSize: 3  // AUGMENTÉ : Attendre au moins 3 segments
+        })
+        hlsRef.current = hls
+        
+        hls.loadSource(currentVideoUrl.current)
+        hls.attachMedia(video)
+        
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          console.log('📋 Manifest HLS chargé')
+          retryCountRef.current = 0 // Réinitialiser le compteur de tentatives
+          
+          // ⏳ ATTENDRE qu'au moins 30 secondes de buffer soient disponibles
+          console.log('⏳ Attente de 30s de buffer minimum...')
+          const minBufferSeconds = 30 // Minimum 30 secondes de buffer
+          
+          const bufferCheckInterval = setInterval(() => {
+            // Vérifier combien de temps est buffered
+            if (video.buffered.length > 0) {
+              const bufferedEnd = video.buffered.end(0)
+              const bufferedStart = video.buffered.start(0)
+              const bufferedDuration = bufferedEnd - bufferedStart
+              
+              console.log(`📊 Buffer actuel: ${bufferedDuration.toFixed(1)}s`)
+              
+              if (bufferedDuration >= minBufferSeconds) {
+                clearInterval(bufferCheckInterval)
+                console.log(`✅ ${bufferedDuration.toFixed(1)}s de buffer prêt !`)
+                setBufferReady(true) // 🚦 DÉBLOQUER l'autoplay
+                setIsLoading(false)
+                tryAutoplay()
+              }
+            }
+          }, 1000) // Vérifier toutes les secondes
+          
+          // Timeout de sécurité : forcer après 30 secondes (si FFmpeg très lent)
+          setTimeout(() => {
+            clearInterval(bufferCheckInterval)
+            console.log('⏰ Timeout atteint, lancement forcé')
+            setBufferReady(true) // 🚦 DÉBLOQUER même si pas assez de buffer
+            setIsLoading(false)
+            tryAutoplay()
+          }, 30000)
+        })
+        
+        hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
+          console.log(`📦 Fragment ${data.frag.sn} chargé`)
+        })
+        
+        hls.on(Hls.Events.LEVEL_LOADED, (event, data) => {
+          console.log(`📊 Niveau chargé: ${data.level}`)
+        })
+        
+        hls.on(Hls.Events.ERROR, (event, data) => {
+          console.error('❌ Erreur HLS:', data)
+          
+          if (data.fatal) {
+            switch(data.type) {
+              case Hls.ErrorTypes.NETWORK_ERROR:
+                console.log('🔄 Tentative de récupération réseau...')
+                
+                // Gérer les différents codes d'erreur HTTP avec limite de tentatives
+                if (retryCountRef.current >= maxRetries) {
+                  console.error(`❌ Maximum de tentatives atteint (${maxRetries})`)
+                  setError('Impossible de charger la vidéo après plusieurs tentatives')
+                  setIsLoading(false)
+                  return
+                }
+                
+                retryCountRef.current++
+                console.log(`🔄 Tentative ${retryCountRef.current}/${maxRetries}`)
+                
+                if (data.response?.code === 503) {
+                  console.log('⏳ Transcodage en cours (503), nouvelle tentative dans 3s...')
+                  setIsLoading(true)
+                  setTimeout(() => {
+                    console.log('🔄 Rechargement après 503...')
+                    hls.loadSource(currentVideoUrl.current)
+                  }, 3000)
+                } else if (data.response?.code === 404) {
+                  console.log('⚠️ Playlist non trouvé (404), nouvelle tentative dans 2s...')
+                  setTimeout(() => {
+                    console.log('🔄 Rechargement après 404...')
+                    hls.loadSource(currentVideoUrl.current)
+                  }, 2000)
+                } else if (data.details === 'levelEmptyError') {
+                  // Playlist vide, FFmpeg n'a pas encore généré de segments
+                  const retryCount = (data.errorAction as any)?.retryCount || 0
+                  console.log(`⏳ Playlist vide (retry ${retryCount}), attente du transcodage...`)
+                  if (retryCount < 60) { // Max 60 retry = 2 minutes
+                    setTimeout(() => {
+                      console.log('🔄 Rechargement du manifest...')
+                      hls.loadSource(currentVideoUrl.current)
+                    }, 2000)
+                  } else {
+                    console.error('❌ Timeout: Playlist toujours vide après 2 minutes')
+                    setError('Le transcodage prend trop de temps. Réessayez plus tard.')
+                  }
+                } else {
+                  hls.startLoad()
+                }
+                break
+              case Hls.ErrorTypes.MEDIA_ERROR:
+                console.log('🔄 Tentative de récupération média...')
+                hls.recoverMediaError()
+                break
+              default:
+                // Pour les autres erreurs fatales, réessayer après un délai
+                console.log('🔄 Rechargement complet dans 3s...')
+                setTimeout(() => {
+                  hls.destroy()
+                  const newHls = new Hls({
+                    enableWorker: true,
+                    lowLatencyMode: false,
+                    backBufferLength: 90,
+                    maxBufferLength: 300,
+                    maxMaxBufferLength: 600,
+                    maxBufferSize: 120 * 1000 * 1000,
+                    maxBufferHole: 0.5,
+                    manifestLoadingTimeOut: 60000,
+                    manifestLoadingMaxRetry: 6,
+                    manifestLoadingRetryDelay: 1000,
+                    levelLoadingTimeOut: 30000,
+                    levelLoadingMaxRetry: 4,
+                    levelLoadingRetryDelay: 1000,
+                    fragLoadingTimeOut: 30000,
+                    fragLoadingMaxRetry: 6,
+                    fragLoadingRetryDelay: 1000,
+                    startFragPrefetch: false
+                  })
+                  hlsRef.current = newHls
+                  newHls.loadSource(currentVideoUrl.current)
+                  newHls.attachMedia(video)
+                }, 3000)
+                break
+            }
+          } else if (data.details === 'bufferStalledError') {
+            console.log('⏳ Buffer en attente...')
+          }
+        })
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Safari support natif HLS
+        console.log('🎯 Safari: support HLS natif')
+        video.src = currentVideoUrl.current
+        video.load()
+        // Pour Safari, on doit aussi attendre le buffer (pas de HLS.js pour gérer)
+        // TODO: Implémenter l'attente de buffer pour Safari
+        setBufferReady(true) // Temporairement débloquer
+      } else {
+        console.error('❌ HLS non supporté sur ce navigateur')
+        setError('Format vidéo non supporté sur ce navigateur')
+        return
+      }
+    } else {
+      // Vidéo normale (MP4) - pas besoin d'attendre
+      setBufferReady(true) // ✅ Débloquer immédiatement pour MP4
+      console.log('🎬 Chargement vidéo standard')
+      video.src = currentVideoUrl.current
+      video.load()
+    }
+    
+    // Essayer de jouer dès que possible
+    const tryAutoplay = async () => {
+      // 🚦 BLOQUER si le buffer n'est pas prêt (pour HLS uniquement)
+      const isHLS = src.includes('/api/hls')
+      if (isHLS && !bufferReady) {
+        console.log('🚫 Autoplay bloqué : buffer pas encore prêt')
+        return
+      }
+      
+      try {
+        // Attendre un peu si la vidéo n'est pas prête
+        if (video.readyState < 2) {
+          console.log('⏳ Attente readyState...')
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
+        
+        console.log('🎮 Tentative de play()...')
+        const playPromise = video.play()
+        hasStartedPlaying.current = true
+        
+        if (playPromise !== undefined) {
+          await playPromise
+          console.log('▶️ Lecture démarrée automatiquement')
+          console.log('📊 État vidéo:', {
+            paused: video.paused,
+            currentTime: video.currentTime,
+            duration: video.duration,
+            readyState: video.readyState,
+            networkState: video.networkState,
+            src: video.src
+          })
+        }
+        
+        // Forcer la mise à jour de l'UI immédiatement
+        setIsPlaying(true)
+        setIsLoading(false)
+      } catch (err: any) {
+        console.log('⏸️ Autoplay bloqué:', err.message)
+        setIsLoading(false)
+        // Afficher le bouton play
+      }
+    }
+    
+    // Timeout de sécurité : essayer après 2 secondes si rien ne se passe
+    const autoplayTimeout = setTimeout(() => {
+      console.log('⏰ Tentative de lecture après timeout')
+      console.log('État actuel:', { 
+        hasStarted: hasStartedPlaying.current,
+        readyState: video.readyState,
+        paused: video.paused 
+      })
+      
+      if (!hasStartedPlaying.current && video.readyState >= 2) {
+        tryAutoplay()
+      } else if (!hasStartedPlaying.current) {
+        // Forcer l'affichage du bouton play
+        setIsLoading(false)
+        setIsPlaying(false)
+      } else if (hasStartedPlaying.current) {
+        // La vidéo joue déjà, juste mettre à jour l'UI
+        console.log('✅ Vidéo en cours, mise à jour UI')
+        setIsLoading(false)
+        setIsPlaying(!video.paused)
+      }
+    }, 3000) // 3 secondes au lieu de 2
+    
+    const handleCanPlay = () => {
+      console.log('✅ Vidéo prête (canplay)')
+      setIsLoading(false)
+      tryAutoplay()
+    }
+    
+    const handleCanPlayThrough = () => {
+      console.log('✅ Vidéo peut être lue sans interruption')
+      if (!isPlaying) {
+        tryAutoplay()
+      }
+    }
+    
+    const handlePlay = () => {
+      console.log('🎵 Événement play déclenché')
+      hasStartedPlaying.current = true
+      setIsPlaying(true)
+      setIsLoading(false)
+    }
+    
+    const handlePause = () => {
+      console.log('⏸️ Événement pause déclenché')
+      setIsPlaying(false)
+    }
+    
+    const handleTimeUpdate = () => {
+      const currentPos = video.currentTime
+      
+      // Vérifier si on a atteint la fin d'un segment HLS (reset inattendu)
+      if (currentPos < 1 && video.currentTime < currentTime - 1) {
+        console.warn(`⚠️ Reset détecté: ${currentTime} → ${currentPos}`)
+        // Ne pas mettre à jour si c'est un reset non voulu
+        return
+      }
+      
+      setCurrentTime(currentPos)
+      
+      // Ne PAS écraser la durée si on a déjà la vraie durée depuis l'API
+      if ((!duration || duration === 0) && !realDurationRef.current && isFinite(video.duration) && video.duration > 0) {
+        setDuration(video.duration)
+      }
+      
+      // Buffer - utiliser la vraie durée si disponible
+      const actualDuration = realDurationRef.current || video.duration
+      if (video.buffered.length > 0 && actualDuration > 0) {
+        const bufferedEnd = video.buffered.end(video.buffered.length - 1)
+        setBuffered((bufferedEnd / actualDuration) * 100)
+      }
+    }
+    
+    const handleLoadedMetadata = () => {
+      console.log('📊 Metadata chargées')
+      // Ne PAS écraser la durée si on a déjà la vraie durée depuis l'API
+      if (!realDurationRef.current && isFinite(video.duration) && video.duration > 0) {
+        setDuration(video.duration)
+      }
+    }
+    
+    const handleLoadedData = () => {
+      console.log('📦 Données chargées')
+      if (!isPlaying && video.readyState >= 3) {
+        tryAutoplay()
+      }
+    }
+    
+    const handleWaiting = () => setIsLoading(true)
+    const handlePlaying = () => setIsLoading(false)
+    const handleSeeking = () => setIsSeeking(true)
+    const handleSeeked = () => setIsSeeking(false)
+    
+    const handleError = () => {
+      if (video.error) {
+        console.error('❌ Erreur vidéo:', video.error)
+        let msg = 'Erreur de lecture'
+        
+        switch(video.error.code) {
+          case 1:
+            msg = 'Chargement interrompu'
+            break
+          case 2:
+            msg = 'Erreur réseau - Vérifiez votre connexion'
+            break
+          case 3:
+            msg = 'Erreur de décodage - Format vidéo incompatible'
+            break
+          case 4:
+            msg = 'Format non supporté - Transcodage en cours...'
+            console.log('🔄 Tentative de rechargement...')
+            // Pour l'erreur 4, on réessaye après un délai
+            setTimeout(() => {
+              if (video.src) {
+                video.load()
+                tryAutoplay()
+              }
+            }, 2000)
+            return // Ne pas afficher l'erreur tout de suite
+        }
+        
+        setError(msg)
+      }
+      setIsLoading(false)
+    }
+
+    // Ajouter les événements
+    video.addEventListener('loadeddata', handleLoadedData)
+    video.addEventListener('loadedmetadata', handleLoadedMetadata)
+    video.addEventListener('canplay', handleCanPlay)
+    video.addEventListener('canplaythrough', handleCanPlayThrough)
+    video.addEventListener('play', handlePlay)
+    video.addEventListener('pause', handlePause)
+    video.addEventListener('timeupdate', handleTimeUpdate)
+    video.addEventListener('waiting', handleWaiting)
+    video.addEventListener('playing', handlePlaying)
+    video.addEventListener('seeking', handleSeeking)
+    video.addEventListener('seeked', handleSeeked)
+    video.addEventListener('error', handleError)
+
+    return () => {
+      clearTimeout(autoplayTimeout)
+      // Nettoyer HLS.js
+      if (hlsRef.current) {
+        hlsRef.current.destroy()
+        hlsRef.current = null
+      }
+      video.removeEventListener('loadeddata', handleLoadedData)
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata)
+      video.removeEventListener('canplay', handleCanPlay)
+      video.removeEventListener('canplaythrough', handleCanPlayThrough)
+      video.removeEventListener('play', handlePlay)
+      video.removeEventListener('pause', handlePause)
+      video.removeEventListener('timeupdate', handleTimeUpdate)
+      video.removeEventListener('waiting', handleWaiting)
+      video.removeEventListener('playing', handlePlaying)
+      video.removeEventListener('seeking', handleSeeking)
+      video.removeEventListener('seeked', handleSeeked)
+      video.removeEventListener('error', handleError)
+    }
+  }, [duration])
+
+  // Changement de langue audio DYNAMIQUE
+  const handleAudioChange = useCallback((track: AudioTrack, idx: number) => {
+    if (!videoRef.current || selectedAudio === idx) {
+      setShowSettingsMenu(false)
+      return
+    }
+    
+    console.log(`🔊 Changement audio: ${track.language} (index: ${track.index})`)
+    
+    const video = videoRef.current
+    const currentPos = video.currentTime
+    const wasPlaying = !video.paused
+    const filepath = getFilepath()
+    
+    if (!filepath) return
+    
+    // Construire la nouvelle URL avec l'index de piste correct (API v2)
+    const newUrl = src.includes('hls-v2') 
+      ? `/api/hls-v2?path=${encodeURIComponent(filepath)}&playlist=true&audio=${track.index}`
+      : `/api/hls?path=${encodeURIComponent(filepath)}&playlist=true&audio=${track.index}`
+    
+    console.log('🔄 Nouvelle URL:', newUrl)
+    
+    // Marquer qu'on change de piste
+    isChangingTrack.current = true
+    currentVideoUrl.current = newUrl
+    setSelectedAudio(idx)
+    setShowSettingsMenu(false)
+    setIsLoading(true)
+    
+    // Nettoyer l'instance HLS existante
+    if (hlsRef.current) {
+      hlsRef.current.destroy()
+      hlsRef.current = null
+    }
+    
+    // Recharger avec HLS.js
+    if (Hls.isSupported()) {
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: false,
+        backBufferLength: 90,
+        maxBufferLength: 300,
+        maxMaxBufferLength: 600,
+        maxBufferSize: 120 * 1000 * 1000,
+        maxBufferHole: 0.5,
+        manifestLoadingTimeOut: 60000,
+        manifestLoadingMaxRetry: 6,
+        manifestLoadingRetryDelay: 1000,
+        levelLoadingTimeOut: 30000,
+        levelLoadingMaxRetry: 4,
+        levelLoadingRetryDelay: 1000,
+        fragLoadingTimeOut: 30000,
+        fragLoadingMaxRetry: 6,
+        fragLoadingRetryDelay: 1000,
+        startFragPrefetch: false
+      })
+      hlsRef.current = hls
+      
+      hls.loadSource(newUrl)
+      hls.attachMedia(video)
+      
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.currentTime = currentPos
+        if (wasPlaying) {
+          video.play().catch(() => {})
+        }
+        setIsLoading(false)
+        console.log('✅ Audio changé et position restaurée')
+      })
+    } else {
+      // Safari ou fallback
+      video.src = newUrl
+      video.load()
+      
+      const restorePlayback = () => {
+        video.currentTime = currentPos
+        if (wasPlaying) {
+          video.play().catch(() => {})
+        }
+        video.removeEventListener('loadeddata', restorePlayback)
+        setIsLoading(false)
+        console.log('✅ Audio changé et position restaurée')
+      }
+      
+      video.addEventListener('loadeddata', restorePlayback)
+    }
+  }, [selectedAudio, getFilepath])
+
+  // Changement de sous-titres DYNAMIQUE
+  const handleSubtitleChange = useCallback((idx: number | null) => {
+    if (!videoRef.current) return
+    
+    console.log(`📝 Changement sous-titres: ${idx === null ? 'Désactivés' : `piste ${idx}`}`)
+    
+    const video = videoRef.current
+    setSelectedSubtitle(idx)
+    setShowSettingsMenu(false)
+    
+    // Supprimer les pistes existantes
+    const existingTracks = video.querySelectorAll('track')
+    existingTracks.forEach(t => t.remove())
+    
+    // Désactiver toutes les text tracks
+    Array.from(video.textTracks).forEach(t => {
+      t.mode = 'disabled'
+    })
+    
+    // Si pas de sous-titres, on s'arrête
+    if (idx === null) {
+      console.log('✅ Sous-titres désactivés')
+      return
+    }
+    
+    // Ajouter la nouvelle piste
+    const track = subtitleTracks[idx]
+    const filepath = getFilepath()
+    
+    if (!filepath || !track) return
+    
+    const trackElement = document.createElement('track')
+    trackElement.kind = 'subtitles'
+    trackElement.label = track.language
+    trackElement.srclang = track.language.toLowerCase().slice(0, 2)
+    trackElement.src = `/api/subtitles?path=${encodeURIComponent(filepath)}&track=${track.index}`
+    trackElement.default = true
+    
+    video.appendChild(trackElement)
+    
+    // Activer une fois chargé
+    trackElement.addEventListener('load', () => {
+      const textTrack = Array.from(video.textTracks).find(
+        t => t.label === track.language
+      )
+      if (textTrack) {
+        textTrack.mode = 'showing'
+        console.log(`✅ Sous-titres activés: ${track.language}`)
+      }
+    })
+    
+    trackElement.addEventListener('error', () => {
+      console.error(`❌ Erreur chargement sous-titres: ${track.language}`)
+    })
+  }, [subtitleTracks, getFilepath])
+
+  // Contrôles
+  const handleMouseMove = useCallback(() => {
+    setShowControls(true)
+    
+    if (hideControlsTimeout.current) {
+      clearTimeout(hideControlsTimeout.current)
+    }
+
+    if (isPlaying && !showSettingsMenu) {
+      hideControlsTimeout.current = setTimeout(() => {
+        setShowControls(false)
+      }, 3000)
+    }
+  }, [isPlaying, showSettingsMenu])
+
+  const handlePlayPause = useCallback(() => {
+    if (!videoRef.current) return
+    
+    if (isPlaying) {
+      videoRef.current.pause()
+    } else {
+      videoRef.current.play().catch(() => {})
+    }
+  }, [isPlaying])
+
+  const handleSkip = useCallback((seconds: number) => {
+    if (!videoRef.current) return
+    const actualDuration = realDurationRef.current || duration || videoRef.current.duration
+    const newTime = Math.max(0, Math.min(actualDuration, videoRef.current.currentTime + seconds))
+    videoRef.current.currentTime = newTime
+  }, [duration])
+
+  const handleVolumeToggle = useCallback(() => {
+    if (!videoRef.current) return
+    
+    if (isMuted || volume === 0) {
+      videoRef.current.muted = false
+      setIsMuted(false)
+      if (volume === 0) {
+        videoRef.current.volume = 1
+        setVolume(1)
+      }
+    } else {
+      videoRef.current.muted = true
+      setIsMuted(true)
+    }
+  }, [isMuted, volume])
+
+  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!videoRef.current) return
+    const newVolume = parseFloat(e.target.value)
+    videoRef.current.volume = newVolume
+    setVolume(newVolume)
+    if (newVolume > 0 && isMuted) {
+      videoRef.current.muted = false
+      setIsMuted(false)
+    }
+  }
+
+  const handleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen()
+    } else if (containerRef.current) {
+      containerRef.current.requestFullscreen()
+    }
+  }, [])
+
+  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!videoRef.current || !progressRef.current || isDragging) return
+    
+    const rect = progressRef.current.getBoundingClientRect()
+    const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+    const actualDuration = realDurationRef.current || duration || videoRef.current.duration
+    
+    if (isFinite(actualDuration) && actualDuration > 0) {
+      videoRef.current.currentTime = percent * actualDuration
+    }
+  }
+
+  const handleProgressDrag = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!videoRef.current || !progressRef.current) return
+    
+    setIsDragging(true)
+    const rect = progressRef.current.getBoundingClientRect()
+    
+    const updatePosition = (clientX: number) => {
+      const percent = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
+      const actualDuration = realDurationRef.current || duration || videoRef.current?.duration || 0
+      
+      if (isFinite(actualDuration) && actualDuration > 0 && videoRef.current) {
+        videoRef.current.currentTime = percent * actualDuration
+      }
+    }
+    
+    updatePosition(e.clientX)
+    
+    const handleMouseMove = (e: MouseEvent) => {
+      if (isDragging) updatePosition(e.clientX)
+    }
+    
+    const handleMouseUp = () => {
+      setIsDragging(false)
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+    }
+    
+    document.addEventListener('mousemove', handleMouseMove)
+    document.addEventListener('mouseup', handleMouseUp)
+  }
+
+  const formatTime = (time: number) => {
+    if (!isFinite(time) || time < 0) return '0:00'
+    
+    const hours = Math.floor(time / 3600)
+    const minutes = Math.floor((time % 3600) / 60)
+    const seconds = Math.floor(time % 60)
+    
+    if (hours > 0) {
+      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
+    }
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`
+  }
+
+  // Calculer le pourcentage de progression avec garde-fous
+  const progressPercent = (() => {
+    if (!duration || duration === 0) return 0
+    if (currentTime > duration) {
+      console.warn(`⚠️ currentTime (${currentTime}) > duration (${duration})`)
+      return 100
+    }
+    const percent = (currentTime / duration) * 100
+    // Limiter entre 0 et 100
+    return Math.min(100, Math.max(0, percent))
+  })()
+
+  return (
+    <div 
+      ref={containerRef}
+      className={styles.container} 
+      onMouseMove={handleMouseMove}
+      onMouseLeave={() => !showSettingsMenu && setShowControls(false)}
+    >
+      {/* Barre de titre */}
+      <div className={`${styles.titleBar} ${showControls ? styles.visible : ''}`}>
+        <button className={styles.closeButton} onClick={() => {
+          cleanupFFmpeg()
+          onClose()
+        }}>
+          <svg viewBox="0 0 24 24">
+            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+          </svg>
+        </button>
+        <div className={styles.titleInfo}>
+          <h2>{title}</h2>
+          {subtitle && <span>{subtitle}</span>}
+        </div>
+      </div>
+
+      {/* Vidéo */}
+      <video
+        ref={videoRef}
+        className={styles.video}
+        poster={poster}
+        playsInline
+        onDoubleClick={handleFullscreen}
+      />
+
+      {/* Loader */}
+      {(isLoading || isSeeking) && !error && (
+        <div className={styles.loader}>
+          <div className={styles.spinner}></div>
+        </div>
+      )}
+      
+      {/* Bouton Play central */}
+      {!isPlaying && !isLoading && !error && (
+        <button 
+          className={styles.centerPlayButton}
+          onClick={handlePlayPause}
+          aria-label="Lancer la lecture"
+        >
+          <svg viewBox="0 0 24 24">
+            <path d="M8 5v14l11-7z" fill="white"/>
+          </svg>
+        </button>
+      )}
+
+      {/* Erreur */}
+      {error && (
+        <div className={styles.error}>
+          <p>{error}</p>
+          <div className={styles.errorButtons}>
+            <button onClick={() => {
+              setError(null)
+              setIsLoading(true)
+              if (videoRef.current) {
+                videoRef.current.load()
+                videoRef.current.play().catch(() => {})
+              }
+            }}>Réessayer</button>
+            <button onClick={onClose}>Fermer</button>
+          </div>
+        </div>
+      )}
+
+      {/* Contrôles */}
+      <div className={`${styles.controls} ${showControls ? styles.visible : ''}`}>
+        {/* Timeline */}
+        <div className={styles.timeline}>
+          <span className={styles.currentTime}>{formatTime(currentTime)}</span>
+          <div 
+            ref={progressRef}
+            className={styles.progressBar}
+            onClick={handleProgressClick}
+            onMouseDown={handleProgressDrag}
+          >
+            <div className={styles.progressBuffered} style={{ width: `${buffered}%` }} />
+            <div className={styles.progressFilled} style={{ width: `${progressPercent}%` }} />
+            <div 
+              className={styles.progressThumb} 
+              style={{ 
+                left: `${Math.min(Math.max(0, progressPercent), 100)}%`,
+                transform: `translateX(-50%) translateY(-50%)`
+              }} 
+            />
+          </div>
+          <span className={styles.duration}>{formatTime(duration)}</span>
+        </div>
+        
+        {/* Contrôles du bas */}
+        <div className={styles.controlsBottom}>
+          <div className={styles.leftControls}>
+            {/* Play/Pause */}
+            <button onClick={handlePlayPause} className={`${styles.controlBtn} ${styles.playBtn}`}>
+              {isPlaying ? (
+                <svg viewBox="0 0 24 24">
+                  <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                </svg>
+              ) : (
+                <svg viewBox="0 0 24 24">
+                  <path d="M8 5v14l11-7z"/>
+                </svg>
+              )}
+            </button>
+            
+            {/* Skip */}
+            <button onClick={() => handleSkip(-10)} className={styles.controlBtn}>
+              <svg viewBox="0 0 24 24">
+                <path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z"/>
+              </svg>
+            </button>
+            
+            <button onClick={() => handleSkip(10)} className={styles.controlBtn}>
+              <svg viewBox="0 0 24 24">
+                <path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/>
+              </svg>
+            </button>
+            
+            {/* Volume */}
+            <div className={styles.volumeGroup}>
+              <button onClick={handleVolumeToggle} className={styles.controlBtn}>
+                {isMuted || volume === 0 ? (
+                  <svg viewBox="0 0 24 24">
+                    <path d="M16.5 12A4.5 4.5 0 0014 7.97v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.796 8.796 0 0023 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 003.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24">
+                    <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77 0-4.28-2.99-7.86-7-8.77z"/>
+                  </svg>
+                )}
+              </button>
+              <input
+                type="range"
+                min="0"
+                max="1"
+                step="0.05"
+                value={isMuted ? 0 : volume}
+                onChange={handleVolumeChange}
+                className={styles.volumeSlider}
+                style={{ '--volume-percent': `${(isMuted ? 0 : volume) * 100}%` } as React.CSSProperties}
+              />
+            </div>
+          </div>
+          
+          <div className={styles.rightControls}>
+            {/* Settings */}
+            {(audioTracks.length > 0 || subtitleTracks.length > 0) && (
+              <div style={{ position: 'relative' }}>
+                <button 
+                  onClick={() => setShowSettingsMenu(!showSettingsMenu)}
+                  className={`${styles.textBtn} settingsButton`}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+                    <path d="M19 19H5V5h14m0-2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2m-7 6c-1.65 0-3 1.35-3 3s1.35 3 3 3 3-1.35 3-3-1.35-3-3-3m-1 7H6v1h5v-1m2-3H6v1h7v-1m2-3H6v1h9v-1"/>
+                  </svg>
+                  <span>Audio et sous-titres</span>
+                </button>
+                
+                {showSettingsMenu && (
+                  <div ref={settingsMenuRef} className={menuStyles.settingsMenu}>
+                    {/* Audio */}
+                    {audioTracks.length > 0 && (
+                      <div className={menuStyles.settingsSection}>
+                        <div className={menuStyles.settingsSectionTitle}>Audio</div>
+                        {audioTracks.map((track, idx) => (
+                          <div
+                            key={`audio-${track.index}`}
+                            className={`${menuStyles.settingsOption} ${selectedAudio === idx ? menuStyles.active : ''}`}
+                            onClick={() => handleAudioChange(track, idx)}
+                          >
+                            <div className={menuStyles.settingsOptionInfo}>
+                              <span className={menuStyles.settingsOptionTitle}>
+                                {track.language || `Piste ${idx + 1}`}
+                              </span>
+                              {track.title && (
+                                <span className={menuStyles.settingsOptionSubtitle}>{track.title}</span>
+                              )}
+                            </div>
+                            {selectedAudio === idx && (
+                              <svg className={menuStyles.settingsCheckmark} viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
+                              </svg>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    
+                    {/* Sous-titres */}
+                    {subtitleTracks.length > 0 && (
+                      <div className={menuStyles.settingsSection}>
+                        <div className={menuStyles.settingsSectionTitle}>Sous-titres</div>
+                        <div
+                          className={`${menuStyles.settingsOption} ${selectedSubtitle === null ? menuStyles.active : ''}`}
+                          onClick={() => handleSubtitleChange(null)}
+                        >
+                          <div className={menuStyles.settingsOptionInfo}>
+                            <span className={menuStyles.settingsOptionTitle}>Désactivés</span>
+                          </div>
+                          {selectedSubtitle === null && (
+                            <svg className={menuStyles.settingsCheckmark} viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
+                            </svg>
+                          )}
+                        </div>
+                        {subtitleTracks.map((track, idx) => (
+                          <div
+                            key={`sub-${track.index}`}
+                            className={`${menuStyles.settingsOption} ${selectedSubtitle === idx ? menuStyles.active : ''}`}
+                            onClick={() => handleSubtitleChange(idx)}
+                          >
+                            <div className={menuStyles.settingsOptionInfo}>
+                              <span className={menuStyles.settingsOptionTitle}>
+                                {track.language || `Sous-titre ${idx + 1}`}
+                              </span>
+                              {track.title && (
+                                <span className={menuStyles.settingsOptionSubtitle}>{track.title}</span>
+                              )}
+                            </div>
+                            {selectedSubtitle === idx && (
+                              <svg className={menuStyles.settingsCheckmark} viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
+                              </svg>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {/* Fullscreen */}
+            <button onClick={handleFullscreen} className={styles.controlBtn}>
+              <svg viewBox="0 0 24 24">
+                <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

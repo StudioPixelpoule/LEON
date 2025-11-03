@@ -1,0 +1,255 @@
+/* Modal Série - Style Netflix */
+
+.overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.9);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  z-index: 2000;
+  overflow-y: auto;
+  padding: var(--spacing-xl) 0;
+}
+
+.modal {
+  position: relative;
+  width: 90%;
+  max-width: 1000px;
+  background: #181818;
+  border-radius: 8px;
+  overflow: hidden;
+  margin: var(--spacing-xl) 0;
+}
+
+.closeButton {
+  position: absolute;
+  top: var(--spacing-md);
+  right: var(--spacing-md);
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.8);
+  border: none;
+  color: var(--color-white);
+  font-size: 1.5rem;
+  cursor: pointer;
+  z-index: 10;
+  transition: all 150ms ease;
+}
+
+.closeButton:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(1.1);
+}
+
+/* Backdrop */
+.backdrop {
+  position: relative;
+  width: 100%;
+  height: 400px;
+  overflow: hidden;
+}
+
+.backdropImage {
+  object-fit: cover;
+}
+
+.backdropOverlay {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 200px;
+  background: linear-gradient(to top, #181818, transparent);
+}
+
+/* Contenu */
+.content {
+  padding: var(--spacing-xl);
+  margin-top: -100px;
+  position: relative;
+  z-index: 1;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin-bottom: var(--spacing-md);
+}
+
+.header h1 {
+  font-size: var(--font-size-3xl);
+  font-weight: 700;
+  margin: 0;
+  color: var(--color-white);
+}
+
+.rating {
+  font-size: var(--font-size-lg);
+  color: var(--color-white);
+}
+
+.overview {
+  font-size: var(--font-size-md);
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.8);
+  margin-bottom: var(--spacing-xl);
+}
+
+/* Sélecteur de saison */
+.seasonSelector {
+  display: flex;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-xl);
+  flex-wrap: wrap;
+}
+
+.seasonButton {
+  padding: var(--spacing-sm) var(--spacing-lg);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  color: var(--color-white);
+  font-size: var(--font-size-md);
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.seasonButton:hover {
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+.seasonButton.active {
+  background: var(--color-white);
+  color: #181818;
+  border-color: var(--color-white);
+}
+
+/* Épisodes */
+.episodes h2 {
+  font-size: var(--font-size-xl);
+  font-weight: 600;
+  margin: 0 0 var(--spacing-lg) 0;
+  color: var(--color-white);
+}
+
+.episodeList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+}
+
+.episode {
+  display: flex;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md);
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.episode:hover {
+  background: rgba(255, 255, 255, 0.1);
+  transform: translateX(4px);
+}
+
+.episodeNumber {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-white);
+}
+
+.episodeInfo {
+  flex: 1;
+}
+
+.episodeInfo h3 {
+  font-size: var(--font-size-md);
+  font-weight: 600;
+  margin: 0 0 var(--spacing-xs) 0;
+  color: var(--color-white);
+}
+
+.episodeOverview {
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+  color: rgba(255, 255, 255, 0.6);
+  margin: 0 0 var(--spacing-xs) 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.airDate {
+  font-size: var(--font-size-xs);
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.episodeThumbnail {
+  flex-shrink: 0;
+  width: 200px;
+  height: 113px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.still {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.loading {
+  padding: var(--spacing-2xl);
+  text-align: center;
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+  .modal {
+    width: 100%;
+    margin: 0;
+    border-radius: 0;
+  }
+
+  .content {
+    padding: var(--spacing-md);
+  }
+
+  .header h1 {
+    font-size: var(--font-size-2xl);
+  }
+
+  .backdrop {
+    height: 250px;
+  }
+
+  .episode {
+    flex-direction: column;
+  }
+
+  .episodeThumbnail {
+    width: 100%;
+  }
+}
+
+
+
+

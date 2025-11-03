@@ -3,23 +3,30 @@
   "version": "1.0.0",
   "description": "Webapp de médiathèque personnelle minimaliste - Pixel Poule",
   "scripts": {
-    "dev": "next dev",
+    "dev": "./start-leon.sh",
+    "dev:simple": "next dev --port 0",
     "build": "next build",
     "start": "next start",
+    "stop": "lsof -ti:3000,3001,3002,3003,3004,3005 | xargs kill -9 2>/dev/null || killall node 2>/dev/null && echo '✅ LEON arrêté'",
     "lint": "next lint"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.39.0",
+    "@types/video.js": "^7.3.58",
+    "hls.js": "^1.6.13",
     "next": "^14.2.10",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "@supabase/supabase-js": "^2.39.0"
+    "video.js": "^8.23.4",
+    "videojs-contrib-quality-levels": "^4.1.0",
+    "videojs-http-source-selector": "^1.1.6"
   },
   "devDependencies": {
     "@types/node": "^20.11.5",
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",
-    "typescript": "^5.3.3",
     "eslint": "^8.56.0",
-    "eslint-config-next": "^14.2.10"
+    "eslint-config-next": "^14.2.10",
+    "typescript": "^5.3.3"
   }
 }

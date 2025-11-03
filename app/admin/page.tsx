@@ -64,6 +64,7 @@ interface ScanResult {
 
 export default function AdminPage() {
   const [scanning, setScanning] = useState(false)
+  const [scanningSeries, setScanningSeries] = useState(false)
   const [result, setResult] = useState<ScanResult | null>(null)
   const [activeTab, setActiveTab] = useState<'all' | 'unidentified' | 'errors' | 'deleted' | 'duplicates' | 'no_poster'>('all')
   
@@ -119,6 +120,32 @@ export default function AdminPage() {
       alert('Erreur lors du scan: ' + (error instanceof Error ? error.message : 'Erreur inconnue'))
     } finally {
       setScanning(false)
+    }
+  }
+  
+  async function handleScanSeries() {
+    try {
+      setScanningSeries(true)
+      
+      const response = await fetch('/api/scan-series', {
+        method: 'POST'
+      })
+      
+      if (!response.ok) {
+        const errorData = await response.json()
+        alert(`Erreur lors du scan des séries: ${errorData.error || 'Erreur inconnue'}`)
+        setScanningSeries(false)
+        return
+      }
+      
+      const data = await response.json()
+      alert(`✅ Scan terminé!\n${data.stats.totalSeries} séries • ${data.stats.totalEpisodes} épisodes`)
+      
+    } catch (error) {
+      console.error('Erreur scan séries:', error)
+      alert('Erreur lors du scan des séries')
+    } finally {
+      setScanningSeries(false)
     }
   }
   
@@ -197,15 +224,40 @@ export default function AdminPage() {
               </p>
             </div>
             <div className={styles.actions}>
-              <a href="/admin/validate" className={styles.validateButton}>
-                🔍 Validation manuelle
+              <a href="/admin/fix" className={styles.fixButton}>
+                ✨ Corriger les problèmes
               </a>
+              <a href="/admin/validate" className={styles.validateButton}>
+                🎬 Validation Films
+              </a>
+        <a href="/admin/series" className={styles.validateButton}>
+          📺 Validation Séries
+        </a>
+        
+        <button 
+          onClick={async () => {
+            const res = await fetch('/api/cleanup-v2', { method: 'POST' })
+            const data = await res.json()
+            alert(data.message || 'Nettoyage effectué')
+          }}
+          className={styles.validateButton}
+          style={{ background: '#d32f2f' }}
+        >
+          🧹 Nettoyer Processus FFmpeg
+        </button>
               <button 
                 onClick={handleScan} 
                 disabled={scanning}
                 className={styles.scanButton}
               >
-                {scanning ? '⏳ Scan en cours...' : '🔄 Lancer le scan'}
+                {scanning ? '⏳ Scan en cours...' : '🔄 Scanner les films'}
+              </button>
+              <button 
+                onClick={handleScanSeries} 
+                disabled={scanningSeries}
+                className={styles.scanButton}
+              >
+                {scanningSeries ? '⏳ Scan en cours...' : '📺 Scanner les séries'}
               </button>
             </div>
           </div>

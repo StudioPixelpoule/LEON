@@ -4,10 +4,11 @@
 
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import Image from 'next/image'
 import type { Media } from '@/lib/supabase'
 import styles from './MovieModal.module.css'
+import SimpleVideoPlayer from '@/components/SimpleVideoPlayer/SimpleVideoPlayer'
 
 type MovieModalProps = {
   movie: Media
@@ -17,12 +18,15 @@ type MovieModalProps = {
 }
 
 export default function MovieModal({ movie, isOpen, onClose, onPlayClick }: MovieModalProps) {
+  const [showPlayer, setShowPlayer] = useState(false)
+  
   // Bloquer le scroll du body quand la modale est ouverte
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden'
     } else {
       document.body.style.overflow = 'auto'
+      setShowPlayer(false) // Fermer le lecteur quand on ferme la modale
     }
     return () => {
       document.body.style.overflow = 'auto'
@@ -30,6 +34,30 @@ export default function MovieModal({ movie, isOpen, onClose, onPlayClick }: Movi
   }, [isOpen])
   
   if (!isOpen) return null
+  
+  // Afficher le lecteur vidéo si demandé
+  if (showPlayer && movie.pcloud_fileid) {
+    console.log('✅ Affichage du lecteur vidéo')
+    console.log('URL stream:', `/api/stream?path=${encodeURIComponent(movie.pcloud_fileid)}`)
+    return (
+      <SimpleVideoPlayer
+        src={`/api/stream?path=${encodeURIComponent(movie.pcloud_fileid)}`}
+        title={movie.title}
+        subtitle={movie.year ? `Film · ${movie.year}` : 'Film'}
+        poster={movie.backdrop_url || movie.poster_url || undefined}
+        onClose={() => {
+          setShowPlayer(false)
+          onClose()
+        }}
+      />
+    )
+  }
+  
+  if (showPlayer && !movie.pcloud_fileid) {
+    console.error('❌ Pas de fichier vidéo (pcloud_fileid manquant)')
+    alert('Aucun fichier vidéo disponible pour ce film')
+    setShowPlayer(false)
+  }
   
   const backdropUrl = movie.backdrop_url || movie.poster_url || '/placeholder-backdrop.png'
   const posterUrl = movie.poster_url || '/placeholder-poster.png'
@@ -58,7 +86,12 @@ export default function MovieModal({ movie, isOpen, onClose, onPlayClick }: Movi
               )}
               <button 
                 className={styles.playButton}
-                onClick={() => onPlayClick(movie.pcloud_fileid)}
+                onClick={() => {
+                  console.log('🎬 Bouton Lire cliqué')
+                  console.log('Film:', movie.title)
+                  console.log('Fichier:', movie.pcloud_fileid)
+                  setShowPlayer(true)
+                }}
               >
                 ▶ Lire
               </button>

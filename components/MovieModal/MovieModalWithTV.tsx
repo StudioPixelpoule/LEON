@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react'
 import Image from 'next/image'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
 import styles from './MovieModal.module.css'
+import SimpleVideoPlayer from '@/components/SimpleVideoPlayer/SimpleVideoPlayer'
 
 type Episode = {
   id: string
@@ -38,6 +39,8 @@ export default function MovieModal({ movie, onClose, onPlayClick }: MovieModalPr
   const [selectedSeason, setSelectedSeason] = useState<number>(1)
   const [seasons, setSeasons] = useState<Season[]>([])
   const [loadingEpisodes, setLoadingEpisodes] = useState(false)
+  const [showPlayer, setShowPlayer] = useState(false)
+  const [currentEpisode, setCurrentEpisode] = useState<Episode | null>(null)
   
   const isTVShow = movie.type === 'tv'
   
@@ -84,6 +87,72 @@ export default function MovieModal({ movie, onClose, onPlayClick }: MovieModalPr
     ? movie.movie_cast.slice(0, 8) 
     : []
   
+  // Afficher le lecteur vidéo pour les films (tous formats via HLS)
+  if (showPlayer && !isTVShow && movie.pcloud_fileid) {
+    console.log('✅ Lecteur film ouvert')
+    
+    // Déterminer l'URL selon le format
+    const ext = movie.pcloud_fileid.toLowerCase().split('.').pop()
+    const needsTranscode = ext === 'mkv' || ext === 'avi'
+    
+    const videoUrl = needsTranscode
+      ? `/api/hls?path=${encodeURIComponent(movie.pcloud_fileid)}&playlist=true`
+      : `/api/stream?path=${encodeURIComponent(movie.pcloud_fileid)}`
+    
+    const videoType = needsTranscode ? 'application/x-mpegURL' : 'video/mp4'
+    
+    console.log('URL vidéo:', videoUrl)
+    console.log('Type:', videoType)
+    console.log('Transcodage HLS:', needsTranscode ? 'Oui' : 'Non')
+    
+    // Utiliser SimpleVideoPlayer pour TOUS les formats (plus fiable)
+    return (
+      <SimpleVideoPlayer
+        src={videoUrl}
+        title={movie.title}
+        subtitle={movie.year ? `Film · ${movie.year}` : 'Film'}
+        poster={
+          movie.backdrop_url || movie.poster_url 
+            ? `/api/proxy-image?url=${encodeURIComponent(movie.backdrop_url || movie.poster_url || '')}`
+            : undefined
+        }
+        onClose={() => {
+          setShowPlayer(false)
+          onClose()
+        }}
+      />
+    )
+  }
+  
+  // Afficher le lecteur vidéo pour les épisodes (tous formats)
+  if (showPlayer && currentEpisode) {
+    console.log('✅ Lecteur épisode ouvert')
+    
+    const ext = currentEpisode.pcloud_fileid.toLowerCase().split('.').pop()
+    const needsTranscode = ext === 'mkv' || ext === 'avi'
+    
+    const videoUrl = needsTranscode
+      ? `/api/hls-v2?path=${encodeURIComponent(currentEpisode.pcloud_fileid)}&playlist=true`
+      : `/api/stream?path=${encodeURIComponent(currentEpisode.pcloud_fileid)}`
+    
+    // Utiliser SimpleVideoPlayer pour tous les formats
+    return (
+      <SimpleVideoPlayer
+        src={videoUrl}
+        title={movie.title}
+        subtitle={`S${currentEpisode.season_number}E${currentEpisode.episode_number} · ${currentEpisode.title}`}
+        poster={
+          movie.backdrop_url 
+            ? `/api/proxy-image?url=${encodeURIComponent(movie.backdrop_url)}`
+            : undefined
+        }
+        onClose={() => {
+          setShowPlayer(false)
+          setCurrentEpisode(null)
+        }}
+      />
+    )
+  }
   
   return (
     <div className={styles.backdrop} onClick={onClose}>
@@ -107,11 +176,21 @@ export default function MovieModal({ movie, onClose, onPlayClick }: MovieModalPr
                 <p className={styles.originalTitle}>{movie.original_title}</p>
               )}
               
-              {/* Pour les films : bouton Lire direct */}
+              {/* Pour les films : bouton Lire (tous formats) */}
               {!isTVShow && movie.pcloud_fileid && (
               <button 
                 className={styles.playButton}
-                onClick={() => onPlayClick(movie.pcloud_fileid!)}
+                onClick={() => {
+                  console.log('🎬 Bouton Lire cliqué (film)')
+                  console.log('Film:', movie.title)
+                  console.log('Fichier:', movie.pcloud_fileid)
+                  
+                  const ext = movie.pcloud_fileid.toLowerCase().split('.').pop()
+                  console.log('Format détecté:', ext)
+                  
+                  // Tous les formats → Lecteur web avec transcodage si nécessaire
+                  setShowPlayer(true)
+                }}
               >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M8 5V19L19 12L8 5Z"/>
@@ -234,7 +313,11 @@ export default function MovieModal({ movie, onClose, onPlayClick }: MovieModalPr
                     <div 
                       key={episode.id} 
                       className={styles.episodeCard}
-                      onClick={() => onPlayClick(episode.pcloud_fileid)}
+                      onClick={() => {
+                        console.log('🎬 Épisode cliqué:', episode.title)
+                        setCurrentEpisode(episode)
+                        setShowPlayer(true)
+                      }}
                     >
                       <div className={styles.episodeNumber}>
                         {episode.episode_number || index + 1}

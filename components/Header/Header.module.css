@@ -20,6 +20,18 @@
   gap: var(--spacing-xl);
 }
 
+.leftSection {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.rightSection {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
 .logo {
   font-size: 1.25rem;
   font-weight: 700;
@@ -33,10 +45,76 @@
   opacity: 0.8;
 }
 
+/* Point rouge "recording" toujours visible */
+.adminRecordingDot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  text-decoration: none;
+  transition: all 200ms ease;
+}
+
+.adminIndicator {
+  font-size: 0.75rem;
+  color: rgba(239, 68, 68, 0.9);
+  animation: recordingPulse 1.5s ease-in-out infinite;
+  filter: drop-shadow(0 0 4px rgba(239, 68, 68, 0.6));
+}
+
+@keyframes recordingPulse {
+  0%, 100% { 
+    opacity: 1; 
+    transform: scale(1);
+  }
+  50% { 
+    opacity: 0.4;
+    transform: scale(0.9);
+  }
+}
+
+/* Point gris discret à droite */
+.adminButton {
+  font-size: 1.5rem;
+  color: rgba(255, 255, 255, 0.15);
+  text-decoration: none;
+  transition: all 200ms ease;
+  line-height: 1;
+  padding: 0 var(--spacing-xs);
+}
+
+.adminButton:hover {
+  color: rgba(255, 255, 255, 0.4);
+  transform: scale(1.2);
+}
+
 .nav {
   display: flex;
   gap: var(--spacing-lg);
   align-items: center;
+  margin-left: var(--spacing-xl);
+}
+
+.navLink {
+  color: rgba(255, 255, 255, 0.7);
+  text-decoration: none;
+  font-size: var(--font-size-md);
+  font-weight: 500;
+  transition: all 200ms ease;
+}
+
+.navLink:hover {
+  color: rgba(255, 255, 255, 1);
+}
+
+.navLinkActive {
+  color: rgba(255, 255, 255, 1);
+  text-decoration: none;
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  border-bottom: 2px solid rgba(255, 255, 255, 1);
+  padding-bottom: 2px;
 }
 
 .navLink {

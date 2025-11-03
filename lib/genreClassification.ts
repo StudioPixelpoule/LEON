@@ -211,7 +211,7 @@ export function selectTopCategories(
     .map(([genre, movies]) => ({
       genre: getGenreLabel(genre),
       originalGenre: genre,
-      movies: movies.slice(0, 20) // Maximum 20 films par rangée
+      movies: movies.slice(0, 40) // Augmenté à 40 films par rangée
     }))
 }
 

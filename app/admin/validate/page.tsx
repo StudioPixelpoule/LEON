@@ -40,6 +40,7 @@ export default function ValidatePage() {
   const [currentIndex, setCurrentIndex] = useState(0)
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<Filter>('no_tmdb')
+  const [searchQuery, setSearchQuery] = useState('') // Nouvelle recherche de film
   
   // État du média en cours
   const [correctedTitle, setCorrectedTitle] = useState('')
@@ -57,10 +58,10 @@ export default function ValidatePage() {
     loadMedia()
   }, [])
   
-  // Appliquer le filtre
+  // Appliquer le filtre et la recherche
   useEffect(() => {
     applyFilter()
-  }, [mediaList, filter])
+  }, [mediaList, filter, searchQuery])
   
   // Réinitialiser le formulaire quand on change de média
   useEffect(() => {
@@ -77,21 +78,42 @@ export default function ValidatePage() {
       setLoading(true)
       const response = await fetch('/api/media/list')
       const data = await response.json()
-      setMediaList(data)
+      
+      if (Array.isArray(data)) {
+        setMediaList(data)
+      } else {
+        console.error('Format de données invalide:', data)
+        setMediaList([])
+      }
     } catch (error) {
       console.error('Erreur chargement médias:', error)
+      setMediaList([])
     } finally {
       setLoading(false)
     }
   }
   
   function applyFilter() {
+    if (!Array.isArray(mediaList)) {
+      setFilteredMedia([])
+      return
+    }
+    
     let filtered = [...mediaList]
     
+    // Appliquer le filtre de type
     if (filter === 'no_tmdb') {
       filtered = filtered.filter(m => !m.tmdb_id)
     } else if (filter === 'no_poster') {
       filtered = filtered.filter(m => !m.poster_url || m.poster_url === '/placeholder-poster.png')
+    }
+    
+    // Appliquer la recherche textuelle
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase().trim()
+      filtered = filtered.filter(m => 
+        m.title.toLowerCase().includes(query)
+      )
     }
     
     setFilteredMedia(filtered)
@@ -289,34 +311,56 @@ export default function ValidatePage() {
       <Header />
       
       <div className={styles.container}>
-        <header className={styles.header}>
-          <Link href="/admin" className={styles.backLink}>← Retour Admin</Link>
-          <h1>Validation manuelle</h1>
-          <p className={styles.progress}>
-          {currentIndex + 1} / {filteredMedia.length} médias à traiter
-        </p>
-      </header>
+      <header className={styles.header}>
+        <Link href="/admin" className={styles.backLink}>← Retour Admin</Link>
+        <h1>Validation manuelle</h1>
+        <p className={styles.progress}>
+        {currentIndex + 1} / {filteredMedia.length} médias
+        {searchQuery && <span className={styles.filtered}> (filtrés)</span>}
+      </p>
+    </header>
       
-      {/* Filtres */}
-      <div className={styles.filters}>
-        <button 
-          className={filter === 'all' ? styles.active : ''}
-          onClick={() => setFilter('all')}
-        >
-          Tous ({mediaList.length})
-        </button>
-        <button 
-          className={filter === 'no_tmdb' ? styles.active : ''}
-          onClick={() => setFilter('no_tmdb')}
-        >
-          Sans TMDB ID ({mediaList.filter(m => !m.tmdb_id).length})
-        </button>
-        <button 
-          className={filter === 'no_poster' ? styles.active : ''}
-          onClick={() => setFilter('no_poster')}
-        >
-          Sans poster ({mediaList.filter(m => !m.poster_url || m.poster_url === '/placeholder-poster.png').length})
-        </button>
+      {/* Filtres et recherche */}
+      <div className={styles.filtersSection}>
+        <div className={styles.filters}>
+          <button 
+            className={filter === 'all' ? styles.active : ''}
+            onClick={() => setFilter('all')}
+          >
+            Tous ({mediaList.length})
+          </button>
+          <button 
+            className={filter === 'no_tmdb' ? styles.active : ''}
+            onClick={() => setFilter('no_tmdb')}
+          >
+            Sans TMDB ID ({mediaList.filter(m => !m.tmdb_id).length})
+          </button>
+          <button 
+            className={filter === 'no_poster' ? styles.active : ''}
+            onClick={() => setFilter('no_poster')}
+          >
+            Sans poster ({mediaList.filter(m => !m.poster_url || m.poster_url === '/placeholder-poster.png').length})
+          </button>
+        </div>
+        
+        <div className={styles.searchBox}>
+          <input 
+            type="text"
+            placeholder="Rechercher un film..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className={styles.searchInput}
+          />
+          {searchQuery && (
+            <button 
+              className={styles.clearButton}
+              onClick={() => setSearchQuery('')}
+              title="Effacer"
+            >
+              ✕
+            </button>
+          )}
+        </div>
       </div>
       
       {/* Carte de validation */}

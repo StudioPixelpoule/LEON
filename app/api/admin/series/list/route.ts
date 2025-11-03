@@ -1,7 +1,6 @@
 /**
- * API: Liste tous les médias
- * GET /api/media/list
- * Utilisé pour l'outil de validation manuelle
+ * API Admin: Liste les séries pour validation
+ * GET /api/admin/series/list
  */
 
 import { NextResponse } from 'next/server'
@@ -13,8 +12,16 @@ export async function GET(request: Request) {
     const filter = searchParams.get('filter') // 'no_tmdb', 'no_poster', 'all'
     
     let query = supabase
-      .from('media')
-      .select('id, title, pcloud_fileid, tmdb_id, poster_url, year')
+      .from('series')
+      .select(`
+        id, 
+        title, 
+        tmdb_id, 
+        poster_url, 
+        backdrop_url, 
+        local_folder_path,
+        episodes:episodes(count)
+      `)
       .order('created_at', { ascending: false })
     
     // Appliquer les filtres
@@ -27,22 +34,31 @@ export async function GET(request: Request) {
     const { data, error } = await query
     
     if (error) {
-      console.error('Erreur récupération médias:', error)
+      console.error('Erreur récupération séries:', error)
       return NextResponse.json(
-        { error: 'Erreur lors de la récupération des médias' },
+        { error: 'Erreur lors de la récupération des séries' },
         { status: 500 }
       )
     }
     
-    return NextResponse.json(data || [])
+    // Transformer les données pour inclure le compte d'épisodes
+    const seriesWithCount = data?.map(series => ({
+      ...series,
+      episodeCount: Array.isArray(series.episodes) ? series.episodes.length : 0,
+      episodes: undefined // Retirer le champ episodes brut
+    })) || []
+    
+    return NextResponse.json(seriesWithCount)
     
   } catch (error) {
-    console.error('Erreur API media list:', error)
+    console.error('Erreur API series list:', error)
     return NextResponse.json(
       { error: 'Erreur serveur' },
       { status: 500 }
     )
   }
 }
+
+
 
 

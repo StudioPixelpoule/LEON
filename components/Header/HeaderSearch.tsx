@@ -13,9 +13,10 @@ import { normalizeString, similarity } from '@/components/SmartSearch/searchUtil
 interface HeaderSearchProps {
   movies: GroupedMedia[]
   onMovieClick: (movie: GroupedMedia) => void
+  isSeries?: boolean
 }
 
-export default function HeaderSearch({ movies, onMovieClick }: HeaderSearchProps) {
+export default function HeaderSearch({ movies, onMovieClick, isSeries = false }: HeaderSearchProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<GroupedMedia[]>([])
@@ -152,7 +153,7 @@ export default function HeaderSearch({ movies, onMovieClick }: HeaderSearchProps
           ref={inputRef}
           type="text"
           className={styles.input}
-          placeholder="Rechercher..."
+          placeholder={isSeries ? "Rechercher une série..." : "Rechercher un film..."}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onFocus={handleFocus}

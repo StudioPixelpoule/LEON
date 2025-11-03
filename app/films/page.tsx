@@ -18,6 +18,7 @@ export default function FilmsPage() {
   const [loading, setLoading] = useState(true)
   const [selectedMovie, setSelectedMovie] = useState<GroupedMedia | null>(null)
   const [heroMovie, setHeroMovie] = useState<GroupedMedia | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0) // Pour forcer le re-render
   
   useEffect(() => {
     async function loadMovies() {
@@ -50,24 +51,42 @@ export default function FilmsPage() {
     }
     
     loadMovies()
-  }, [])
+  }, [refreshKey]) // Re-mélanger quand refreshKey change
+  
+  // Fonction de mélange aléatoire (shuffle)
+  function shuffleArray<T>(array: T[]): T[] {
+    const shuffled = [...array]
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
+    }
+    return shuffled
+  }
   
   // Afficher TOUS les films, même sans poster (placeholder utilisé)
   const validMovies = movies.filter(m => m.tmdb_id) // Uniquement ceux identifiés sur TMDB
   
   // Films VRAIMENT récemment ajoutés dans LEON (par created_at)
+  // Tri par date de création décroissante (les plus récents d'abord)
   const recentMovies = [...validMovies]
     .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
     .slice(0, 30)
   
-  const topRated = [...validMovies]
+  // Mélanger les films les mieux notés
+  const allTopRated = [...validMovies]
     .filter(m => m.rating && m.rating >= 7)
     .sort((a, b) => (b.rating || 0) - (a.rating || 0))
-    .slice(0, 30) // Augmenté à 30 films
+    .slice(0, 60)
+  const topRated = shuffleArray(allTopRated).slice(0, 30)
   
   // Utiliser le système de classification intelligent
   // Chaque film sera dans maximum 2 catégories
   const genreGroups = groupMoviesByCategories(validMovies)
+  
+  // Mélanger les films dans chaque catégorie
+  Object.keys(genreGroups).forEach(genre => {
+    genreGroups[genre] = shuffleArray(genreGroups[genre])
+  })
   
   // Sélectionner TOUTES les catégories qui ont au moins 3 films
   const topGenres = selectTopCategories(genreGroups, 99) // Pas de limite sur le nombre de catégories
@@ -80,24 +99,8 @@ export default function FilmsPage() {
   
   const notDisplayedCount = validMovies.length - displayedMovieIds.size
   
-  async function handlePlayClick(filepath: string) {
-    try {
-      const response = await fetch('/api/play', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ filepath }),
-      })
-      
-      if (!response.ok) {
-        throw new Error('Erreur ouverture fichier')
-      }
-      
-      console.log('✅ Lecture lancée')
-    } catch (error) {
-      console.error('❌ Erreur lecture:', error)
-      alert('Impossible d\'ouvrir le fichier')
-    }
-  }
+  // La lecture est maintenant gérée directement par la modale MovieModal
+  // qui ouvre le lecteur vidéo intégré
   
   if (loading) {
     return (
@@ -125,21 +128,20 @@ export default function FilmsPage() {
         {heroMovie && (
           <HeroSection 
             movie={heroMovie} 
-            onPlayClick={() => heroMovie.pcloud_fileid && handlePlayClick(heroMovie.pcloud_fileid)}
+            onPlayClick={() => setSelectedMovie(heroMovie)}
             onInfoClick={() => setSelectedMovie(heroMovie)}
           />
         )}
         
         <div className={styles.content}>
-          <div className={styles.header}>
-            <h1>Films</h1>
-            <p>{validMovies.length} films disponibles</p>
-            {notDisplayedCount > 0 && (
-              <p style={{ fontSize: 'var(--font-size-sm)', color: 'var(--color-text-secondary)', marginTop: 'var(--spacing-xs)' }}>
-                ({displayedMovieIds.size} affichés dans les catégories, {notDisplayedCount} dans "Tous les films")
-              </p>
-            )}
-          </div>
+          {/* Bouton refresh discret */}
+          <button 
+            onClick={() => setRefreshKey(k => k + 1)}
+            className={styles.refreshButton}
+            title="Recharger et mélanger les films"
+          >
+            ↻
+          </button>
         
         <div className={styles.rows}>
         {recentMovies.length > 0 && (
@@ -190,7 +192,7 @@ export default function FilmsPage() {
         <MovieModal
           movie={selectedMovie}
           onClose={() => setSelectedMovie(null)}
-          onPlayClick={(filepath) => handlePlayClick(filepath)}
+          onPlayClick={() => {}} // Non utilisé, géré en interne par la modale
         />
       )}
       </main>
