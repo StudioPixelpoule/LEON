@@ -80,7 +80,6 @@ export default function SimpleVideoPlayer({
   const currentVideoUrl = useRef(src)
   const isChangingTrack = useRef(false)
   const hasStartedPlaying = useRef(false)
-  const bufferCheckIntervalRef = useRef<NodeJS.Timeout | null>(null) // 🔧 Pour nettoyer l'intervalle buffer
 
   // Extraire le filepath depuis l'URL
   const getFilepath = useCallback(() => {
@@ -216,16 +215,35 @@ export default function SimpleVideoPlayer({
       // Utiliser HLS.js pour les navigateurs non-Safari
       if (Hls.isSupported()) {
         console.log('📺 Utilisation de HLS.js')
-        // 🎯 Configuration MINIMALISTE - laisser HLS.js gérer
+        // ✅ OPTIMISATION: Configuration HLS.js Netflix-like
         const hls = new Hls({
-          debug: false,
           enableWorker: true,
-          // Seulement les essentiels pour VOD (pas live)
-          startPosition: 0,           // 🔧 FORCER le démarrage à 0
-          maxBufferLength: 60,        // 🔧 60s de buffer (augmenté pour sécurité)
-          maxMaxBufferLength: 600,    // 10min max
-          maxBufferSize: 120 * 1000 * 1000, // 🔧 120MB (augmenté)
-          maxBufferHole: 0.5          // Tolérance 500ms
+          lowLatencyMode: false,
+          backBufferLength: 30,              // ✅ 30s en arrière (au lieu de 90)
+          maxBufferLength: 60,               // ✅ 1 minute ahead (au lieu de 5 min)
+          maxMaxBufferLength: 120,           // ✅ 2 minutes max (au lieu de 10 min)
+          maxBufferSize: 30 * 1000 * 1000,   // ✅ 30MB (au lieu de 120MB)
+          maxBufferHole: 0.3,                // ✅ Tolérance 300ms
+          // Timeouts agressifs
+          manifestLoadingTimeOut: 10000,     // ✅ 10s pour manifest
+          manifestLoadingMaxRetry: 3,        // ✅ 3 essais
+          manifestLoadingRetryDelay: 500,    // ✅ 500ms entre essais
+          levelLoadingTimeOut: 10000,
+          levelLoadingMaxRetry: 3,
+          levelLoadingRetryDelay: 500,
+          fragLoadingTimeOut: 10000,         // ✅ 10s pour fragment
+          fragLoadingMaxRetry: 4,
+          fragLoadingRetryDelay: 300,
+          // ✅ ACTIVER prefetch pour démarrage rapide
+          startFragPrefetch: true,           // ✅ Préchargement proactif
+          progressive: true,                 // ✅ Lecture progressive
+          startLevel: -1,                    // Auto-select qualité
+          capLevelToPlayerSize: true,
+          // Recovery
+          liveSyncDurationCount: 3,
+          liveMaxLatencyDurationCount: 10,
+          // Debug
+          debug: false
         })
         hlsRef.current = hls
         
@@ -234,133 +252,48 @@ export default function SimpleVideoPlayer({
         
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           console.log('📋 Manifest HLS chargé')
-          retryCountRef.current = 0
+          retryCountRef.current = 0 // Réinitialiser le compteur de tentatives
           
-          // 🔧 FORCER le démarrage à 0s
-          video.currentTime = 0
-          console.log(`🎯 Position forcée à 0s (était: ${video.currentTime}s)`)
+          // ⏳ ATTENDRE qu'au moins 30 secondes de buffer soient disponibles
+          console.log('⏳ Attente de 30s de buffer minimum...')
+          const minBufferSeconds = 30 // Minimum 30 secondes de buffer
           
-          // 🧹 Nettoyer l'ancien intervalle si existant
-          if (bufferCheckIntervalRef.current) {
-            clearInterval(bufferCheckIntervalRef.current)
-            bufferCheckIntervalRef.current = null
-          }
-          
-          // 🎯 SIMPLE: Attendre 30s de buffer, c'est tout
-          console.log('🎬 Attente de 30s de buffer...')
-          
-          let hasStarted = false
-          bufferCheckIntervalRef.current = setInterval(() => {
-            if (hasStarted) {
-              if (bufferCheckIntervalRef.current) {
-                clearInterval(bufferCheckIntervalRef.current)
-                bufferCheckIntervalRef.current = null
-              }
-              return
-            }
-            
-            // Vérifier le buffer local uniquement
-            let bufferedSeconds = 0
+          const bufferCheckInterval = setInterval(() => {
+            // Vérifier combien de temps est buffered
             if (video.buffered.length > 0) {
-              bufferedSeconds = video.buffered.end(0) - video.buffered.start(0)
-            }
-            
-            console.log(`📊 Buffer: ${bufferedSeconds.toFixed(1)}s / 30s`)
-            
-            // Lancer dès qu'on a 30s
-            if (bufferedSeconds >= 30) {
-              hasStarted = true
-              if (bufferCheckIntervalRef.current) {
-                clearInterval(bufferCheckIntervalRef.current)
-                bufferCheckIntervalRef.current = null
-              }
-              console.log(`✅ 30s de buffer atteints !`)
-              setBufferReady(true)
+              const bufferedEnd = video.buffered.end(0)
+              const bufferedStart = video.buffered.start(0)
+              const bufferedDuration = bufferedEnd - bufferedStart
               
-              // 🎯 ASTUCE: Muter temporairement pour contourner l'autoplay
-              const wasMuted = video.muted
-              video.muted = true
+              console.log(`📊 Buffer actuel: ${bufferedDuration.toFixed(1)}s`)
               
-              video.play().then(() => {
-                setIsPlaying(true)
+              if (bufferedDuration >= minBufferSeconds) {
+                clearInterval(bufferCheckInterval)
+                console.log(`✅ ${bufferedDuration.toFixed(1)}s de buffer prêt !`)
+                setBufferReady(true) // 🚦 DÉBLOQUER l'autoplay
                 setIsLoading(false)
-                console.log('▶️ Lecture démarrée')
-                
-                // 🔊 Remettre le son après 100ms
-                setTimeout(() => {
-                  video.muted = wasMuted
-                  console.log('🔊 Son activé')
-                }, 100)
-              }).catch((err) => {
-                console.warn('⚠️ Autoplay impossible:', err.message)
-                video.muted = wasMuted // Restaurer l'état original
-                setIsLoading(false) // Afficher le bouton play
-              })
+                tryAutoplay()
+              }
             }
-          }, 1000) // Check chaque seconde
+          }, 1000) // Vérifier toutes les secondes
+          
+          // Timeout de sécurité : forcer après 30 secondes (si FFmpeg très lent)
+          setTimeout(() => {
+            clearInterval(bufferCheckInterval)
+            console.log('⏰ Timeout atteint, lancement forcé')
+            setBufferReady(true) // 🚦 DÉBLOQUER même si pas assez de buffer
+            setIsLoading(false)
+            tryAutoplay()
+          }, 30000)
         })
-        
-        // 🛡️ PROTECTION: Surveillance du buffer en continu pour éviter de rattraper FFmpeg
-        let bufferWatchdog: NodeJS.Timeout | null = null
         
         hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
-          // Log silencieux (décommenter pour debug)
-          // const frag = data.frag
-          // console.log(`📦 Fragment ${frag.sn} | start: ${frag.start.toFixed(2)}s`)
+          console.log(`📦 Fragment ${data.frag.sn} chargé`)
         })
         
-        // 🔍 Surveiller le buffer toutes les 2 secondes pendant la lecture
-        const startBufferWatchdog = () => {
-          if (bufferWatchdog) clearInterval(bufferWatchdog)
-          
-          bufferWatchdog = setInterval(() => {
-            if (!video.paused && video.buffered.length > 0) {
-              const currentPos = video.currentTime
-              const bufferedEnd = video.buffered.end(video.buffered.length - 1)
-              const bufferAhead = bufferedEnd - currentPos
-              
-              // 🚨 Si moins de 10s de buffer restant, PAUSE automatique
-              if (bufferAhead < 10) {
-                console.warn(`⚠️ Buffer faible ! (${bufferAhead.toFixed(1)}s restants) → PAUSE`)
-                video.pause()
-                setIsPlaying(false)
-                setIsLoading(true)
-                
-                // Attendre d'avoir 20s de buffer avant de reprendre
-                const resumeCheck = setInterval(() => {
-                  if (video.buffered.length > 0) {
-                    const newBufferAhead = video.buffered.end(video.buffered.length - 1) - video.currentTime
-                    console.log(`📊 Rebuffering: ${newBufferAhead.toFixed(1)}s / 20s`)
-                    
-                    if (newBufferAhead >= 20) {
-                      clearInterval(resumeCheck)
-                      // 🎯 Muter temporairement pour l'autoplay
-                      const wasMuted = video.muted
-                      video.muted = true
-                      
-                      video.play().then(() => {
-                        setIsPlaying(true)
-                        setIsLoading(false)
-                        console.log('✅ Buffer rechargé, reprise')
-                        
-                        // Remettre le son après 100ms
-                        setTimeout(() => {
-                          video.muted = wasMuted
-                        }, 100)
-                      }).catch(() => {
-                        video.muted = wasMuted
-                        setIsLoading(false)
-                      })
-                    }
-                  }
-                }, 1000)
-              }
-            }
-          }, 2000) // Check toutes les 2 secondes
-        }
-        
-        // Démarrer le watchdog après le premier play
-        video.addEventListener('play', startBufferWatchdog, { once: true })
+        hls.on(Hls.Events.LEVEL_LOADED, (event, data) => {
+          console.log(`📊 Niveau chargé: ${data.level}`)
+        })
         
         hls.on(Hls.Events.ERROR, (event, data) => {
           console.error('❌ Erreur HLS:', data)
@@ -420,15 +353,26 @@ export default function SimpleVideoPlayer({
                 console.log('🔄 Rechargement complet dans 3s...')
                 setTimeout(() => {
                   hls.destroy()
-                  // 🔧 Config identique à l'initialisation
+                  // ✅ OPTIMISATION: Config Netflix-like
                   const newHls = new Hls({
-                    debug: false,
                     enableWorker: true,
-                    startPosition: 0,
+                    lowLatencyMode: false,
+                    backBufferLength: 30,
                     maxBufferLength: 60,
-                    maxMaxBufferLength: 600,
-                    maxBufferSize: 120 * 1000 * 1000,
-                    maxBufferHole: 0.5
+                    maxMaxBufferLength: 120,
+                    maxBufferSize: 30 * 1000 * 1000,
+                    maxBufferHole: 0.3,
+                    manifestLoadingTimeOut: 10000,
+                    manifestLoadingMaxRetry: 3,
+                    manifestLoadingRetryDelay: 500,
+                    levelLoadingTimeOut: 10000,
+                    levelLoadingMaxRetry: 3,
+                    levelLoadingRetryDelay: 500,
+                    fragLoadingTimeOut: 10000,
+                    fragLoadingMaxRetry: 4,
+                    fragLoadingRetryDelay: 300,
+                    startFragPrefetch: true,  // ✅ Activer prefetch
+                    progressive: true
                   })
                   hlsRef.current = newHls
                   newHls.loadSource(currentVideoUrl.current)
@@ -504,25 +448,38 @@ export default function SimpleVideoPlayer({
       }
     }
     
-    // ✅ Le buffer check intelligent gère tout maintenant (pas de timeout fixe)
+    // Timeout de sécurité : essayer après 2 secondes si rien ne se passe
+    const autoplayTimeout = setTimeout(() => {
+      console.log('⏰ Tentative de lecture après timeout')
+      console.log('État actuel:', { 
+        hasStarted: hasStartedPlaying.current,
+        readyState: video.readyState,
+        paused: video.paused 
+      })
+      
+      if (!hasStartedPlaying.current && video.readyState >= 2) {
+        tryAutoplay()
+      } else if (!hasStartedPlaying.current) {
+        // Forcer l'affichage du bouton play
+        setIsLoading(false)
+        setIsPlaying(false)
+      } else if (hasStartedPlaying.current) {
+        // La vidéo joue déjà, juste mettre à jour l'UI
+        console.log('✅ Vidéo en cours, mise à jour UI')
+        setIsLoading(false)
+        setIsPlaying(!video.paused)
+      }
+    }, 3000) // 3 secondes au lieu de 2
     
     const handleCanPlay = () => {
       console.log('✅ Vidéo prête (canplay)')
-      // ⚠️ NE PAS appeler tryAutoplay ici pour HLS
-      // Le buffer check intelligent le fera au bon moment
-      const isHLS = src.includes('/api/hls')
-      if (!isHLS) {
-        setIsLoading(false)
-        tryAutoplay()
-      }
+      setIsLoading(false)
+      tryAutoplay()
     }
     
     const handleCanPlayThrough = () => {
       console.log('✅ Vidéo peut être lue sans interruption')
-      // ⚠️ NE PAS appeler tryAutoplay ici pour HLS
-      // Le buffer check intelligent le fera au bon moment
-      const isHLS = src.includes('/api/hls')
-      if (!isHLS && !isPlaying) {
+      if (!isPlaying) {
         tryAutoplay()
       }
     }
@@ -541,11 +498,6 @@ export default function SimpleVideoPlayer({
     
     const handleTimeUpdate = () => {
       const currentPos = video.currentTime
-      
-      // 🔍 DEBUG: Détecter les sauts anormaux
-      if (Math.abs(currentPos - currentTime) > 5 && currentTime > 0) {
-        console.warn(`⚠️ SAUT DÉTECTÉ: ${currentTime.toFixed(1)}s → ${currentPos.toFixed(1)}s (delta: ${(currentPos - currentTime).toFixed(1)}s)`)
-      }
       
       // Vérifier si on a atteint la fin d'un segment HLS (reset inattendu)
       if (currentPos < 1 && video.currentTime < currentTime - 1) {
@@ -579,10 +531,7 @@ export default function SimpleVideoPlayer({
     
     const handleLoadedData = () => {
       console.log('📦 Données chargées')
-      // ⚠️ NE PAS appeler tryAutoplay ici pour HLS
-      // Le buffer check intelligent le fera au bon moment
-      const isHLS = src.includes('/api/hls')
-      if (!isHLS && !isPlaying && video.readyState >= 3) {
+      if (!isPlaying && video.readyState >= 3) {
         tryAutoplay()
       }
     }
@@ -640,11 +589,7 @@ export default function SimpleVideoPlayer({
     video.addEventListener('error', handleError)
 
     return () => {
-      // 🧹 Nettoyer l'intervalle buffer check
-      if (bufferCheckIntervalRef.current) {
-        clearInterval(bufferCheckIntervalRef.current)
-        bufferCheckIntervalRef.current = null
-      }
+      clearTimeout(autoplayTimeout)
       // Nettoyer HLS.js
       if (hlsRef.current) {
         hlsRef.current.destroy()
@@ -703,15 +648,26 @@ export default function SimpleVideoPlayer({
     
     // Recharger avec HLS.js
     if (Hls.isSupported()) {
-      // 🔧 Config identique à l'initialisation
+      // ✅ OPTIMISATION: Config Netflix-like
       const hls = new Hls({
-        debug: false,
         enableWorker: true,
-        startPosition: 0,
+        lowLatencyMode: false,
+        backBufferLength: 30,
         maxBufferLength: 60,
-        maxMaxBufferLength: 600,
-        maxBufferSize: 120 * 1000 * 1000,
-        maxBufferHole: 0.5
+        maxMaxBufferLength: 120,
+        maxBufferSize: 30 * 1000 * 1000,
+        maxBufferHole: 0.3,
+        manifestLoadingTimeOut: 10000,
+        manifestLoadingMaxRetry: 3,
+        manifestLoadingRetryDelay: 500,
+        levelLoadingTimeOut: 10000,
+        levelLoadingMaxRetry: 3,
+        levelLoadingRetryDelay: 500,
+        fragLoadingTimeOut: 10000,
+        fragLoadingMaxRetry: 4,
+        fragLoadingRetryDelay: 300,
+        startFragPrefetch: true,  // ✅ Activer prefetch
+        progressive: true
       })
       hlsRef.current = hls
       

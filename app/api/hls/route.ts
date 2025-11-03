@@ -96,42 +96,43 @@ export async function GET(request: NextRequest) {
       // OPTIMISATIONS MAXIMALES pour chargement rapide
       const ffmpegArgs = [
         '-hwaccel', 'auto',          // Accélération matérielle automatique
+        '-ss', '0',                  // 🔧 FORCER le démarrage à 0s exactement
         '-i', filepath,
+        '-copyts',                   // 🔧 Conserver les timestamps originaux
+        '-start_at_zero',            // 🔧 Forcer le démarrage à zéro
         // Sélectionner la piste vidéo et audio
         '-map', '0:v:0',              // Toujours prendre la première piste vidéo
         ...(audioTrack && audioTrack !== '0' 
           ? ['-map', `0:${audioTrack}`]  // Si piste audio spécifiée, utiliser l'index absolu
           : ['-map', '0:a:0']),           // Sinon prendre la première piste audio
-        // ACCÉLÉRATION MATÉRIELLE VideoToolbox (GPU Mac)
-        '-c:v', 'h264_videotoolbox', // Utilise le GPU Mac
-        '-b:v', '1200k',            // Bitrate très bas pour génération instantanée
-        '-maxrate', '1800k',        // Bitrate max très bas
-        '-bufsize', '2400k',        // Buffer minimal
-        '-pix_fmt', 'yuv420p',      
-        '-profile:v', 'main',       
+        // 🎨 ENCODAGE GPU VideoToolbox avec HAUTE QUALITÉ
+        // Conversion simple HDR → SDR (format yuv420p suffit pour VideoToolbox)
+        '-vf', 'format=yuv420p',
+        '-c:v', 'h264_videotoolbox', // GPU Mac (très rapide)
+        '-b:v', '3000k',            // Haute qualité (3 Mbps)
+        '-maxrate', '4000k',        
+        '-bufsize', '6000k',        
+        '-profile:v', 'main',       // Profile main (meilleure qualité)
         '-level', '4.0',            
-        // Optimisations pour démarrage rapide (VideoToolbox n'a pas de presets)
-        // '-preset', 'ultrafast',  // Non supporté par VideoToolbox
-        // '-tune', 'zerolatency',  // Non supporté par VideoToolbox
-        // '-movflags', '+faststart',  // Non applicable pour HLS
-        '-g', '24',                 // GOP très court (1 seconde)
-        '-keyint_min', '12',        // Keyframe minimum très court
+        // GOP et keyframes
+        '-g', '48',                 // GOP de 2s @ 24fps
+        '-keyint_min', '24',        // Keyframe minimum à 1s
         '-sc_threshold', '0',       // Pas de détection de changement de scène
-        // Audio : toujours réencoder en AAC pour compatibilité maximale
-        '-c:a', 'aac',              // AAC obligatoire pour compatibilité
-        '-b:a', '192k',             // Bitrate audio de qualité
+        '-force_key_frames', 'expr:gte(t,n_forced*2)', // Keyframe EXACTEMENT toutes les 2s
+        // Audio : haute qualité
+        '-c:a', 'aac',              // AAC
+        '-b:a', '192k',             // Haute qualité audio
         '-ac', '2',                 // Stéréo
-        '-ar', '48000',             // 48kHz standard
+        '-ar', '48000',             // 48kHz (standard)
         // HLS optimisé pour démarrage ultra-rapide
         '-f', 'hls',
         '-hls_time', '2',           // Segments très courts (2s) pour démarrage ultra-rapide
         '-hls_list_size', '0',      
         '-hls_segment_type', 'mpegts',
-        '-hls_flags', 'independent_segments+append_list+program_date_time',
+        '-hls_flags', 'independent_segments+temp_file', // ✅ OPTIMISATION: temp_file pour écriture atomique
         '-hls_segment_filename', path.join(sessionDir, 'segment%d.ts'),
         '-hls_playlist_type', 'event', // Playlist dynamique
-        '-hls_start_number_source', 'epoch',
-        '-start_number', '0',
+        '-start_number', '0',       // 🔧 Commencer à segment0.ts
         // Multi-threading
         '-threads', '0',            // Utiliser tous les cores CPU disponibles
         playlistPath
@@ -155,8 +156,18 @@ export async function GET(request: NextRequest) {
         }
       })
       
-      ffmpeg.on('exit', (code, signal) => {
+      ffmpeg.on('exit', async (code, signal) => {
         console.log(`FFmpeg terminé (code: ${code}, signal: ${signal})`)
+        
+        // ✅ OPTIMISATION: Créer marker .done pour indiquer fin du transcodage
+        if (code === 0) {
+          try {
+            await writeFile(path.join(sessionDir, '.done'), '')
+            console.log('📝 Marker .done créé')
+          } catch (err) {
+            console.warn('⚠️ Erreur création marker:', err)
+          }
+        }
       })
       
       // Mettre à jour le PID dans le gestionnaire
