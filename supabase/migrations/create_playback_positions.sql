@@ -57,7 +57,7 @@ SELECT
     ELSE 0
   END as progress_percent
 FROM media m
-INNER JOIN playback_positions pp ON m.id = pp.media_id
+INNER JOIN playback_positions pp ON m.id::TEXT = pp.media_id
 WHERE pp.position > 30 -- Au moins 30s de visionnage
   AND (pp.duration IS NULL OR pp.position < pp.duration * 0.95) -- Pas fini (< 95%)
 ORDER BY pp.updated_at DESC;
