@@ -50,7 +50,7 @@ CREATE OR REPLACE VIEW media_in_progress AS
 SELECT 
   m.*,
   pp.position as current_time,
-  pp.duration,
+  pp.duration as saved_duration,
   pp.updated_at as last_watched,
   CASE 
     WHEN pp.duration > 0 THEN (pp.position / pp.duration * 100)::INTEGER
