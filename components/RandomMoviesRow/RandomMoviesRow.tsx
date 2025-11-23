@@ -28,34 +28,44 @@ export default function RandomMoviesRow({ movies, onMovieClick }: RandomMoviesRo
   }
 
   return (
-    <div className={styles.container}>
+    <section className={styles.row}>
       <h2 className={styles.title}>À découvrir</h2>
-      
-      <div className={styles.row}>
+      <div className={styles.scroll}>
         {randomMovies.map((movie) => (
           <div
             key={movie.id}
             className={styles.card}
             onClick={() => onMovieClick(movie)}
           >
-            <div className={styles.posterWrapper}>
-              <img
-                src={movie.poster_url ? `/api/proxy-image?url=${encodeURIComponent(movie.poster_url)}` : '/placeholder-poster.png'}
-                alt={movie.title}
-                className={styles.poster}
-              />
-            </div>
-
-            <div className={styles.info}>
-              <h3 className={styles.movieTitle}>{movie.title}</h3>
-              {movie.year && (
-                <p className={styles.year}>{movie.year}</p>
+            <img
+              src={movie.poster_url ? `/api/proxy-image?url=${encodeURIComponent(movie.poster_url)}` : '/placeholder-poster.png'}
+              alt={movie.title}
+              className={styles.poster}
+            />
+            <div className={styles.cardHover}>
+              <h3 className={styles.cardTitle}>{movie.title}</h3>
+              <div className={styles.cardMeta}>
+                {movie.year && <span>{movie.year}</span>}
+                {movie.formatted_runtime && (
+                  <>
+                    <span>·</span>
+                    <span>{movie.formatted_runtime}</span>
+                  </>
+                )}
+              </div>
+              {movie.rating && movie.rating > 0 && (
+                <div className={styles.cardRating}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/>
+                  </svg>
+                  <span>{movie.rating.toFixed(1)}</span>
+                </div>
               )}
             </div>
           </div>
         ))}
       </div>
-    </div>
+    </section>
   )
 }
 
