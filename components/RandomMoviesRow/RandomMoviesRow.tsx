@@ -6,6 +6,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Image from 'next/image'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
 import styles from './RandomMoviesRow.module.css'
 
@@ -37,10 +38,13 @@ export default function RandomMoviesRow({ movies, onMovieClick }: RandomMoviesRo
             className={styles.card}
             onClick={() => onMovieClick(movie)}
           >
-            <img
-              src={movie.poster_url ? `/api/proxy-image?url=${encodeURIComponent(movie.poster_url)}` : '/placeholder-poster.png'}
+            <Image
+              src={movie.poster_url || '/placeholder-poster.svg'}
               alt={movie.title}
+              width={240}
+              height={360}
               className={styles.poster}
+              unoptimized
             />
             <div className={styles.cardHover}>
               <h3 className={styles.cardTitle}>{movie.title}</h3>
