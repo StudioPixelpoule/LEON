@@ -6,6 +6,7 @@ import styles from './SimpleVideoPlayer.module.css'
 import menuStyles from './SettingsMenu.module.css'
 import { useBufferStatus } from '@/lib/hooks/useBufferStatus'
 import { SegmentPreloader } from '@/lib/segment-preloader'
+import { usePlaybackPosition } from '@/lib/hooks/usePlaybackPosition'
 
 interface SimpleVideoPlayerProps {
   src: string
@@ -13,6 +14,7 @@ interface SimpleVideoPlayerProps {
   subtitle?: string
   onClose: () => void
   poster?: string
+  mediaId?: string // ID du film pour sauvegarder la position
 }
 
 interface AudioTrack {
@@ -56,7 +58,8 @@ export default function SimpleVideoPlayer({
   title, 
   subtitle, 
   onClose,
-  poster
+  poster,
+  mediaId
 }: SimpleVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const progressRef = useRef<HTMLDivElement>(null)
@@ -117,6 +120,15 @@ export default function SimpleVideoPlayer({
     getAudioTrack(), 
     isPlaying && isRemuxing // Activer seulement pendant le HLS remuxing
   )
+
+  // 🔧 PHASE 3: Hook pour sauvegarder la position de lecture
+  usePlaybackPosition({
+    mediaId: mediaId || null,
+    currentTime,
+    duration: realDurationRef.current || duration,
+    isPlaying,
+    enabled: !!mediaId // Activer seulement si mediaId est fourni
+  })
 
   // 🔧 PHASE 4: Initialiser le preloader pour HLS
   useEffect(() => {
