@@ -3,14 +3,17 @@
 
 CREATE TABLE IF NOT EXISTS playback_positions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  media_id UUID NOT NULL REFERENCES media(id) ON DELETE CASCADE,
+  media_id TEXT NOT NULL, -- Utiliser TEXT comme la table media
   position FLOAT NOT NULL DEFAULT 0, -- Position en secondes
   duration FLOAT, -- Durée totale (optionnel, pour calculer %)
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   created_at TIMESTAMPTZ DEFAULT NOW(),
   
   -- Un seul enregistrement par film (upsert automatique)
-  UNIQUE(media_id)
+  UNIQUE(media_id),
+  
+  -- Foreign key vers media (id est probablement TEXT)
+  CONSTRAINT fk_media FOREIGN KEY (media_id) REFERENCES media(id) ON DELETE CASCADE
 );
 
 -- Index pour performances
