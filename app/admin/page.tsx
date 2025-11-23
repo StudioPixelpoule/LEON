@@ -7,6 +7,7 @@
 
 import { useState } from 'react'
 import Header from '@/components/Header/Header'
+import { FolderSearch, Image, HardDrive, BarChart3, Search, RefreshCw, Trash2 } from 'lucide-react'
 import styles from './admin.module.css'
 
 // Sections de la page admin
@@ -29,7 +30,7 @@ export default function AdminPageV2() {
               className={`${styles.navItem} ${activeSection === 'scan' ? styles.active : ''}`}
               onClick={() => setActiveSection('scan')}
             >
-              <span className={styles.icon}>📂</span>
+              <FolderSearch className={styles.icon} size={20} strokeWidth={1.5} />
               Scanner les films
             </button>
             
@@ -37,7 +38,7 @@ export default function AdminPageV2() {
               className={`${styles.navItem} ${activeSection === 'validation' ? styles.active : ''}`}
               onClick={() => setActiveSection('validation')}
             >
-              <span className={styles.icon}>🖼️</span>
+              <Image className={styles.icon} size={20} strokeWidth={1.5} />
               Validation posters
             </button>
             
@@ -45,7 +46,7 @@ export default function AdminPageV2() {
               className={`${styles.navItem} ${activeSection === 'cache' ? styles.active : ''}`}
               onClick={() => setActiveSection('cache')}
             >
-              <span className={styles.icon}>💾</span>
+              <HardDrive className={styles.icon} size={20} strokeWidth={1.5} />
               Gestion du cache
             </button>
             
@@ -53,7 +54,7 @@ export default function AdminPageV2() {
               className={`${styles.navItem} ${activeSection === 'stats' ? styles.active : ''}`}
               onClick={() => setActiveSection('stats')}
             >
-              <span className={styles.icon}>📊</span>
+              <BarChart3 className={styles.icon} size={20} strokeWidth={1.5} />
               Statistiques
             </button>
           </div>
@@ -114,13 +115,23 @@ function ScanSection() {
           onClick={handleScan}
           disabled={scanning}
         >
-          {scanning ? '⏳ Scan en cours...' : '🔍 Lancer le scan'}
+          {scanning ? (
+            <>
+              <RefreshCw size={16} className={styles.spinning} />
+              Scan en cours...
+            </>
+          ) : (
+            <>
+              <Search size={16} />
+              Lancer le scan
+            </>
+          )}
         </button>
       </div>
 
       {result && (
         <div className={styles.resultCard}>
-          <h3>✅ Scan terminé</h3>
+          <h3>Scan terminé</h3>
           <div className={styles.stats}>
             <div className={styles.statItem}>
               <span className={styles.statValue}>{result.stats?.total || 0}</span>
@@ -158,8 +169,8 @@ function ValidationSection() {
       
       {/* TODO: Réutiliser le composant MediaValidator existant avec un meilleur design */}
       <div className={styles.placeholder}>
-        <p>🚧 Section en cours de migration...</p>
-        <p>Utilise <a href="/admin">l'ancienne interface</a> en attendant</p>
+        <p>Section en cours de migration...</p>
+        <p>Cette fonctionnalité sera disponible prochainement</p>
       </div>
     </div>
   )
@@ -223,7 +234,17 @@ function CacheSection() {
           onClick={loadStats}
           disabled={loading}
         >
-          {loading ? '⏳ Chargement...' : '🔄 Rafraîchir'}
+          {loading ? (
+            <>
+              <RefreshCw size={16} className={styles.spinning} />
+              Chargement...
+            </>
+          ) : (
+            <>
+              <RefreshCw size={16} />
+              Rafraîchir
+            </>
+          )}
         </button>
         
         <button
@@ -231,13 +252,23 @@ function CacheSection() {
           onClick={clearCache}
           disabled={clearing}
         >
-          {clearing ? '⏳ Suppression...' : '🗑️ Vider le cache'}
+          {clearing ? (
+            <>
+              <RefreshCw size={16} className={styles.spinning} />
+              Suppression...
+            </>
+          ) : (
+            <>
+              <Trash2 size={16} />
+              Vider le cache
+            </>
+          )}
         </button>
       </div>
 
       {stats && (
         <div className={styles.resultCard}>
-          <h3>📊 Statistiques du cache</h3>
+          <h3>Statistiques du cache</h3>
           <div className={styles.stats}>
             <div className={styles.statItem}>
               <span className={styles.statValue}>{stats.totalSizeGB}</span>
@@ -273,7 +304,7 @@ function StatsSection() {
       </p>
       
       <div className={styles.placeholder}>
-        <p>🚧 Section à venir...</p>
+        <p>Section à venir...</p>
         <p>Films totaux, espace disque, films les plus regardés, etc.</p>
       </div>
     </div>
