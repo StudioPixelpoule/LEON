@@ -40,7 +40,7 @@ export default function RandomMoviesRow({ movies, onMovieClick }: RandomMoviesRo
           >
             <div className={styles.posterWrapper}>
               <img
-                src={movie.poster || '/placeholder-poster.png'}
+                src={movie.poster_url ? `/api/proxy-image?url=${encodeURIComponent(movie.poster_url)}` : '/placeholder-poster.png'}
                 alt={movie.title}
                 className={styles.poster}
               />
