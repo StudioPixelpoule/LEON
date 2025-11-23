@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     
     const { data, error } = await supabase
       .from('playback_positions')
-      .select('current_time, duration, updated_at')
+      .select('position, duration, updated_at')
       .eq('media_id', mediaId)
       .single()
 
@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.json({
-      currentTime: data.current_time,
+      currentTime: data.position,
       duration: data.duration,
       lastWatched: data.updated_at
     })
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       .from('playback_positions')
       .upsert({
         media_id: mediaId,
-        current_time: currentTime,
+        position: currentTime,
         duration: duration || null,
         updated_at: new Date().toISOString()
       }, {

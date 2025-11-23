@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS playback_positions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   media_id UUID NOT NULL REFERENCES media(id) ON DELETE CASCADE,
-  current_time FLOAT NOT NULL DEFAULT 0, -- Position en secondes
+  position FLOAT NOT NULL DEFAULT 0, -- Position en secondes
   duration FLOAT, -- Durée totale (optionnel, pour calculer %)
   updated_at TIMESTAMPTZ DEFAULT NOW(),
   created_at TIMESTAMPTZ DEFAULT NOW(),
@@ -46,21 +46,21 @@ CREATE POLICY "Allow all operations for now" ON playback_positions
 CREATE OR REPLACE VIEW media_in_progress AS
 SELECT 
   m.*,
-  pp.current_time,
+  pp.position as current_time,
   pp.duration,
   pp.updated_at as last_watched,
   CASE 
-    WHEN pp.duration > 0 THEN (pp.current_time / pp.duration * 100)::INTEGER
+    WHEN pp.duration > 0 THEN (pp.position / pp.duration * 100)::INTEGER
     ELSE 0
   END as progress_percent
 FROM media m
 INNER JOIN playback_positions pp ON m.id = pp.media_id
-WHERE pp.current_time > 30 -- Au moins 30s de visionnage
-  AND (pp.duration IS NULL OR pp.current_time < pp.duration * 0.95) -- Pas fini (< 95%)
+WHERE pp.position > 30 -- Au moins 30s de visionnage
+  AND (pp.duration IS NULL OR pp.position < pp.duration * 0.95) -- Pas fini (< 95%)
 ORDER BY pp.updated_at DESC;
 
 -- Commentaires
 COMMENT ON TABLE playback_positions IS 'Positions de lecture pour reprendre un film';
-COMMENT ON COLUMN playback_positions.current_time IS 'Position actuelle en secondes';
+COMMENT ON COLUMN playback_positions.position IS 'Position actuelle en secondes';
 COMMENT ON COLUMN playback_positions.duration IS 'Durée totale du fichier en secondes';
 COMMENT ON VIEW media_in_progress IS 'Vue des films en cours de visionnage (> 30s et < 95%)';
