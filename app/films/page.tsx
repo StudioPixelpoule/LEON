@@ -145,7 +145,10 @@ export default function FilmsPage() {
         
         <div className={styles.content}>
           {/* Carrousel: Continuer le visionnage */}
-          <ContinueWatchingRow onMovieClick={setSelectedMovie} />
+          <ContinueWatchingRow 
+            onMovieClick={setSelectedMovie} 
+            onRefresh={() => setRefreshKey(k => k + 1)} 
+          />
           
           {/* Bouton refresh discret */}
           <button 

@@ -19,9 +19,10 @@ interface MediaWithProgress extends GroupedMedia {
 
 interface ContinueWatchingRowProps {
   onMovieClick: (movie: GroupedMedia) => void
+  onRefresh: () => void
 }
 
-export default function ContinueWatchingRow({ onMovieClick }: ContinueWatchingRowProps) {
+export default function ContinueWatchingRow({ onMovieClick, onRefresh }: ContinueWatchingRowProps) {
   const [movies, setMovies] = useState<MediaWithProgress[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -49,12 +50,18 @@ export default function ContinueWatchingRow({ onMovieClick }: ContinueWatchingRo
     event.stopPropagation()
     
     try {
-      await fetch(`/api/playback-position?mediaId=${movieId}`, {
-        method: 'DELETE'
+      // Marquer comme terminé en mettant position = 0
+      await fetch('/api/playback-position', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mediaId: movieId, position: 0, duration: 0 })
       })
       
       // Retirer de la liste
       setMovies(movies.filter(m => m.id !== movieId))
+      
+      // Rafraîchir la page parent
+      onRefresh()
     } catch (error) {
       console.error('Erreur suppression position:', error)
     }

@@ -11,36 +11,61 @@ export async function GET() {
   try {
     const supabase = createClient()
     
-    // Requête directe avec JOIN au lieu de la vue (plus compatible)
-    const { data, error } = await supabase
+    // Pour l'instant, utiliser une requête séparée car le JOIN Supabase est complexe
+    // 1. Récupérer les positions de lecture
+    const DUMMY_USER_ID = '00000000-0000-0000-0000-000000000000'
+    
+    const { data: positions, error: posError } = await supabase
       .from('playback_positions')
-      .select(`
-        position,
-        duration,
-        updated_at,
-        media:media_id (*)
-      `)
-      .gt('position', 30) // Au moins 30s
+      .select('*')
+      .eq('user_id', DUMMY_USER_ID)
+      .gt('position', 30) // Au moins 30s regardées
       .order('updated_at', { ascending: false })
       .limit(20)
 
-    if (error) {
-      throw error
+    if (posError) {
+      throw posError
     }
 
-    // Reformater les données pour avoir la structure attendue
-    const formattedData = (data || [])
-      .filter(item => item.media) // Filtrer les items sans media
-      .map(item => ({
-        ...(Array.isArray(item.media) ? item.media[0] : item.media),
-        current_time: item.position,
-        saved_duration: item.duration,
-        last_watched: item.updated_at,
-        progress_percent: item.duration && item.duration > 0 
-          ? Math.floor((item.position / item.duration) * 100)
+    if (!positions || positions.length === 0) {
+      return NextResponse.json({
+        success: true,
+        media: [],
+        count: 0
+      })
+    }
+
+    // 2. Récupérer les infos des films correspondants
+    const mediaIds = positions.map(p => p.media_id)
+    const { data: mediaList, error: mediaError } = await supabase
+      .from('media')
+      .select('*')
+      .in('id', mediaIds)
+
+    if (mediaError) {
+      throw mediaError
+    }
+
+    // 3. Fusionner les données
+    const formattedData = positions
+      .map(pos => {
+        // Convertir m.id en string pour la comparaison
+        const media = mediaList?.find(m => String(m.id) === pos.media_id)
+        if (!media) return null
+        
+        const progressPercent = pos.duration > 0 
+          ? Math.floor((pos.position / pos.duration) * 100) 
           : 0
-      }))
-      .filter(item => item.progress_percent < 95) // Pas fini
+        
+        return {
+          ...media,
+          position: pos.position,
+          saved_duration: pos.duration,
+          playback_updated_at: pos.updated_at,
+          progress_percent: progressPercent
+        }
+      })
+      .filter(item => item !== null && item.progress_percent < 95) // Pas fini
 
     return NextResponse.json({
       success: true,

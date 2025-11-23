@@ -20,10 +20,12 @@ export async function GET(request: NextRequest) {
 
   try {
     const supabase = createClient()
+    const DUMMY_USER_ID = '00000000-0000-0000-0000-000000000000'
     
     const { data, error } = await supabase
       .from('playback_positions')
       .select('position, duration, updated_at')
+      .eq('user_id', DUMMY_USER_ID)
       .eq('media_id', mediaId)
       .single()
 
@@ -65,20 +67,21 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = createClient()
+    const DUMMY_USER_ID = '00000000-0000-0000-0000-000000000000'
 
     // Upsert: créer ou mettre à jour
     const { data, error } = await supabase
       .from('playback_positions')
       .upsert({
+        user_id: DUMMY_USER_ID,
         media_id: mediaId,
         position: currentTime,
         duration: duration || null,
         updated_at: new Date().toISOString()
       }, {
-        onConflict: 'media_id' // Conflit sur media_id = update
+        onConflict: 'user_id,media_id' // Conflit sur (user_id, media_id) = update
       })
       .select()
-      .single()
 
     if (error) {
       throw error
@@ -110,10 +113,12 @@ export async function DELETE(request: NextRequest) {
 
   try {
     const supabase = createClient()
+    const DUMMY_USER_ID = '00000000-0000-0000-0000-000000000000'
     
     const { error } = await supabase
       .from('playback_positions')
       .delete()
+      .eq('user_id', DUMMY_USER_ID)
       .eq('media_id', mediaId)
 
     if (error) {
