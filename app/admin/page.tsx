@@ -7,7 +7,7 @@
 
 import { useState } from 'react'
 import Header from '@/components/Header/Header'
-import styles from './admin-v2.module.css'
+import styles from './admin.module.css'
 
 // Sections de la page admin
 type AdminSection = 'scan' | 'cache' | 'validation' | 'stats'
