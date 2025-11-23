@@ -116,6 +116,7 @@ export default function MovieModal({ movie, onClose, onPlayClick }: MovieModalPr
             ? `/api/proxy-image?url=${encodeURIComponent(movie.backdrop_url || movie.poster_url || '')}`
             : undefined
         }
+        mediaId={movie.id}
         onClose={() => {
           setShowPlayer(false)
           onClose()

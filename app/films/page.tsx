@@ -9,6 +9,7 @@ import Header from '@/components/Header/Header'
 import HeroSection from '@/components/HeroSection/HeroSection'
 import MovieRow from '@/components/MovieRow/MovieRow'
 import MovieModal from '@/components/MovieModal/MovieModalWithTV'
+import ContinueWatchingRow from '@/components/ContinueWatchingRow/ContinueWatchingRow'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
 import { groupMoviesByCategories, selectTopCategories } from '@/lib/genreClassification'
 import styles from './films.module.css'
@@ -134,6 +135,9 @@ export default function FilmsPage() {
         )}
         
         <div className={styles.content}>
+          {/* Carrousel: Continuer le visionnage */}
+          <ContinueWatchingRow onMovieClick={setSelectedMovie} />
+          
           {/* Bouton refresh discret */}
           <button 
             onClick={() => setRefreshKey(k => k + 1)}
