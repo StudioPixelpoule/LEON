@@ -1,7 +1,7 @@
 /* MovieRow - Premium Apple TV+ Style */
 
 .row {
-  padding: calc(var(--spacing-2xl) * 1.2) 0;
+  padding: var(--spacing-xl) 0;
   overflow: visible;
   position: relative;
 }

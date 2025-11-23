@@ -10,6 +10,7 @@ import HeroSection from '@/components/HeroSection/HeroSection'
 import MovieRow from '@/components/MovieRow/MovieRow'
 import MovieModal from '@/components/MovieModal/MovieModalWithTV'
 import ContinueWatchingRow from '@/components/ContinueWatchingRow/ContinueWatchingRow'
+import RandomMoviesRow from '@/components/RandomMoviesRow/RandomMoviesRow'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
 import { groupMoviesByCategories, selectTopCategories } from '@/lib/genreClassification'
 import styles from './films.module.css'
@@ -38,11 +39,19 @@ export default function FilmsPage() {
         
         setMovies(movieList)
         
-        // Sélectionner un film COMPLÈTEMENT aléatoire pour le hero parmi tous les films avec backdrop
-        const withBackdrop = movieList.filter(m => m.backdrop_url)
-        if (withBackdrop.length > 0) {
-          const randomIndex = Math.floor(Math.random() * withBackdrop.length)
-          setHeroMovie(withBackdrop[randomIndex])
+        // Hero: Sélectionner parmi les 10 derniers films ajoutés
+        const recentWithBackdrop = movieList
+          .filter(m => m.backdrop_url)
+          .sort((a, b) => {
+            const dateA = new Date(a.created_at || 0).getTime()
+            const dateB = new Date(b.created_at || 0).getTime()
+            return dateB - dateA // Plus récent en premier
+          })
+          .slice(0, 10) // Top 10 derniers ajouts
+        
+        if (recentWithBackdrop.length > 0) {
+          const randomIndex = Math.floor(Math.random() * recentWithBackdrop.length)
+          setHeroMovie(recentWithBackdrop[randomIndex])
         }
       } catch (error) {
         console.error('❌ Erreur chargement films:', error)
@@ -148,26 +157,26 @@ export default function FilmsPage() {
           </button>
         
         <div className={styles.rows}>
+        {/* Carrousel: À découvrir (aléatoire) */}
+        <RandomMoviesRow 
+          movies={validMovies}
+          onMovieClick={setSelectedMovie}
+        />
+        
         {recentMovies.length > 0 && (
-          <>
-            <MovieRow
-              title="Récemment ajoutés"
-              movies={recentMovies}
-              onMovieClick={setSelectedMovie}
-            />
-            <div className={styles.separator}></div>
-          </>
+          <MovieRow
+            title="Derniers ajouts"
+            movies={recentMovies}
+            onMovieClick={setSelectedMovie}
+          />
         )}
         
         {topRated.length > 0 && (
-          <>
-            <MovieRow
-              title="Mieux notés"
-              movies={topRated}
-              onMovieClick={setSelectedMovie}
-            />
-            <div className={styles.separator}></div>
-          </>
+          <MovieRow
+            title="Mieux notés"
+            movies={topRated}
+            onMovieClick={setSelectedMovie}
+          />
         )}
         
         {topGenres.map(({ genre, movies }, index) => (
