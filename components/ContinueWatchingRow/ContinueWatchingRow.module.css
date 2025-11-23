@@ -1,66 +1,113 @@
-/* Container */
-.container {
-  padding: 40px 60px 20px;
-  max-width: 1920px;
-  margin: 0 auto;
+/* STYLE IDENTIQUE À MovieRow.module.css + barre de progression */
+
+.row {
+  padding: var(--spacing-xl) 0;
+  overflow: visible;
+  position: relative;
+}
+
+.row::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 120px;
+  background: linear-gradient(
+    to left,
+    #0a0a0a 0%,
+    transparent 100%
+  );
+  pointer-events: none;
+  z-index: 50;
 }
 
 .title {
-  font-size: 24px;
-  font-weight: 600;
-  margin-bottom: 20px;
-  color: white;
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: var(--color-white);
+  margin: 0 0 var(--spacing-lg) 0;
+  padding: 0 calc(var(--spacing-xl) * 3);
+  letter-spacing: -0.04em;
+  line-height: 1.1;
 }
 
 .loading {
-  color: rgba(255, 255, 255, 0.6);
-  font-size: 16px;
-  padding: 40px 0;
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 15px;
+  padding: 20px calc(var(--spacing-xl) * 3);
 }
 
-/* Row de cartes */
-.row {
+.scroll {
   display: flex;
-  gap: 16px;
+  gap: calc(var(--spacing-xl) * 1.25);
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: visible;
   scroll-behavior: smooth;
-  padding-bottom: 16px;
+  padding: calc(var(--spacing-lg) * 1.5) calc(var(--spacing-xl) * 3) calc(var(--spacing-2xl) * 1.5);
   
-  /* Masquer scrollbar mais garder scroll */
+  /* Masquer la scrollbar */
   scrollbar-width: none;
   -ms-overflow-style: none;
 }
 
-.row::-webkit-scrollbar {
+.scroll::-webkit-scrollbar {
   display: none;
 }
 
-/* Carte de film */
 .card {
   position: relative;
+  min-width: 240px;
+  width: 240px;
+  height: 360px;
   flex-shrink: 0;
-  width: 200px;
   cursor: pointer;
-  transition: transform 0.3s ease;
+  transition: all 400ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  overflow: visible;
+  border-radius: 8px;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.1) 0%,
+    transparent 50%
+  );
+  opacity: 0;
+  transition: opacity 400ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  z-index: 2;
+  pointer-events: none;
 }
 
 .card:hover {
-  transform: scale(1.05);
-  z-index: 1;
+  transform: scale(1.08) translateY(-16px);
+  z-index: 100;
+}
+
+.card:hover::before {
+  opacity: 1;
 }
 
 .card:hover .removeBtn {
   opacity: 1;
 }
 
-/* Bouton supprimer */
+.card:hover .cardHover {
+  opacity: 1;
+}
+
+/* Bouton supprimer (spécifique à ce carrousel) */
 .removeBtn {
   position: absolute;
   top: 8px;
   right: 8px;
-  z-index: 2;
+  z-index: 101;
   background: rgba(0, 0, 0, 0.8);
+  backdrop-filter: blur(4px);
   border: none;
   border-radius: 50%;
   width: 28px;
@@ -70,123 +117,166 @@
   justify-content: center;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.2s ease, background 0.2s ease;
+  transition: all 400ms cubic-bezier(0.22, 0.61, 0.36, 1);
   color: white;
 }
 
 .removeBtn:hover {
   background: rgba(229, 9, 20, 0.9);
+  transform: scale(1.1);
 }
 
-/* Poster wrapper */
-.posterWrapper {
+/* Poster container (pour contenir la barre de progression) */
+.posterContainer {
   position: relative;
   width: 100%;
-  aspect-ratio: 2/3;
+  height: 100%;
   border-radius: 8px;
   overflow: hidden;
-  background: #1a1a1a;
 }
 
 .poster {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  transition: all 400ms cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
-/* Overlay progression */
-.progressOverlay {
+.card:hover .poster {
+  box-shadow: 0 16px 64px rgba(0, 0, 0, 0.5);
+}
+
+/* Barre de progression EN BAS */
+.progressBar {
   position: absolute;
   bottom: 0;
   left: 0;
   right: 0;
-  background: linear-gradient(to top, rgba(0, 0, 0, 0.9) 0%, transparent 100%);
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-
-.card:hover .progressOverlay {
-  opacity: 1;
-}
-
-.playIcon {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  color: white;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-
-.card:hover .playIcon {
-  opacity: 0.9;
-}
-
-/* Barre de progression */
-.progressBar {
-  width: 100%;
   height: 4px;
   background: rgba(255, 255, 255, 0.2);
-  border-radius: 2px;
-  overflow: hidden;
+  z-index: 4;
+  border-radius: 0 0 8px 8px;
 }
 
 .progressFill {
   height: 100%;
-  background: white;
-  border-radius: 2px;
+  background: var(--color-red);
   transition: width 0.3s ease;
+  box-shadow: 0 0 8px rgba(229, 9, 20, 0.5);
 }
 
-.progressText {
-  font-size: 11px;
-  font-weight: 600;
-  color: white;
-  text-align: right;
+/* Overlay au hover (identique à MovieRow) */
+.cardHover {
+  position: absolute;
+  inset: 0;
+  padding: calc(var(--spacing-xl) * 1.5) var(--spacing-lg) var(--spacing-lg);
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.98) 0%,
+    rgba(0, 0, 0, 0.92) 35%,
+    rgba(0, 0, 0, 0.7) 60%,
+    rgba(0, 0, 0, 0.3) 85%,
+    transparent 100%
+  );
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  opacity: 0;
+  transition: opacity 400ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  z-index: 3;
 }
 
-/* Info film */
-.info {
-  padding: 12px 4px 0;
-}
-
-.movieTitle {
-  font-size: 14px;
-  font-weight: 600;
-  color: white;
-  margin-bottom: 4px;
-  line-height: 1.3;
-  
-  /* Ellipsis sur 2 lignes */
+.cardTitle {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--color-white);
+  margin: 0 0 var(--spacing-sm) 0;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 }
 
-.year {
-  font-size: 13px;
-  color: rgba(255, 255, 255, 0.6);
-  margin: 0;
+.cardMeta {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+  margin: 0 0 var(--spacing-xs) 0;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.cardProgress {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #0fdf8f;
+  margin-top: var(--spacing-xs);
 }
 
 /* Responsive */
-@media (max-width: 768px) {
-  .container {
-    padding: 30px 20px 15px;
-  }
-  
-  .title {
-    font-size: 20px;
-  }
-  
+@media (max-width: 1280px) {
   .card {
+    min-width: 200px;
+    width: 200px;
+    height: 300px;
+  }
+
+  .cardTitle {
+    font-size: 1rem;
+  }
+
+  .cardMeta {
+    font-size: 0.85rem;
+  }
+}
+
+@media (max-width: 768px) {
+  .row {
+    padding: var(--spacing-xl) 0;
+  }
+
+  .row::after {
+    width: 60px;
+  }
+
+  .title {
+    font-size: 1.5rem;
+    padding: 0 var(--spacing-lg);
+    margin-bottom: var(--spacing-lg);
+  }
+
+  .scroll {
+    padding: var(--spacing-md) var(--spacing-lg) var(--spacing-xl);
+    gap: var(--spacing-md);
+  }
+
+  .card {
+    min-width: 160px;
     width: 160px;
+    height: 240px;
+  }
+
+  .card:hover {
+    transform: scale(1.05) translateY(-8px);
+  }
+
+  .cardTitle {
+    font-size: 0.9rem;
+  }
+
+  .cardMeta {
+    font-size: 0.75rem;
+  }
+
+  .cardProgress {
+    font-size: 0.75rem;
   }
 }
 

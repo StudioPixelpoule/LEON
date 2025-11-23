@@ -1,73 +1,58 @@
-/**
- * API Admin: Recherche manuelle sur TMDB
- * POST /api/admin/search-tmdb
- * Body: { query: string, year?: number, type: 'movie' | 'tv' }
- */
+import { NextRequest, NextResponse } from 'next/server'
 
-import { NextResponse } from 'next/server'
-import { searchMovie, searchTVShow, type TMDBMovie, type TMDBTVShow } from '@/lib/tmdb'
+const TMDB_API_KEY = process.env.TMDB_API_KEY
+const TMDB_BASE_URL = 'https://api.themoviedb.org/3'
 
-export async function POST(request: Request) {
+export async function GET(request: NextRequest) {
   try {
-    const body = await request.json()
-    const { query, year, type } = body
-    
-    if (!query || typeof query !== 'string') {
+    const { searchParams } = new URL(request.url)
+    const query = searchParams.get('query')
+
+    if (!query) {
       return NextResponse.json(
-        { error: 'Query manquante' },
+        { error: 'Le paramètre query est requis' },
         { status: 400 }
       )
     }
-    
-    const mediaType = type || 'movie'
-    
-    let results: any[] = []
-    
-    if (mediaType === 'movie') {
-      const movies = await searchMovie(query, year)
-      results = movies.map((movie: TMDBMovie) => ({
-        id: movie.id,
-        type: 'movie' as const,
-        title: movie.title,
-        original_title: movie.original_title,
-        year: movie.release_date ? new Date(movie.release_date).getFullYear() : null,
-        poster_path: movie.poster_path,
-        backdrop_path: movie.backdrop_path,
-        overview: movie.overview,
-        rating: movie.vote_average,
-        genres: movie.genre_ids, // IDs uniquement pour la recherche
-        popularity: movie.popularity,
-      }))
-    } else {
-      const shows = await searchTVShow(query, year)
-      results = shows.map((show: TMDBTVShow) => ({
-        id: show.id,
-        type: 'tv' as const,
-        title: show.name,
-        original_title: show.original_name,
-        year: show.first_air_date ? new Date(show.first_air_date).getFullYear() : null,
-        poster_path: show.poster_path,
-        backdrop_path: show.backdrop_path,
-        overview: show.overview,
-        rating: show.vote_average,
-        genres: show.genre_ids,
-        popularity: show.popularity,
-      }))
+
+    if (!TMDB_API_KEY) {
+      console.error('❌ TMDB_API_KEY non configurée')
+      return NextResponse.json(
+        { error: 'TMDB API key non configurée' },
+        { status: 500 }
+      )
     }
+
+    // Recherche de films sur TMDB
+    const tmdbUrl = `${TMDB_BASE_URL}/search/movie?api_key=${TMDB_API_KEY}&language=fr-FR&query=${encodeURIComponent(query)}&include_adult=false`
     
+    console.log(`🔍 Recherche TMDB: "${query}"`)
+    
+    const response = await fetch(tmdbUrl)
+    
+    if (!response.ok) {
+      console.error(`❌ Erreur TMDB API: ${response.status}`)
+      return NextResponse.json(
+        { error: 'Erreur lors de la recherche TMDB' },
+        { status: response.status }
+      )
+    }
+
+    const data = await response.json()
+    
+    console.log(`✅ ${data.results?.length || 0} résultats trouvés pour "${query}"`)
+
     return NextResponse.json({
       success: true,
-      count: results.length,
-      results: results.slice(0, 10) // Limiter à 10 résultats
+      results: data.results || [],
+      total_results: data.total_results || 0
     })
-    
+
   } catch (error) {
-    console.error('Erreur recherche TMDB:', error)
+    console.error('❌ Erreur recherche TMDB:', error)
     return NextResponse.json(
-      { error: 'Erreur lors de la recherche TMDB' },
+      { error: 'Erreur serveur lors de la recherche' },
       { status: 500 }
     )
   }
 }
-
-

@@ -5,9 +5,10 @@
 
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
+import Image from 'next/image'
 import Header from '@/components/Header/Header'
-import { FolderSearch, Image, HardDrive, BarChart3, Search, RefreshCw, Trash2 } from 'lucide-react'
+import { FolderSearch, Image as ImageIcon, HardDrive, BarChart3, Search, RefreshCw, Trash2, Check, X, ChevronLeft, ChevronRight, RotateCcw } from 'lucide-react'
 import styles from './admin.module.css'
 
 // Sections de la page admin
@@ -38,7 +39,7 @@ export default function AdminPageV2() {
               className={`${styles.navItem} ${activeSection === 'validation' ? styles.active : ''}`}
               onClick={() => setActiveSection('validation')}
             >
-              <Image className={styles.icon} size={20} strokeWidth={1.5} />
+              <ImageIcon className={styles.icon} size={20} strokeWidth={1.5} />
               Validation posters
             </button>
             
@@ -157,26 +158,6 @@ function ScanSection() {
 }
 
 /**
- * Section: Validation des posters
- */
-function ValidationSection() {
-  return (
-    <div className={styles.section}>
-      <h2 className={styles.sectionTitle}>Validation des posters</h2>
-      <p className={styles.sectionDesc}>
-        Valider ou rechercher des affiches alternatives pour les films
-      </p>
-      
-      {/* TODO: Réutiliser le composant MediaValidator existant avec un meilleur design */}
-      <div className={styles.placeholder}>
-        <p>Section en cours de migration...</p>
-        <p>Cette fonctionnalité sera disponible prochainement</p>
-      </div>
-    </div>
-  )
-}
-
-/**
  * Section: Gestion du cache
  */
 function CacheSection() {
@@ -286,6 +267,297 @@ function CacheSection() {
               <p><strong>Segment le plus récent :</strong> {new Date(stats.newestFile).toLocaleDateString('fr-FR')}</p>
             </div>
           )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Section: Validation des posters
+ */
+interface MediaToValidate {
+  id: string
+  title: string
+  year?: number
+  poster_url?: string
+  tmdb_id?: number
+  file_path: string
+}
+
+interface TMDBResult {
+  id: number
+  title: string
+  release_date: string
+  poster_path: string
+  overview: string
+  vote_average: number
+}
+
+function ValidationSection() {
+  const [movies, setMovies] = useState<MediaToValidate[]>([])
+  const [currentIndex, setCurrentIndex] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [searching, setSearching] = useState(false)
+  const [suggestions, setSuggestions] = useState<TMDBResult[]>([])
+  const [searchQuery, setSearchQuery] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [validated, setValidated] = useState(new Set<string>())
+
+  useEffect(() => {
+    loadMoviesToValidate()
+  }, [])
+
+  async function loadMoviesToValidate() {
+    try {
+      setLoading(true)
+      const response = await fetch('/api/media/grouped?type=movie')
+      const data = await response.json()
+      
+      if (data.success) {
+        const needsValidation = data.media.filter((m: MediaToValidate) => 
+          !m.poster_url || 
+          m.poster_url.includes('placeholder') ||
+          !m.tmdb_id
+        )
+        setMovies(needsValidation)
+      }
+    } catch (error) {
+      console.error('Erreur chargement films:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function searchAlternatives() {
+    if (!currentMovie) return
+    
+    setSearching(true)
+    try {
+      const query = searchQuery || currentMovie.title
+      const response = await fetch(`/api/admin/search-tmdb?query=${encodeURIComponent(query)}`)
+      const data = await response.json()
+      
+      if (data.results) {
+        setSuggestions(data.results.slice(0, 6))
+      }
+    } catch (error) {
+      console.error('Erreur recherche TMDB:', error)
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  async function selectSuggestion(tmdbId: number) {
+    if (!currentMovie) return
+    
+    setSaving(true)
+    try {
+      console.log('🚀 Envoi requête update-metadata:', { mediaId: currentMovie.id, tmdbId })
+      
+      const response = await fetch('/api/admin/update-metadata', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mediaId: currentMovie.id,
+          tmdbId: tmdbId
+        })
+      })
+      
+      const data = await response.json()
+      console.log('📥 Réponse reçue:', data)
+      
+      if (response.ok) {
+        console.log('✅ Mise à jour réussie')
+        setValidated(prev => new Set([...prev, currentMovie.id]))
+        
+        // Rafraîchir la liste pour voir les changements
+        await loadMoviesToValidate()
+        
+        setTimeout(() => {
+          if (currentIndex < movies.length - 1) {
+            setCurrentIndex(currentIndex + 1)
+            setSuggestions([])
+            setSearchQuery('')
+          }
+        }, 500)
+      } else {
+        console.error('❌ Erreur mise à jour:', data)
+        alert(`Erreur: ${data.error || 'Erreur inconnue'}\n${data.message || ''}`)
+      }
+    } catch (error) {
+      console.error('❌ Erreur mise à jour:', error)
+      alert('Erreur lors de la mise à jour. Vérifiez la console.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function skipMovie() {
+    if (currentIndex < movies.length - 1) {
+      setCurrentIndex(currentIndex + 1)
+      setSuggestions([])
+      setSearchQuery('')
+    }
+  }
+
+  function previousMovie() {
+    if (currentIndex > 0) {
+      setCurrentIndex(currentIndex - 1)
+      setSuggestions([])
+      setSearchQuery('')
+    }
+  }
+
+  const currentMovie = movies[currentIndex]
+  const progress = movies.length > 0 ? ((validated.size / movies.length) * 100).toFixed(0) : 0
+
+  if (loading) {
+    return (
+      <div className={styles.section}>
+        <h2 className={styles.sectionTitle}>Validation des posters</h2>
+        <div className={styles.resultCard}>
+          <RotateCcw size={32} className={styles.spinning} />
+          <p>Chargement des films à valider...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (movies.length === 0) {
+    return (
+      <div className={styles.section}>
+        <h2 className={styles.sectionTitle}>Validation des posters</h2>
+        <div className={styles.resultCard}>
+          <Check size={48} style={{ color: '#10b981' }} />
+          <h3>Tous les films sont validés !</h3>
+          <p>Aucun film n'a besoin de validation de poster.</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className={styles.section}>
+      <h2 className={styles.sectionTitle}>Validation des posters</h2>
+      <p className={styles.sectionDesc}>
+        {validated.size} / {movies.length} validés ({progress}%)
+      </p>
+
+      {/* Film actuel */}
+      <div className={styles.validationContainer}>
+        <div className={styles.currentMovie}>
+          <div className={styles.moviePoster}>
+            {currentMovie.poster_url && !currentMovie.poster_url.includes('placeholder') ? (
+              <Image
+                src={currentMovie.poster_url}
+                alt={currentMovie.title}
+                width={200}
+                height={300}
+                unoptimized
+                style={{ width: '100%', height: 'auto', borderRadius: '8px' }}
+              />
+            ) : (
+              <div className={styles.noPoster}>
+                <X size={48} />
+                <p>Pas de poster</p>
+              </div>
+            )}
+          </div>
+          
+          <div className={styles.movieInfo}>
+            <h3>{currentMovie.title}</h3>
+            {currentMovie.year && <p className={styles.year}>{currentMovie.year}</p>}
+            <p className={styles.filePath}>{currentMovie.file_path?.split('/').pop() || 'Chemin inconnu'}</p>
+            
+            {/* Barre de recherche */}
+            <div className={styles.searchBar}>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && searchAlternatives()}
+                placeholder={`Rechercher "${currentMovie.title}"...`}
+                className={styles.searchInput}
+              />
+              <button 
+                onClick={searchAlternatives}
+                disabled={searching}
+                className={styles.secondaryButton}
+              >
+                {searching ? <RotateCcw size={16} className={styles.spinning} /> : <Search size={16} />}
+              </button>
+            </div>
+
+            {/* Navigation */}
+            <div className={styles.quickActions}>
+              <button 
+                onClick={previousMovie}
+                disabled={currentIndex === 0}
+                className={styles.secondaryButton}
+              >
+                <ChevronLeft size={16} />
+              </button>
+              
+              <button 
+                onClick={skipMovie}
+                className={styles.secondaryButton}
+              >
+                Passer
+              </button>
+              
+              <button 
+                onClick={skipMovie}
+                disabled={currentIndex === movies.length - 1}
+                className={styles.secondaryButton}
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Suggestions TMDB */}
+        {suggestions.length > 0 && (
+          <div className={styles.suggestions}>
+            <h4>Suggestions TMDB</h4>
+            <div className={styles.suggestionGrid}>
+              {suggestions.map((movie) => (
+                <div 
+                  key={movie.id}
+                  className={styles.suggestionCard}
+                  onClick={() => selectSuggestion(movie.id)}
+                >
+                  {movie.poster_path ? (
+                    <Image
+                      src={`https://image.tmdb.org/t/p/w200${movie.poster_path}`}
+                      alt={movie.title}
+                      width={120}
+                      height={180}
+                      unoptimized
+                      style={{ width: '100%', height: 'auto', borderRadius: '4px' }}
+                    />
+                  ) : (
+                    <div className={styles.noPosterSmall}>
+                      <X size={24} />
+                    </div>
+                  )}
+                  <div className={styles.suggestionInfo}>
+                    <p className={styles.suggestionTitle}>{movie.title}</p>
+                    <p className={styles.suggestionYear}>{new Date(movie.release_date).getFullYear()}</p>
+                    <p className={styles.suggestionRating}>⭐ {movie.vote_average.toFixed(1)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Indicateur de validation */}
+      {validated.has(currentMovie.id) && (
+        <div className={styles.validatedBadge}>
+          <Check size={20} /> Validé !
         </div>
       )}
     </div>

@@ -33,13 +33,14 @@ type MovieModalProps = {
   movie: GroupedMedia
   onClose: () => void
   onPlayClick: (filepath: string) => void
+  autoPlay?: boolean // Si true, lancer la lecture directement
 }
 
-export default function MovieModal({ movie, onClose, onPlayClick }: MovieModalProps) {
+export default function MovieModal({ movie, onClose, onPlayClick, autoPlay = false }: MovieModalProps) {
   const [selectedSeason, setSelectedSeason] = useState<number>(1)
   const [seasons, setSeasons] = useState<Season[]>([])
   const [loadingEpisodes, setLoadingEpisodes] = useState(false)
-  const [showPlayer, setShowPlayer] = useState(false)
+  const [showPlayer, setShowPlayer] = useState(autoPlay) // Si autoPlay, ouvrir le lecteur directement
   const [currentEpisode, setCurrentEpisode] = useState<Episode | null>(null)
   
   const isTVShow = movie.type === 'tv'

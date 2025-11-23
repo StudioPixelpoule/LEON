@@ -5,20 +5,17 @@
  */
 
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase'
+import { createSupabaseClient } from '@/lib/supabase'
 
 export async function GET() {
   try {
-    const supabase = createClient()
+    const supabase = createSupabaseClient()
     
     // Pour l'instant, utiliser une requête séparée car le JOIN Supabase est complexe
     // 1. Récupérer les positions de lecture
-    const DUMMY_USER_ID = '00000000-0000-0000-0000-000000000000'
-    
     const { data: positions, error: posError } = await supabase
       .from('playback_positions')
       .select('*')
-      .eq('user_id', DUMMY_USER_ID)
       .gt('position', 30) // Au moins 30s regardées
       .order('updated_at', { ascending: false })
       .limit(20)
@@ -53,19 +50,23 @@ export async function GET() {
         const media = mediaList?.find(m => String(m.id) === pos.media_id)
         if (!media) return null
         
-        const progressPercent = pos.duration > 0 
-          ? Math.floor((pos.position / pos.duration) * 100) 
+        // IMPORTANT : Utiliser la duration du MEDIA (en minutes), pas celle de playback_positions !
+        const mediaDurationSeconds = media.duration ? media.duration * 60 : 0
+        const progressPercent = mediaDurationSeconds > 0 
+          ? Math.round((pos.position / mediaDurationSeconds) * 100) 
           : 0
+        
+        console.log(`[API] Film "${media.title}": position=${pos.position}s, duration=${mediaDurationSeconds}s, progress=${progressPercent}%`)
         
         return {
           ...media,
           position: pos.position,
-          saved_duration: pos.duration,
+          saved_duration: pos.duration, // Duration de playback_positions (pour référence)
           playback_updated_at: pos.updated_at,
           progress_percent: progressPercent
         }
       })
-      .filter(item => item !== null && item.progress_percent < 95) // Pas fini
+      .filter(item => item !== null && item.progress_percent >= 1 && item.progress_percent < 95) // Entre 1% et 95%
 
     return NextResponse.json({
       success: true,

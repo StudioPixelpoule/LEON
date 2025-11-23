@@ -11,16 +11,21 @@ import MovieRow from '@/components/MovieRow/MovieRow'
 import MovieModal from '@/components/MovieModal/MovieModalWithTV'
 import ContinueWatchingRow from '@/components/ContinueWatchingRow/ContinueWatchingRow'
 import RandomMoviesRow from '@/components/RandomMoviesRow/RandomMoviesRow'
+import SearchResultsGrid from '@/components/SearchResultsGrid/SearchResultsGrid'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
 import { groupMoviesByCategories, selectTopCategories } from '@/lib/genreClassification'
+import { normalizeString, similarity } from '@/components/SmartSearch/searchUtils'
 import styles from './films.module.css'
 
 export default function FilmsPage() {
   const [movies, setMovies] = useState<GroupedMedia[]>([])
   const [loading, setLoading] = useState(true)
   const [selectedMovie, setSelectedMovie] = useState<GroupedMedia | null>(null)
+  const [autoPlay, setAutoPlay] = useState(false) // Pour lancer la lecture directement
   const [heroMovie, setHeroMovie] = useState<GroupedMedia | null>(null)
   const [refreshKey, setRefreshKey] = useState(0) // Pour forcer le re-render
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filteredMovies, setFilteredMovies] = useState<GroupedMedia[]>([])
   
   useEffect(() => {
     async function loadMovies() {
@@ -71,6 +76,84 @@ export default function FilmsPage() {
       [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]]
     }
     return shuffled
+  }
+
+  // Recherche intelligente (Titre, Acteurs, Réalisateur, Genre)
+  function handleSearch(query: string) {
+    setSearchQuery(query)
+    
+    if (!query || query.length < 2) {
+      setFilteredMovies([])
+      return
+    }
+
+    const normalizedQuery = normalizeString(query)
+    const queryWords = normalizedQuery.split(/\s+/)
+
+    const scoredResults = movies.map(movie => {
+      let score = 0
+
+      // 1. Titre (Priorité absolue)
+      const normalizedTitle = normalizeString(movie.title)
+      const titleSimilarity = similarity(normalizedQuery, normalizedTitle)
+      if (titleSimilarity > 0.6) score += titleSimilarity * 20
+      if (normalizedTitle.includes(normalizedQuery)) score += 15
+
+      // 2. Titre original
+      if (movie.original_title) {
+        const normalizedOriginal = normalizeString(movie.original_title)
+        if (normalizedOriginal.includes(normalizedQuery)) score += 10
+      }
+
+      // 3. Mots clés dans le titre
+      queryWords.forEach(word => {
+        if (word.length >= 3 && normalizedTitle.includes(word)) score += 5
+      })
+
+      // 4. Acteurs (Cast)
+      if (movie.movie_cast && Array.isArray(movie.movie_cast)) {
+        movie.movie_cast.slice(0, 10).forEach((actor: any) => {
+          if (actor.name) {
+            const normalizedActor = normalizeString(actor.name)
+            if (normalizedActor.includes(normalizedQuery)) score += 8
+          }
+        })
+      }
+
+      // 5. Réalisateur
+      if (movie.director) {
+        const directorName = typeof movie.director === 'string' ? movie.director : movie.director.name
+        if (directorName) {
+          const normalizedDirector = normalizeString(directorName)
+          if (normalizedDirector.includes(normalizedQuery)) score += 8
+        }
+      }
+
+      // 6. Genre
+      if (movie.genres) {
+        movie.genres.forEach((genre: any) => {
+          const genreName = typeof genre === 'string' ? genre : genre.name
+          if (genreName) {
+            const normalizedGenre = normalizeString(genreName)
+            if (normalizedGenre.includes(normalizedQuery)) score += 5
+          }
+        })
+      }
+
+      // 7. Année
+      if (movie.year && movie.year.toString() === normalizedQuery) {
+        score += 10
+      }
+
+      return { movie, score }
+    })
+
+    const filtered = scoredResults
+      .filter(r => r.score > 1)
+      .sort((a, b) => b.score - a.score)
+      .map(r => r.movie)
+
+    setFilteredMovies(filtered)
   }
   
   // Afficher TOUS les films, même sans poster (placeholder utilisé)
@@ -132,87 +215,110 @@ export default function FilmsPage() {
   
   return (
     <>
-      <Header movies={validMovies} onMovieClick={setSelectedMovie} />
+      <Header 
+        movies={validMovies} 
+        onMovieClick={setSelectedMovie} 
+        onSearch={handleSearch}
+      />
       
       <main className={styles.main}>
-        {heroMovie && (
-          <HeroSection 
-            movie={heroMovie} 
-            onPlayClick={() => setSelectedMovie(heroMovie)}
-            onInfoClick={() => setSelectedMovie(heroMovie)}
-          />
-        )}
-        
-        <div className={styles.content}>
-          {/* Carrousel: Continuer le visionnage */}
-          <ContinueWatchingRow 
-            onMovieClick={setSelectedMovie} 
-            onRefresh={() => setRefreshKey(k => k + 1)} 
-          />
-          
-          {/* Bouton refresh discret */}
-          <button 
-            onClick={() => setRefreshKey(k => k + 1)}
-            className={styles.refreshButton}
-            title="Recharger et mélanger les films"
-          >
-            ↻
-          </button>
-        
-        <div className={styles.rows}>
-        {/* Carrousel: À découvrir (aléatoire) */}
-        <RandomMoviesRow 
-          movies={validMovies}
-          onMovieClick={setSelectedMovie}
-        />
-        
-        {recentMovies.length > 0 && (
-          <MovieRow
-            title="Derniers ajouts"
-            movies={recentMovies}
+        {searchQuery.length >= 2 ? (
+          <SearchResultsGrid 
+            movies={filteredMovies} 
+            query={searchQuery}
             onMovieClick={setSelectedMovie}
           />
-        )}
-        
-        {topRated.length > 0 && (
-          <MovieRow
-            title="Mieux notés"
-            movies={topRated}
-            onMovieClick={setSelectedMovie}
-          />
-        )}
-        
-        {topGenres.map(({ genre, movies }, index) => (
-          <div key={genre}>
-            <MovieRow
-              title={genre}
-              movies={movies}
+        ) : (
+          <>
+            {heroMovie && (
+              <HeroSection 
+                movie={heroMovie} 
+                onPlayClick={() => setSelectedMovie(heroMovie)}
+                onInfoClick={() => setSelectedMovie(heroMovie)}
+              />
+            )}
+            
+            <div className={styles.content}>
+              {/* Carrousel: Continuer le visionnage */}
+              <ContinueWatchingRow 
+                onMovieClick={setSelectedMovie}
+                onMoviePlay={(movie) => {
+                  setSelectedMovie(movie)
+                  setAutoPlay(true)
+                }}
+                onRefresh={() => setRefreshKey(k => k + 1)}
+                refreshKey={refreshKey} // ✨ Passer refreshKey pour mise à jour immédiate
+              />
+              
+              {/* Bouton refresh discret */}
+              <button 
+                onClick={() => setRefreshKey(k => k + 1)}
+                className={styles.refreshButton}
+                title="Recharger et mélanger les films"
+              >
+                ↻
+              </button>
+            
+            <div className={styles.rows}>
+            {/* Carrousel: À découvrir (aléatoire) */}
+            <RandomMoviesRow 
+              movies={validMovies}
               onMovieClick={setSelectedMovie}
             />
-            <div className={styles.separator}></div>
+            
+            {recentMovies.length > 0 && (
+              <MovieRow
+                title="Derniers ajouts"
+                movies={recentMovies}
+                onMovieClick={setSelectedMovie}
+              />
+            )}
+            
+            {topRated.length > 0 && (
+              <MovieRow
+                title="Mieux notés"
+                movies={topRated}
+                onMovieClick={setSelectedMovie}
+              />
+            )}
+            
+            {topGenres.map(({ genre, movies }, index) => (
+              <div key={genre}>
+                <MovieRow
+                  title={genre}
+                  movies={movies}
+                  onMovieClick={setSelectedMovie}
+                />
+                <div className={styles.separator}></div>
+              </div>
+            ))}
+            
+            {/* Section "Tous les films" pour afficher TOUS les films */}
+            {validMovies.length > 0 && (
+              <MovieRow
+                title="Tous les films"
+                movies={validMovies}
+                onMovieClick={setSelectedMovie}
+              />
+            )}
+            </div>
           </div>
-        ))}
-        
-        {/* Section "Tous les films" pour afficher TOUS les films */}
-        {validMovies.length > 0 && (
-          <MovieRow
-            title="Tous les films"
-            movies={validMovies}
-            onMovieClick={setSelectedMovie}
-          />
+          </>
         )}
-        </div>
-      </div>
       
       {selectedMovie && (
         <MovieModal
           movie={selectedMovie}
-          onClose={() => setSelectedMovie(null)}
+          onClose={() => {
+            setSelectedMovie(null)
+            setAutoPlay(false) // Réinitialiser l'autoplay
+            setRefreshKey(k => k + 1) // 🔄 Rafraîchir le carrousel "Continuer le visionnage"
+          }}
           onPlayClick={() => {}} // Non utilisé, géré en interne par la modale
+          autoPlay={autoPlay} // Passer l'état autoPlay à la modale
         />
       )}
       </main>
     </>
   )
 }
-

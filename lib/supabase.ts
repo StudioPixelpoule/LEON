@@ -14,6 +14,11 @@ export const supabase = createClient(
   supabaseAnonKey || 'placeholder-key'
 )
 
+// Helper function pour créer un client Supabase (compatibilité avec les routes API)
+export function createSupabaseClient() {
+  return supabase
+}
+
 // Types TypeScript pour la base de données
 export type MediaType = 'movie' | 'tv'
 

@@ -5,7 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase'
+import { createSupabaseClient } from '@/lib/supabase'
 
 /**
  * GET - Récupérer la position sauvegardée d'un film
@@ -19,13 +19,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const supabase = createClient()
-    const DUMMY_USER_ID = '00000000-0000-0000-0000-000000000000'
+    const supabase = createSupabaseClient()
     
     const { data, error } = await supabase
       .from('playback_positions')
       .select('position, duration, updated_at')
-      .eq('user_id', DUMMY_USER_ID)
       .eq('media_id', mediaId)
       .single()
 
@@ -57,29 +55,45 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { mediaId, currentTime, duration } = body
+    const { mediaId, currentTime, position, duration } = body
+    
+    // Accepter soit currentTime soit position
+    const time = currentTime !== undefined ? currentTime : position
 
-    if (!mediaId || currentTime === undefined) {
+    if (!mediaId || time === undefined) {
       return NextResponse.json(
-        { error: 'mediaId et currentTime requis' },
+        { error: 'mediaId et currentTime (ou position) requis' },
         { status: 400 }
       )
     }
 
-    const supabase = createClient()
-    const DUMMY_USER_ID = '00000000-0000-0000-0000-000000000000'
+    const supabase = createSupabaseClient()
+
+    // Si time est 0, supprimer l'entrée (film terminé)
+    if (time === 0) {
+      const { error: deleteError } = await supabase
+        .from('playback_positions')
+        .delete()
+        .eq('media_id', mediaId)
+      
+      if (deleteError && deleteError.code !== 'PGRST116') {
+        throw deleteError
+      }
+      
+      return NextResponse.json({ success: true, action: 'deleted' })
+    }
 
     // Upsert: créer ou mettre à jour
     const { data, error } = await supabase
       .from('playback_positions')
       .upsert({
-        user_id: DUMMY_USER_ID,
         media_id: mediaId,
-        position: currentTime,
+        media_type: 'movie', // Par défaut "movie" (sera "episode" pour les séries)
+        position: time, // Utiliser 'time' au lieu de 'currentTime'
         duration: duration || null,
         updated_at: new Date().toISOString()
       }, {
-        onConflict: 'user_id,media_id' // Conflit sur (user_id, media_id) = update
+        onConflict: 'media_id,media_type' // Spécifier les colonnes pour le conflit
       })
       .select()
 
@@ -112,13 +126,11 @@ export async function DELETE(request: NextRequest) {
   }
 
   try {
-    const supabase = createClient()
-    const DUMMY_USER_ID = '00000000-0000-0000-0000-000000000000'
+    const supabase = createSupabaseClient()
     
     const { error } = await supabase
       .from('playback_positions')
       .delete()
-      .eq('user_id', DUMMY_USER_ID)
       .eq('media_id', mediaId)
 
     if (error) {

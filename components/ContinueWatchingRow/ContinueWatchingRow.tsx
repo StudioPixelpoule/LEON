@@ -6,33 +6,43 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Play, X } from 'lucide-react'
+import Image from 'next/image'
+import { X } from 'lucide-react'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
 import styles from './ContinueWatchingRow.module.css'
 
 interface MediaWithProgress extends GroupedMedia {
-  current_time: number
+  position: number
   saved_duration: number | null
   progress_percent: number
-  last_watched: string
+  playback_updated_at: string
 }
 
 interface ContinueWatchingRowProps {
   onMovieClick: (movie: GroupedMedia) => void
+  onMoviePlay?: (movie: GroupedMedia) => void // Pour lancer directement la lecture
   onRefresh: () => void
+  refreshKey?: number // Pour forcer le rafraîchissement depuis le parent
 }
 
-export default function ContinueWatchingRow({ onMovieClick, onRefresh }: ContinueWatchingRowProps) {
+export default function ContinueWatchingRow({ onMovieClick, onMoviePlay, onRefresh, refreshKey }: ContinueWatchingRowProps) {
   const [movies, setMovies] = useState<MediaWithProgress[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    loadInProgressMovies()
-  }, [])
+    loadInProgressMovies() // Chargement initial avec loading
+    
+    // 🔄 Rafraîchir automatiquement toutes les 30 secondes (en mode silencieux)
+    const intervalId = setInterval(() => {
+      loadInProgressMovies(true) // silent = true pour ne pas afficher le loading
+    }, 30000) // 30 secondes
+    
+    return () => clearInterval(intervalId)
+  }, [refreshKey]) // ✨ Recharger aussi quand refreshKey change
 
-  async function loadInProgressMovies() {
+  async function loadInProgressMovies(silent = false) {
     try {
-      setLoading(true)
+      if (!silent) setLoading(true) // Ne montrer le loading que lors du premier chargement
       const response = await fetch('/api/media/in-progress')
       const data = await response.json()
       
@@ -42,7 +52,7 @@ export default function ContinueWatchingRow({ onMovieClick, onRefresh }: Continu
     } catch (error) {
       console.error('Erreur chargement films en cours:', error)
     } finally {
-      setLoading(false)
+      if (!silent) setLoading(false)
     }
   }
 
@@ -74,23 +84,22 @@ export default function ContinueWatchingRow({ onMovieClick, onRefresh }: Continu
 
   if (loading) {
     return (
-      <div className={styles.container}>
+      <section className={styles.row}>
         <h2 className={styles.title}>Continuer le visionnage</h2>
         <div className={styles.loading}>Chargement...</div>
-      </div>
+      </section>
     )
   }
 
   return (
-    <div className={styles.container}>
+    <section className={styles.row}>
       <h2 className={styles.title}>Continuer le visionnage</h2>
-      
-      <div className={styles.row}>
+      <div className={styles.scroll}>
         {movies.map((movie) => (
           <div
             key={movie.id}
             className={styles.card}
-            onClick={() => onMovieClick(movie)}
+            onClick={() => onMoviePlay ? onMoviePlay(movie) : onMovieClick(movie)}
           >
             {/* Bouton supprimer */}
             <button
@@ -101,42 +110,48 @@ export default function ContinueWatchingRow({ onMovieClick, onRefresh }: Continu
               <X size={16} />
             </button>
 
-            {/* Poster */}
-            <div className={styles.posterWrapper}>
-              <img
-                src={movie.poster_url ? `/api/proxy-image?url=${encodeURIComponent(movie.poster_url)}` : '/placeholder-poster.png'}
+            {/* Poster avec barre de progression */}
+            <div className={styles.posterContainer}>
+              <Image
+                src={movie.poster_url || '/placeholder-poster.svg'}
                 alt={movie.title}
+                width={240}
+                height={360}
                 className={styles.poster}
+                unoptimized
               />
               
-              {/* Badge progression */}
-              <div className={styles.progressOverlay}>
-                <div className={styles.playIcon}>
-                  <Play size={24} fill="white" />
-                </div>
-                <div className={styles.progressBar}>
-                  <div 
-                    className={styles.progressFill} 
-                    style={{ width: `${movie.progress_percent}%` }}
-                  />
-                </div>
-                <div className={styles.progressText}>
-                  {movie.progress_percent}%
-                </div>
+              {/* Barre de progression EN BAS (comme MovieRow) */}
+              <div className={styles.progressBar}>
+                <div 
+                  className={styles.progressFill} 
+                  style={{ width: `${movie.progress_percent}%` }}
+                />
               </div>
             </div>
 
-            {/* Info */}
-            <div className={styles.info}>
-              <h3 className={styles.movieTitle}>{movie.title}</h3>
-              {movie.year && (
-                <p className={styles.year}>{movie.year}</p>
+            {/* Info au hover (comme MovieRow) */}
+            <div className={styles.cardHover}>
+              <h3 className={styles.cardTitle}>{movie.title}</h3>
+              <div className={styles.cardMeta}>
+                {movie.year && <span>{movie.year}</span>}
+                {movie.formatted_runtime && (
+                  <>
+                    <span>·</span>
+                    <span>{movie.formatted_runtime}</span>
+                  </>
+                )}
+              </div>
+              {movie.progress_percent > 0 && (
+                <div className={styles.cardProgress}>
+                  {movie.progress_percent}% regardé
+                </div>
               )}
             </div>
           </div>
         ))}
       </div>
-    </div>
+    </section>
   )
 }
 

@@ -1,0 +1,169 @@
+/* SearchResultsGrid - Grille de résultats style Netflix */
+
+.container {
+  padding: var(--spacing-xl) var(--spacing-2xl);
+  min-height: 80vh;
+  animation: fadeIn 0.3s ease;
+}
+
+.title {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--color-white);
+  margin-bottom: var(--spacing-xl);
+  letter-spacing: -0.02em;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--spacing-lg);
+  padding-bottom: var(--spacing-2xl);
+}
+
+.card {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2/3;
+  cursor: pointer;
+  transition: all 400ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  border-radius: 8px;
+  overflow: visible;
+}
+
+.card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.1) 0%,
+    transparent 50%
+  );
+  opacity: 0;
+  transition: opacity 400ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.card:hover {
+  transform: scale(1.08) translateY(-8px);
+  z-index: 100;
+}
+
+.card:hover::before {
+  opacity: 1;
+}
+
+.poster {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+  transition: all 400ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.card:hover .poster {
+  box-shadow: 0 16px 64px rgba(0, 0, 0, 0.5);
+}
+
+.cardHover {
+  position: absolute;
+  inset: 0;
+  padding: var(--spacing-lg);
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.98) 0%,
+    rgba(0, 0, 0, 0.92) 35%,
+    rgba(0, 0, 0, 0.7) 60%,
+    rgba(0, 0, 0, 0.3) 85%,
+    transparent 100%
+  );
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  opacity: 0;
+  transition: opacity 400ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  z-index: 3;
+}
+
+.card:hover .cardHover {
+  opacity: 1;
+}
+
+.cardTitle {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--color-white);
+  margin: 0 0 var(--spacing-xs) 0;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+}
+
+.cardMeta {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.9);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+}
+
+.cardRating {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.95);
+  margin-top: var(--spacing-xs);
+}
+
+.noResults {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 50vh;
+  color: var(--color-gray-400);
+  text-align: center;
+}
+
+.noResults h3 {
+  font-size: 1.5rem;
+  color: var(--color-white);
+  margin-bottom: var(--spacing-sm);
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .container {
+    padding: var(--spacing-lg);
+  }
+  
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: var(--spacing-md);
+  }
+  
+  .cardTitle {
+    font-size: 0.9rem;
+  }
+  
+  .cardMeta {
+    font-size: 0.75rem;
+  }
+}

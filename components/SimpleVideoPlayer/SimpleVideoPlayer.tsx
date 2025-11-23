@@ -121,14 +121,34 @@ export default function SimpleVideoPlayer({
     isPlaying && isRemuxing // Activer seulement pendant le HLS remuxing
   )
 
-  // 🔧 PHASE 3: Hook pour sauvegarder la position de lecture
-  usePlaybackPosition({
+  // 🔧 PHASE 3: Hook pour charger ET sauvegarder la position de lecture
+  const { initialPosition, markAsFinished } = usePlaybackPosition({
     mediaId: mediaId || null,
     currentTime,
     duration: realDurationRef.current || duration,
-    isPlaying,
     enabled: !!mediaId // Activer seulement si mediaId est fourni
   })
+
+  // 🔧 PHASE 3: Restaurer la position initiale une fois que la vidéo est prête (UNE SEULE FOIS)
+  const hasRestoredPositionRef = useRef(false)
+  
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video || initialPosition === 0 || !bufferReady || hasRestoredPositionRef.current) return
+
+    // Attendre que le lecteur soit prêt et qu'on ait du buffer
+    if (video.readyState >= 2 && buffered > 0) {
+      console.log(`[PLAYBACK] ✅ Position restaurée une seule fois: ${initialPosition}s`)
+      video.currentTime = initialPosition
+      setCurrentTime(initialPosition)
+      hasRestoredPositionRef.current = true // Marquer comme restauré
+    }
+  }, [initialPosition, bufferReady, buffered])
+  
+  // Réinitialiser le flag si le média change
+  useEffect(() => {
+    hasRestoredPositionRef.current = false
+  }, [src])
 
   // 🔧 PHASE 4: Initialiser le preloader pour HLS
   useEffect(() => {
