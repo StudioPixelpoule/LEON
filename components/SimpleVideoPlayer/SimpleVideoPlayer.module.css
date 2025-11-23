@@ -181,35 +181,36 @@
   line-height: 1.4;
 }
 
-/* Bouton play central */
+/* Bouton play central - Triangle simple sans fond */
 .centerPlayButton {
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  width: 80px;
-  height: 80px;
-  background: rgba(229, 9, 20, 0.9);
+  width: 120px;
+  height: 120px;
+  background: transparent;
   border: none;
-  border-radius: 50%;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
+  transition: all 0.3s ease;
   z-index: 10;
+  opacity: 0.9;
 }
 
 .centerPlayButton:hover {
-  transform: translate(-50%, -50%) scale(1.1);
-  background: #e50914;
+  transform: translate(-50%, -50%) scale(1.15);
+  opacity: 1;
 }
 
 .centerPlayButton svg {
-  width: 30px;
-  height: 30px;
+  width: 120px;
+  height: 120px;
   fill: white;
-  margin-left: 3px;
+  filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.5));
+  margin-left: 8px; /* Décalage optique pour centrer visuellement le triangle */
 }
 
 /* Contrôles */
