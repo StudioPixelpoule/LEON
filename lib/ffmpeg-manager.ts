@@ -6,10 +6,11 @@
  * Sans ça, chaque recompilation crée un nouveau manager et perd les sessions actives.
  */
 
-import { exec } from 'child_process'
+import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
 import { rm } from 'fs/promises'
 import path from 'path'
+import { ErrorHandler, UserFriendlyError } from './error-handler'
 
 const execAsync = promisify(exec)
 
@@ -65,10 +66,16 @@ class FFmpegManager {
    * Enregistre une nouvelle session FFmpeg
    */
   registerSession(sessionId: string, filepath: string, audioTrack: string, pid?: number): void {
-    console.log(`📝 Enregistrement session FFmpeg: ${sessionId} (PID: ${pid || 'pending'})`)
+    const timestamp = new Date().toISOString()
+    console.log(`[${timestamp}] [FFMPEG] 📝 Enregistrement session`, {
+      sessionId: sessionId.slice(0, 50) + '...',
+      pid: pid || 'pending',
+      file: filepath.split('/').pop()
+    })
     
     // Si une session existe déjà, la nettoyer d'abord
     if (this.sessions.has(sessionId)) {
+      console.warn(`[${timestamp}] [FFMPEG] ⚠️ Session existante, nettoyage...`)
       this.killSession(sessionId)
     }
 
@@ -81,7 +88,8 @@ class FFmpegManager {
       lastAccess: Date.now(),
       // Timeout automatique après 30 minutes
       timeout: setTimeout(() => {
-        console.log(`⏰ Timeout session FFmpeg: ${sessionId}`)
+        const ts = new Date().toISOString()
+        console.log(`[${ts}] [FFMPEG] ⏰ Timeout session (30min)`, { sessionId: sessionId.slice(0, 50) + '...' })
         this.killSession(sessionId)
       }, PROCESS_TIMEOUT)
     }
@@ -134,7 +142,12 @@ class FFmpegManager {
     const session = this.sessions.get(sessionId)
     if (!session) return
 
-    console.log(`🔪 Arrêt session FFmpeg: ${sessionId}`)
+    const timestamp = new Date().toISOString()
+    console.log(`[${timestamp}] [FFMPEG] 🔪 Arrêt session`, {
+      sessionId: sessionId.slice(0, 50) + '...',
+      pid: session.pid,
+      duration: `${((Date.now() - session.startTime) / 1000).toFixed(1)}s`
+    })
 
     // Annuler le timeout
     if (session.timeout) {
@@ -144,11 +157,15 @@ class FFmpegManager {
     // Tuer le processus si PID connu
     if (session.pid) {
       try {
-        await execAsync(`kill -9 ${session.pid}`)
-        console.log(`✅ Processus ${session.pid} tué`)
+        // Tenter d'abord un SIGTERM (propre)
+        await execAsync(`kill ${session.pid}`).catch(() => {
+          // Si échec, forcer avec SIGKILL
+          return execAsync(`kill -9 ${session.pid}`)
+        })
+        console.log(`[${timestamp}] [FFMPEG] ✅ Processus ${session.pid} arrêté`)
       } catch (error) {
         // Le processus est peut-être déjà mort
-        console.log(`⚠️ Processus ${session.pid} introuvable`)
+        console.log(`[${timestamp}] [FFMPEG] ⚠️ Processus ${session.pid} déjà terminé`)
       }
     }
 
@@ -158,7 +175,7 @@ class FFmpegManager {
       const fileHash = crypto.createHash('md5').update(sessionId).digest('hex')
       const sessionDir = path.join(HLS_TEMP_DIR, fileHash)
       await rm(sessionDir, { recursive: true, force: true })
-      console.log(`🗑️ Fichiers supprimés: ${sessionDir}`)
+      console.log(`[${timestamp}] [FFMPEG] 🗑️ Cache nettoyé: ${sessionDir.split('/').pop()}`)
     } catch (error) {
       // Ignorer si le dossier n'existe pas
     }
@@ -289,13 +306,16 @@ class FFmpegManager {
    * Démarre le nettoyage périodique
    */
   private startPeriodicCleanup(): void {
-    // ❌ NE PAS nettoyer immédiatement au démarrage (laisse le temps aux sessions de s'enregistrer)
-    // Attendre le premier interval pour éviter de tuer les nouveaux processus
+    // ⚠️ DÉSACTIVÉ TEMPORAIREMENT POUR DEBUG
+    // Le cleanup automatique tue FFmpeg pendant le dev à cause du HMR
+    console.log('⚠️ Cleanup automatique DÉSACTIVÉ (mode dev)')
     
-    // Nettoyer périodiquement
+    // TODO: Réactiver en production avec détection d'environnement
+    /*
     this.cleanupTimer = setInterval(() => {
       this.cleanupOrphans()
     }, CLEANUP_INTERVAL)
+    */
   }
 
   /**
@@ -356,7 +376,7 @@ class FFmpegManager {
         diskUsage
       }
     } catch (error) {
-      console.error('Erreur health check:', error)
+      ErrorHandler.log('FFMPEG', error as Error, { action: 'healthCheck' })
       return {
         healthy: false,
         activeSessions: this.sessions.size,
@@ -364,6 +384,46 @@ class FFmpegManager {
         diskUsage: 'unknown'
       }
     }
+  }
+
+  /**
+   * Exécute une commande FFmpeg avec retry automatique
+   */
+  async runFFmpegWithRetry(
+    args: string[],
+    maxRetries = 3
+  ): Promise<{ stdout: string; stderr: string }> {
+    return ErrorHandler.withRetry(async () => {
+      return new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
+        const ffmpeg = spawn('ffmpeg', args, {
+          stdio: ['ignore', 'pipe', 'pipe']
+        })
+
+        let stdout = ''
+        let stderr = ''
+
+        ffmpeg.stdout?.on('data', (data) => {
+          stdout += data.toString()
+        })
+
+        ffmpeg.stderr?.on('data', (data) => {
+          stderr += data.toString()
+        })
+
+        ffmpeg.on('close', (code) => {
+          if (code !== 0) {
+            const error = ErrorHandler.parseFFmpegError(stderr)
+            reject(error)
+          } else {
+            resolve({ stdout, stderr })
+          }
+        })
+
+        ffmpeg.on('error', (err) => {
+          reject(ErrorHandler.createError('FFMPEG_NOT_AVAILABLE', { error: err.message }))
+        })
+      })
+    }, maxRetries)
   }
 }
 
@@ -375,6 +435,10 @@ if (!global.__ffmpegManagerSingleton) {
   global.__ffmpegManagerSingleton = new FFmpegManager()
 } else {
   console.log('♻️ Réutilisation du singleton FFmpegManager existant')
+  // 🔧 CRITICAL: Arrêter l'ancien cleanup timer (HMR)
+  // L'ancien setInterval continue de tourner avec l'ancien code et tue les processus !
+  global.__ffmpegManagerSingleton.stopPeriodicCleanup()
+  console.log('🛑 Ancien cleanup timer arrêté')
 }
 
 const ffmpegManager = global.__ffmpegManagerSingleton

@@ -11,11 +11,13 @@ import { existsSync } from 'fs'
 import path from 'path'
 import crypto from 'crypto'
 import ffmpegManager from '@/lib/ffmpeg-manager'
+import { ErrorHandler, createErrorResponse } from '@/lib/error-handler'
 
 // Répertoire temporaire pour les segments HLS
 const HLS_TEMP_DIR = '/tmp/leon-hls'
 
 export async function GET(request: NextRequest) {
+  const startTime = Date.now()
   const searchParams = request.nextUrl.searchParams
   const filepathRaw = searchParams.get('path')
   const segment = searchParams.get('segment') // Ex: segment0.ts, segment1.ts
@@ -23,23 +25,29 @@ export async function GET(request: NextRequest) {
   const audioTrack = searchParams.get('audio') || '0' // Index de la piste audio
   const subtitleTrack = searchParams.get('subtitle') // Index de la piste sous-titre (optionnel)
   
+  const timestamp = new Date().toISOString()
+  
   if (!filepathRaw) {
     return NextResponse.json({ error: 'Chemin manquant' }, { status: 400 })
   }
   
   // 🔧 NORMALISER le chemin pour gérer les caractères Unicode (é, à, etc.)
-  // macOS utilise NFD (décomposé), mais les URLs peuvent être en NFC (composé)
-  const filepath = filepathRaw.normalize('NFC')
+  // macOS utilise NFD (décomposé), donc on normalise TOUJOURS en NFD
+  const filepath = filepathRaw.normalize('NFD')
 
-  console.log(`📂 Vérification du fichier: ${filepath}`)
+  console.log(`[${timestamp}] [HLS] Requête`, {
+    file: filepath.split('/').pop(),
+    segment: segment || 'playlist',
+    audioTrack
+  })
   
   try {
     const stats = await stat(filepath)
-    console.log(`✅ Fichier trouvé: ${(stats.size / (1024*1024*1024)).toFixed(2)}GB`)
+    console.log(`[${timestamp}] [HLS] ✅ Fichier trouvé: ${(stats.size / (1024*1024*1024)).toFixed(2)}GB`)
   } catch (error) {
-    console.error(`❌ Fichier non trouvé: ${filepath}`)
-    console.error('Erreur:', error)
-    return NextResponse.json({ error: 'Fichier non trouvé' }, { status: 404 })
+    const errorResponse = createErrorResponse(ErrorHandler.createError('VIDEO_NOT_FOUND', { filepath }))
+    ErrorHandler.log('HLS', error as Error, { filepath })
+    return NextResponse.json(errorResponse.body, { status: errorResponse.status })
   }
 
   // Créer un ID unique pour ce fichier ET la piste audio
@@ -85,9 +93,29 @@ export async function GET(request: NextRequest) {
       } catch {}
     }
     
+    // 🔧 CRITICAL: Nettoyer les sessions fantômes (processus mort mais session enregistrée)
+    if (ffmpegManager.hasActiveSession(sessionId)) {
+      const sessionPid = ffmpegManager.getSessionPid(sessionId)
+      if (sessionPid) {
+        try {
+          // Vérifier si le processus existe (signal 0 = test sans tuer)
+          process.kill(sessionPid, 0)
+        } catch {
+          // Processus n'existe pas, nettoyer la session fantôme
+          console.log(`👻 Session fantôme détectée (PID ${sessionPid} inexistant), nettoyage...`)
+          await ffmpegManager.killSession(sessionId)
+        }
+      }
+    }
+    
     // Lancer la transcodage HLS en arrière-plan si pas déjà fait
     if (!playlistHasSegments && !ffmpegManager.hasActiveSession(sessionId)) {
-      console.log(`🎬 Démarrage transcodage HLS: ${filepath}`)
+      const ts = new Date().toISOString()
+      console.log(`[${ts}] [HLS] 🎬 Démarrage transcodage`, {
+        file: filepath.split('/').pop(),
+        audioTrack,
+        sessionId: sessionId.slice(0, 50) + '...'
+      })
       
       // Enregistrer la session avant de lancer FFmpeg
       ffmpegManager.registerSession(sessionId, filepath, audioTrack)
@@ -103,15 +131,16 @@ export async function GET(request: NextRequest) {
         ...(audioTrack && audioTrack !== '0' 
           ? ['-map', `0:${audioTrack}`]  // Si piste audio spécifiée, utiliser l'index absolu
           : ['-map', '0:a:0']),           // Sinon prendre la première piste audio
-        // 🎨 ENCODAGE GPU VideoToolbox avec HAUTE QUALITÉ
-        // Conversion simple HDR → SDR (format yuv420p suffit pour VideoToolbox)
+        // 🎨 ENCODAGE GPU h264_videotoolbox (rapide, qualité élevée)
+        // Conversion simple HDR → SDR (format yuv420p)
         '-vf', 'format=yuv420p',
-        '-c:v', 'h264_videotoolbox', // GPU Mac (très rapide)
-        '-b:v', '3000k',            // Haute qualité (3 Mbps)
+        '-c:v', 'h264_videotoolbox', // GPU encoding (M1/M2/Intel Quick Sync)
+        '-b:v', '3000k',            // Bitrate 3 Mbps (bonne qualité)
         '-maxrate', '4000k',        
         '-bufsize', '6000k',        
-        '-profile:v', 'main',       // Profile main (meilleure qualité)
+        '-profile:v', 'main',       // Profile main (compatible)
         '-level', '4.0',            
+        '-allow_sw', '1',           // Fallback CPU si GPU fail            
         // GOP et keyframes
         '-g', '48',                 // GOP de 2s @ 24fps
         '-keyint_min', '24',        // Keyframe minimum à 1s
@@ -131,55 +160,87 @@ export async function GET(request: NextRequest) {
         '-hls_segment_filename', path.join(sessionDir, 'segment%d.ts'),
         '-hls_playlist_type', 'event', // Playlist dynamique
         '-start_number', '0',       // 🔧 Commencer à segment0.ts
-        // Multi-threading
-        '-threads', '0',            // Utiliser tous les cores CPU disponibles
+        // Multi-threading (pas nécessaire pour GPU, mais utile pour audio)
+        '-threads', '4',            // 4 threads pour l'audio et le muxing
         playlistPath
       ]
 
-      console.log('🚀 Lancement FFmpeg...')
-      console.log('📝 Commande:', 'ffmpeg', ffmpegArgs.slice(0, 10).join(' '), '...')
+      const ts2 = new Date().toISOString()
+      console.log(`[${ts2}] [HLS] 🚀 Lancement FFmpeg`, {
+        command: 'ffmpeg ' + ffmpegArgs.slice(0, 10).join(' ') + '...'
+      })
       
       const ffmpeg = spawn('ffmpeg', ffmpegArgs, {
         stdio: ['ignore', 'pipe', 'pipe'], // Capturer stdout et stderr
       })
       
+      let stderrBuffer = ''
+      
       // Logger la progression FFmpeg
       ffmpeg.stderr?.on('data', (data) => {
         const message = data.toString()
+        stderrBuffer += message
+        
         // FFmpeg écrit la progression sur stderr
         if (message.includes('frame=')) {
-          console.log('⏱️', message.split('\n')[0].trim())
+          // Progression normale (ne pas trop logger)
+          const progressLine = message.split('\n')[0].trim()
+          if (progressLine.includes('speed=')) {
+            console.log(`[${new Date().toISOString()}] [HLS] ⏱️ ${progressLine.slice(0, 100)}`)
+          }
         } else if (message.includes('error') || message.includes('Error')) {
-          console.error('❌ FFmpeg:', message.slice(0, 200))
+          console.error(`[${new Date().toISOString()}] [HLS] ❌ FFmpeg erreur:`, message.slice(0, 300))
         }
       })
       
       ffmpeg.on('exit', async (code, signal) => {
-        console.log(`FFmpeg terminé (code: ${code}, signal: ${signal})`)
+        const ts3 = new Date().toISOString()
+        const duration = Date.now() - startTime
         
-        // ✅ OPTIMISATION: Créer marker .done pour indiquer fin du transcodage
         if (code === 0) {
+          console.log(`[${ts3}] [HLS] ✅ Transcodage terminé (${(duration / 1000).toFixed(1)}s)`)
+          
+          // Créer marker .done pour indiquer fin du transcodage
           try {
             await writeFile(path.join(sessionDir, '.done'), '')
-            console.log('📝 Marker .done créé')
           } catch (err) {
-            console.warn('⚠️ Erreur création marker:', err)
+            console.warn(`[${ts3}] [HLS] ⚠️ Erreur création marker:`, err)
           }
+        } else {
+          console.error(`[${ts3}] [HLS] ❌ FFmpeg exit anormal`, {
+            code,
+            signal,
+            duration: `${(duration / 1000).toFixed(1)}s`,
+            lastError: stderrBuffer.slice(-500)
+          })
         }
+      })
+      
+      ffmpeg.on('error', (err) => {
+        const ts3 = new Date().toISOString()
+        ErrorHandler.log('HLS', err, { 
+          filepath: filepath.split('/').pop(),
+          sessionId: sessionId.slice(0, 50) + '...'
+        })
+        console.error(`[${ts3}] [HLS] ❌ Erreur spawn FFmpeg:`, err.message)
+        ffmpegManager.killSession(sessionId)
       })
       
       // Mettre à jour le PID dans le gestionnaire
       if (ffmpeg.pid) {
-        console.log(`✅ FFmpeg démarré avec PID: ${ffmpeg.pid}`)
+        const ts3 = new Date().toISOString()
+        console.log(`[${ts3}] [HLS] ✅ FFmpeg démarré (PID: ${ffmpeg.pid})`)
         ffmpegManager.updateSessionPid(sessionId, ffmpeg.pid)
       } else {
-        console.error('❌ FFmpeg n\'a pas démarré correctement')
+        const ts3 = new Date().toISOString()
+        console.error(`[${ts3}] [HLS] ❌ FFmpeg n'a pas démarré correctement`)
       }
     }
 
     // Attendre que FFmpeg génère un playlist AVEC des segments
     if (!playlistHasSegments) {
-      console.log('⏳ Attente que FFmpeg génère des segments...')
+      const ts = new Date().toISOString()
+      console.log(`[${ts}] [HLS] ⏳ Attente génération segments...`)
       
       // Attendre jusqu'à 60 secondes que le playlist contienne des segments
       const maxWaitSeconds = 60
@@ -193,7 +254,9 @@ export async function GET(request: NextRequest) {
           try {
             const content = await readFile(playlistPath, 'utf-8')
             if (content.includes('.ts')) {
-              console.log(`✅ Playlist avec segments prêt après ${((attempt * checkIntervalMs) / 1000).toFixed(1)}s`)
+              const waitTime = ((attempt * checkIntervalMs) / 1000).toFixed(1)
+              const ts2 = new Date().toISOString()
+              console.log(`[${ts2}] [HLS] ✅ Playlist prêt après ${waitTime}s`)
               playlistHasSegments = true
               break
             }
@@ -203,9 +266,17 @@ export async function GET(request: NextRequest) {
       
       // Si toujours pas de segments après 60s, retourner 503
       if (!playlistHasSegments) {
-        console.log('❌ Timeout: FFmpeg n\'a pas généré de segments après 60s')
+        const ts2 = new Date().toISOString()
+        const duration = Date.now() - startTime
+        console.error(`[${ts2}] [HLS] ❌ Timeout après ${(duration / 1000).toFixed(1)}s`)
+        
+        const error = ErrorHandler.createError('PROCESS_TIMEOUT', {
+          filepath: filepath.split('/').pop(),
+          waitedSeconds: maxWaitSeconds
+        })
+        
         return NextResponse.json(
-          { error: 'Transcodage en cours, veuillez patienter' },
+          { error: error.userMessage, code: error.code },
           { status: 503, headers: { 'Retry-After': '10' } }
         )
       }
@@ -217,16 +288,20 @@ export async function GET(request: NextRequest) {
     let playlistContent = await readFile(playlistPath, 'utf-8')
     
     // Remplacer les chemins locaux par des URLs
+    // 🔧 IMPORTANT : Propager le paramètre audio aux segments pour que le player utilise la bonne piste
     const lines = playlistContent.split('\n')
     const modifiedLines = lines.map(line => {
       if (line.endsWith('.ts')) {
         const segmentName = path.basename(line)
-        return `/api/hls?path=${encodeURIComponent(filepath)}&segment=${segmentName}`
+        return `/api/hls?path=${encodeURIComponent(filepath)}&segment=${segmentName}&audio=${audioTrack}`
       }
       return line
     })
     
     playlistContent = modifiedLines.join('\n')
+
+    const duration = Date.now() - startTime
+    console.log(`[${new Date().toISOString()}] [HLS] ✅ Playlist servi (${duration}ms)`)
 
     return new NextResponse(playlistContent, {
       headers: {
@@ -235,8 +310,13 @@ export async function GET(request: NextRequest) {
       }
     })
   } catch (error) {
-    console.error('Erreur lecture playlist:', error)
-    return NextResponse.json({ error: 'Erreur lecture playlist' }, { status: 500 })
+    ErrorHandler.log('HLS', error as Error, { 
+      action: 'read playlist',
+      filepath: filepath.split('/').pop()
+    })
+    
+    const errorResponse = createErrorResponse(error as Error)
+    return NextResponse.json(errorResponse.body, { status: errorResponse.status })
   }
 }
 
