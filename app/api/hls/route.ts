@@ -12,6 +12,7 @@ import path from 'path'
 import crypto from 'crypto'
 import ffmpegManager from '@/lib/ffmpeg-manager'
 import { ErrorHandler, createErrorResponse } from '@/lib/error-handler'
+import { detectHardwareCapabilities } from '@/lib/hardware-detection'
 
 // Répertoire temporaire pour les segments HLS
 const HLS_TEMP_DIR = '/tmp/leon-hls'
@@ -120,10 +121,20 @@ export async function GET(request: NextRequest) {
       // Enregistrer la session avant de lancer FFmpeg
       ffmpegManager.registerSession(sessionId, filepath, audioTrack)
       
+      // 🔧 PHASE 2 : Détection automatique du matériel disponible
+      const hardware = await detectHardwareCapabilities()
+      const ts1_5 = new Date().toISOString()
+      console.log(`[${ts1_5}] [HLS] 🎨 GPU détecté:`, {
+        acceleration: hardware.acceleration,
+        encoder: hardware.encoder,
+        platform: hardware.platform
+      })
+      
       // Lancer FFmpeg en arrière-plan (non-bloquant)
       // OPTIMISATIONS MAXIMALES pour chargement rapide
       const ffmpegArgs = [
-        '-hwaccel', 'auto',          // Accélération matérielle automatique
+        // Décodage matériel si disponible
+        ...hardware.decoderArgs,
         '-i', filepath,
         // ✅ Ne pas utiliser -copyts/-start_at_zero pour éviter les décalages de timestamps
         // Sélectionner la piste vidéo et audio
@@ -131,16 +142,12 @@ export async function GET(request: NextRequest) {
         ...(audioTrack && audioTrack !== '0' 
           ? ['-map', `0:${audioTrack}`]  // Si piste audio spécifiée, utiliser l'index absolu
           : ['-map', '0:a:0']),           // Sinon prendre la première piste audio
-        // 🎨 ENCODAGE GPU h264_videotoolbox (rapide, qualité élevée)
-        // Conversion simple HDR → SDR (format yuv420p)
-        '-vf', 'format=yuv420p',
-        '-c:v', 'h264_videotoolbox', // GPU encoding (M1/M2/Intel Quick Sync)
-        '-b:v', '3000k',            // Bitrate 3 Mbps (bonne qualité)
-        '-maxrate', '4000k',        
-        '-bufsize', '6000k',        
-        '-profile:v', 'main',       // Profile main (compatible)
-        '-level', '4.0',            
-        '-allow_sw', '1',           // Fallback CPU si GPU fail            
+        // 🎨 ENCODAGE GPU (détecté automatiquement)
+        // Conversion HDR → SDR si nécessaire
+        ...(hardware.acceleration === 'vaapi' 
+          ? [] // VAAPI gère le format dans encoderArgs
+          : ['-vf', 'format=yuv420p']),
+        ...hardware.encoderArgs,
         // GOP et keyframes
         '-g', '48',                 // GOP de 2s @ 24fps
         '-keyint_min', '24',        // Keyframe minimum à 1s
@@ -160,8 +167,6 @@ export async function GET(request: NextRequest) {
         '-hls_segment_filename', path.join(sessionDir, 'segment%d.ts'),
         '-hls_playlist_type', 'event', // Playlist dynamique
         '-start_number', '0',       // 🔧 Commencer à segment0.ts
-        // Multi-threading (pas nécessaire pour GPU, mais utile pour audio)
-        '-threads', '4',            // 4 threads pour l'audio et le muxing
         playlistPath
       ]
 
