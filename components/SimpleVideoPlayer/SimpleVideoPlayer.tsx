@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import Hls from 'hls.js'
 import styles from './SimpleVideoPlayer.module.css'
 import menuStyles from './SettingsMenu.module.css'
+import { useBufferStatus } from '@/lib/hooks/useBufferStatus'
+import { SegmentPreloader } from '@/lib/segment-preloader'
 
 interface SimpleVideoPlayerProps {
   src: string
@@ -61,6 +63,7 @@ export default function SimpleVideoPlayer({
   const containerRef = useRef<HTMLDivElement>(null)
   const settingsMenuRef = useRef<HTMLDivElement>(null)
   const hlsRef = useRef<Hls | null>(null)
+  const preloaderRef = useRef<SegmentPreloader | null>(null)
   const retryCountRef = useRef(0)
   const maxRetries = 10
   const realDurationRef = useRef<number>(0) // Durée réelle du fichier
@@ -101,6 +104,40 @@ export default function SimpleVideoPlayer({
   const getFilepath = useCallback(() => {
     const urlParams = new URLSearchParams(src.split('?')[1] || '')
     return urlParams.get('path')
+  }, [src])
+  
+  const getAudioTrack = useCallback(() => {
+    const urlParams = new URLSearchParams(src.split('?')[1] || '')
+    return urlParams.get('audio') || '0'
+  }, [src])
+  
+  // 🔧 PHASE 4: Hook pour récupérer le statut du buffer adaptatif
+  const { bufferStatus } = useBufferStatus(
+    getFilepath(), 
+    getAudioTrack(), 
+    isPlaying && isRemuxing // Activer seulement pendant le HLS remuxing
+  )
+
+  // 🔧 PHASE 4: Initialiser le preloader pour HLS
+  useEffect(() => {
+    // Vérifier si c'est du HLS
+    if (src.includes('/api/hls')) {
+      if (!preloaderRef.current) {
+        preloaderRef.current = new SegmentPreloader({
+          lookaheadSegments: 3, // Précharger 3 segments (6s)
+          maxConcurrent: 2, // 2 requêtes parallèles max
+        })
+        preloaderRef.current.setBaseUrl(src)
+        console.log('[PRELOADER] 🚀 Initialisé pour HLS')
+      }
+    }
+    
+    return () => {
+      // Cleanup au démontage
+      if (preloaderRef.current) {
+        preloaderRef.current.reset()
+      }
+    }
   }, [src])
 
   // Charger les infos des pistes et la durée
@@ -143,7 +180,7 @@ export default function SimpleVideoPlayer({
       .catch(err => {
         console.log('⚠️ API pistes non disponible, pas de changement de langue')
       })
-  }, [getFilepath])
+  }, [getFilepath, src])
 
   // Pour les MP4 directs : s'assurer que la première piste audio est sélectionnée et détecter les sous-titres natifs
   useEffect(() => {
@@ -684,6 +721,12 @@ export default function SimpleVideoPlayer({
       if (video.buffered.length > 0 && actualDuration > 0) {
         const bufferedEnd = video.buffered.end(video.buffered.length - 1)
         setBuffered((bufferedEnd / actualDuration) * 100)
+      }
+      
+      // 🔧 PHASE 4: Mise à jour du preloader (segments de 2s)
+      if (preloaderRef.current && currentPos > 0) {
+        const currentSegmentIndex = Math.floor(currentPos / 2) // Segments de 2s
+        preloaderRef.current.updateCurrentSegment(currentSegmentIndex)
       }
     }
     
@@ -1792,6 +1835,25 @@ export default function SimpleVideoPlayer({
           {isRemuxing && (
             <div className={styles.loaderMessage}>
               Changement de langue en cours... Cela peut prendre quelques minutes.
+            </div>
+          )}
+        </div>
+      )}
+      
+      {/* 🔧 PHASE 4: Affichage du buffer status (discret en bas à droite) */}
+      {bufferStatus && isRemuxing && (
+        <div className={styles.bufferStatus}>
+          <div className={styles.bufferMetric}>
+            <span className={styles.bufferLabel}>Vitesse transcode:</span>
+            <span className={styles.bufferValue}>{bufferStatus.currentSpeed.toFixed(1)}x</span>
+          </div>
+          <div className={styles.bufferMetric}>
+            <span className={styles.bufferLabel}>Buffer:</span>
+            <span className={styles.bufferValue}>{bufferStatus.bufferLevel.toFixed(1)}s</span>
+          </div>
+          {bufferStatus.needsBuffering && (
+            <div className={styles.bufferWarning}>
+              ⏳ {bufferStatus.reason}
             </div>
           )}
         </div>

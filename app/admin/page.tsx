@@ -173,14 +173,14 @@ export default function AdminPage() {
   
   const getStatusIcon = (status: string) => {
     switch (status) {
-      case 'new': return '🆕'
-      case 'updated': return '🔄'
-      case 'skipped': return '✅'
-      case 'error': return '❌'
-      case 'unidentified': return '❓'
-      case 'deleted': return '🗑️'
-      case 'no_poster': return '🖼️'
-      default: return '📄'
+      case 'new': return '+'
+      case 'updated': return '↻'
+      case 'skipped': return '✓'
+      case 'error': return '×'
+      case 'unidentified': return '?'
+      case 'deleted': return '−'
+      case 'no_poster': return '□'
+      default: return '·'
     }
   }
   
@@ -225,39 +225,40 @@ export default function AdminPage() {
             </div>
             <div className={styles.actions}>
               <a href="/admin/fix" className={styles.fixButton}>
-                ✨ Corriger les problèmes
+                Corriger les problèmes
               </a>
               <a href="/admin/validate" className={styles.validateButton}>
-                🎬 Validation Films
+                Validation Films
               </a>
-        <a href="/admin/series" className={styles.validateButton}>
-          📺 Validation Séries
-        </a>
-        
-        <button 
-          onClick={async () => {
-            const res = await fetch('/api/cleanup-v2', { method: 'POST' })
-            const data = await res.json()
-            alert(data.message || 'Nettoyage effectué')
-          }}
-          className={styles.validateButton}
-          style={{ background: '#d32f2f' }}
-        >
-          🧹 Nettoyer Processus FFmpeg
-        </button>
+              <a href="/admin/series" className={styles.validateButton}>
+                Validation Séries
+              </a>
+              <a href="/admin/optimize" className={styles.validateButton}>
+                Optimisation Locale
+              </a>
+              <button 
+                onClick={async () => {
+                  const res = await fetch('/api/cleanup-v2', { method: 'POST' })
+                  const data = await res.json()
+                  alert(data.message || 'Nettoyage effectué')
+                }}
+                className={styles.validateButton}
+              >
+                Nettoyer FFmpeg
+              </button>
               <button 
                 onClick={handleScan} 
                 disabled={scanning}
                 className={styles.scanButton}
               >
-                {scanning ? '⏳ Scan en cours...' : '🔄 Scanner les films'}
+                {scanning ? 'Scan en cours...' : 'Scanner les films'}
               </button>
               <button 
                 onClick={handleScanSeries} 
                 disabled={scanningSeries}
                 className={styles.scanButton}
               >
-                {scanningSeries ? '⏳ Scan en cours...' : '📺 Scanner les séries'}
+                {scanningSeries ? 'Scan en cours...' : 'Scanner les séries'}
               </button>
             </div>
           </div>
@@ -276,32 +277,27 @@ export default function AdminPage() {
             {/* Statistiques */}
             <div className={styles.stats}>
               <div className={styles.statCard}>
-                <div className={styles.statIcon}>📁</div>
                 <div className={styles.statValue}>{result.stats.total}</div>
                 <div className={styles.statLabel}>Fichiers scannés</div>
               </div>
               
               <div className={styles.statCard}>
-                <div className={styles.statIcon}>🆕</div>
                 <div className={styles.statValue}>{result.stats.new}</div>
                 <div className={styles.statLabel}>Nouveaux</div>
               </div>
               
               <div className={styles.statCard}>
-                <div className={styles.statIcon}>🔄</div>
                 <div className={styles.statValue}>{result.stats.updated}</div>
                 <div className={styles.statLabel}>Mis à jour</div>
               </div>
               
               <div className={styles.statCard}>
-                <div className={styles.statIcon}>✅</div>
                 <div className={styles.statValue}>{result.stats.skipped}</div>
                 <div className={styles.statLabel}>Déjà à jour</div>
               </div>
               
               {result.stats.deleted > 0 && (
                 <div className={styles.statCard}>
-                  <div className={styles.statIcon}>🗑️</div>
                   <div className={styles.statValue}>{result.stats.deleted}</div>
                   <div className={styles.statLabel}>Supprimés</div>
                 </div>
@@ -309,7 +305,6 @@ export default function AdminPage() {
               
               {result.stats.errors > 0 && (
                 <div className={`${styles.statCard} ${styles.error}`}>
-                  <div className={styles.statIcon}>❌</div>
                   <div className={styles.statValue}>{result.stats.errors}</div>
                   <div className={styles.statLabel}>Erreurs</div>
                 </div>
@@ -317,7 +312,6 @@ export default function AdminPage() {
               
               {unidentifiedCount > 0 && (
                 <div className={`${styles.statCard} ${styles.warning}`}>
-                  <div className={styles.statIcon}>❓</div>
                   <div className={styles.statValue}>{unidentifiedCount}</div>
                   <div className={styles.statLabel}>Non identifiés</div>
                 </div>
@@ -325,7 +319,6 @@ export default function AdminPage() {
               
               {noPosterCount > 0 && (
                 <div className={`${styles.statCard} ${styles.warning}`}>
-                  <div className={styles.statIcon}>🖼️</div>
                   <div className={styles.statValue}>{noPosterCount}</div>
                   <div className={styles.statLabel}>Sans poster TMDB</div>
                 </div>
@@ -333,7 +326,6 @@ export default function AdminPage() {
               
               {duplicatesCount > 0 && (
                 <div className={`${styles.statCard} ${styles.warning}`}>
-                  <div className={styles.statIcon}>👥</div>
                   <div className={styles.statValue}>{duplicatesCount}</div>
                   <div className={styles.statLabel}>Doublons</div>
                 </div>
@@ -371,7 +363,7 @@ export default function AdminPage() {
             {/* Rapport détaillé */}
             <div className={styles.report}>
               <div className={styles.reportHeader}>
-                <h3 className={styles.reportTitle}>📊 Rapport détaillé</h3>
+                <h3 className={styles.reportTitle}>Rapport détaillé</h3>
                 
                 <div className={styles.tabs}>
                   <button 
@@ -430,7 +422,7 @@ export default function AdminPage() {
                     <div key={index} className={styles.duplicateGroup}>
                       <div className={styles.duplicateHeader}>
                         <div className={styles.duplicateTitle}>
-                          <span className={styles.duplicateIcon}>👥</span>
+                          <span className={styles.duplicateIcon}>×2</span>
                           <span className={styles.duplicateName}>
                             {duplicate.title} {duplicate.year > 0 && `(${duplicate.year})`}
                           </span>
@@ -445,7 +437,7 @@ export default function AdminPage() {
                       <div className={styles.duplicateFiles}>
                         {duplicate.files.map((file, fileIndex) => (
                           <div key={fileIndex} className={styles.duplicateFile}>
-                            <div className={styles.duplicateFileIcon}>📄</div>
+                            <div className={styles.duplicateFileIcon}>·</div>
                             <div className={styles.duplicateFileInfo}>
                               <div className={styles.duplicateFileName}>{file.filename}</div>
                               <div className={styles.duplicateFilePath}>{file.filepath}</div>
@@ -455,13 +447,13 @@ export default function AdminPage() {
                               onClick={() => handleRevealFile(file.filepath)}
                               title="Ouvrir dans le Finder"
                             >
-                              📁
+                              Ouvrir
                             </button>
                           </div>
                         ))}
                       </div>
                       <div className={styles.duplicateAction}>
-                        💡 Conservez la meilleure version et supprimez les autres fichiers en local
+                        Conservez la meilleure version et supprimez les autres fichiers en local
                       </div>
                     </div>
                   ))
@@ -516,14 +508,14 @@ export default function AdminPage() {
                               onClick={() => handleRevealFile(file.filepath)}
                               title="Ouvrir dans le Finder"
                             >
-                              📁 Finder
+                              Finder
                             </button>
                             <a
                               href="/admin/validate"
                               className={styles.validateLink}
                               title="Valider manuellement sur TMDB"
                             >
-                              🔍 Valider
+                              Valider
                             </a>
                           </>
                         )}
@@ -541,7 +533,7 @@ export default function AdminPage() {
             {/* Actions recommandées */}
             {(unidentifiedCount > 0 || errorsCount > 0 || noPosterCount > 0 || duplicatesCount > 0) && (
               <div className={styles.recommendations}>
-                <h4 className={styles.recommendationsTitle}>💡 Actions recommandées</h4>
+                <h4 className={styles.recommendationsTitle}>Actions recommandées</h4>
                 <ul className={styles.recommendationsList}>
                   {duplicatesCount > 0 && (
                     <li>
@@ -554,10 +546,10 @@ export default function AdminPage() {
                     <li>
                       <strong>{unidentifiedCount} fichier(s) non identifié(s)</strong>: 
                       <ol style={{ marginTop: 'var(--spacing-xs)', paddingLeft: 'var(--spacing-lg)' }}>
-                        <li>Cliquez sur <strong>📁 Finder</strong> pour ouvrir et renommer le fichier</li>
+                        <li>Cliquez sur <strong>Finder</strong> pour ouvrir et renommer le fichier</li>
                         <li>Format recommandé: <code>Titre du Film (Année).ext</code></li>
                         <li>Relancez le scan pour réindexer</li>
-                        <li>Si toujours non trouvé: cliquez sur <strong>🔍 Valider</strong> pour une <a href="/admin/validate">validation manuelle</a> sur TMDB</li>
+                        <li>Si toujours non trouvé: cliquez sur <strong>Valider</strong> pour une <a href="/admin/validate">validation manuelle</a> sur TMDB</li>
                       </ol>
                     </li>
                   )}

@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
   
   try {
     // Normaliser le chemin (même logique que /api/hls)
-    const filepath = filepathRaw.normalize('NFC')
+    const filepath = filepathRaw.normalize('NFD')
     
     // 🔧 Générer le hash de session avec filepath + audio (DOIT correspondre à /api/hls)
     const sessionId = `${filepath}_audio${audioTrack}`
@@ -170,7 +170,7 @@ export async function DELETE(request: NextRequest) {
   }
   
   try {
-    const filepath = filepathRaw.normalize('NFC')
+    const filepath = filepathRaw.normalize('NFD')
     // 🔧 Générer le hash avec filepath + audio
     const sessionId = `${filepath}_audio${audioTrack}`
     const sessionHash = crypto

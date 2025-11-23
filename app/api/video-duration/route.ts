@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   }
   
   // Normaliser pour gérer les caractères Unicode (é, à, etc.)
-  const filepath = filepathRaw.normalize('NFC')
+  const filepath = filepathRaw.normalize('NFD')
 
   try {
     // Utiliser ffprobe pour obtenir la durée exacte

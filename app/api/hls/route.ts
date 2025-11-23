@@ -14,6 +14,7 @@ import ffmpegManager from '@/lib/ffmpeg-manager'
 import { ErrorHandler, createErrorResponse } from '@/lib/error-handler'
 import { detectHardwareCapabilities } from '@/lib/hardware-detection'
 import { getBufferInstance, cleanupBufferInstance } from '@/lib/adaptive-buffer'
+import { getCacheInstance } from '@/lib/segment-cache'
 
 // Répertoire temporaire pour les segments HLS
 const HLS_TEMP_DIR = '/tmp/leon-hls'
@@ -71,12 +72,63 @@ export async function GET(request: NextRequest) {
   if (segment) {
     const segmentPath = path.join(sessionDir, segment)
     
+    // 🔧 PHASE 4: Vérifier d'abord le cache
+    const segmentMatch = segment.match(/segment(\d+)\.ts/)
+    if (segmentMatch) {
+      const segmentIndex = parseInt(segmentMatch[1])
+      const cache = getCacheInstance()
+      
+      // Récupérer le hardware pour construire la clé de cache
+      const hardware = await detectHardwareCapabilities()
+      
+      const cachedPath = await cache.get({
+        filepath,
+        audioTrack,
+        segmentIndex,
+        videoCodec: hardware.encoder,
+        resolution: '1080p' // Valeur par défaut, à adapter si besoin
+      })
+      
+      if (cachedPath) {
+        // Segment trouvé en cache !
+        const segmentData = await readFile(cachedPath)
+        return new NextResponse(segmentData as any, {
+          headers: {
+            'Content-Type': 'video/mp2t',
+            'Cache-Control': 'public, max-age=31536000',
+            'X-Cache': 'HIT', // Header pour débug
+          }
+        })
+      }
+    }
+    
+    // Segment pas en cache, on lit depuis sessionDir
     try {
       const segmentData = await readFile(segmentPath)
+      
+      // 🔧 PHASE 4: Sauvegarder en cache pour la prochaine fois
+      if (segmentMatch) {
+        const segmentIndex = parseInt(segmentMatch[1])
+        const cache = getCacheInstance()
+        const hardware = await detectHardwareCapabilities()
+        
+        // Ne pas attendre la sauvegarde (asynchrone)
+        cache.set({
+          filepath,
+          audioTrack,
+          segmentIndex,
+          videoCodec: hardware.encoder,
+          resolution: '1080p'
+        }, segmentPath).catch(err => {
+          console.error(`[${timestamp}] [CACHE] ❌ Erreur sauvegarde segment${segmentIndex}:`, err.message)
+        })
+      }
+      
       return new NextResponse(segmentData as any, {
         headers: {
           'Content-Type': 'video/mp2t',
           'Cache-Control': 'public, max-age=31536000',
+          'X-Cache': 'MISS', // Header pour débug
         }
       })
     } catch {

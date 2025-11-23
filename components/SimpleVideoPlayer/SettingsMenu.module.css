@@ -139,3 +139,13 @@
 .settingsOption.disabled:hover {
   background-color: transparent;
 }
+
+/* Animation spinner */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

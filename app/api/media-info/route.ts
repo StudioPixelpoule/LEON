@@ -71,7 +71,7 @@ export async function GET(request: NextRequest) {
   }
   
   // Normaliser pour gérer les caractères Unicode
-  const filepath = filepathRaw.normalize('NFC')
+  const filepath = filepathRaw.normalize('NFD')
 
   try {
     // Utiliser ffprobe pour obtenir les infos sur les pistes

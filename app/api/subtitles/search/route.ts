@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
   }
   
   // Normaliser pour gérer les caractères Unicode
-  const filepath = filepathRaw.normalize('NFC')
+  const filepath = filepathRaw.normalize('NFD')
   const videoDir = path.dirname(filepath)
   const videoFilename = path.basename(filepath)
   

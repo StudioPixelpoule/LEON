@@ -22,14 +22,19 @@ export async function GET(request: NextRequest) {
     }
     
     // Normaliser pour gérer les caractères Unicode
-    const filepath = filepathRaw.normalize('NFC')
+    const filepath = filepathRaw.normalize('NFD')
+    
+    console.log(`📂 Tentative d'accès au fichier: ${filepath}`)
 
     // Vérifier que le fichier existe
     try {
       await stat(filepath)
-    } catch {
+      console.log(`✅ Fichier trouvé: ${filepath}`)
+    } catch (error) {
+      console.error(`❌ Fichier non trouvé: ${filepath}`)
+      console.error(`   Erreur:`, error)
       return NextResponse.json(
-        { error: 'Fichier non trouvé' },
+        { error: 'Fichier non trouvé', path: filepath },
         { status: 404 }
       )
     }

@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
   }
   
   // Normaliser pour gérer les caractères Unicode
-  const filepath = filepathRaw.normalize('NFC')
+  const filepath = filepathRaw.normalize('NFD')
   
   try {
     // Générer les chemins possibles pour les sous-titres
@@ -31,25 +31,33 @@ export async function GET(request: NextRequest) {
     ]
     
     console.log(`🔍 Recherche sous-titres externes pour: ${videoBasename}`)
+    console.log(`   Chemin vidéo: ${filepath}`)
+    console.log(`   Dossier vidéo: ${videoDir}`)
+    console.log(`   Langue demandée: ${lang}`)
     
     // Chercher le premier fichier existant
     let srtPath: string | null = null
     for (const p of possiblePaths) {
+      console.log(`   Test: ${p}`)
       try {
         await access(p, constants.R_OK)
         srtPath = p
         console.log(`✅ Trouvé: ${path.basename(p)}`)
         break
-      } catch {
+      } catch (err) {
+        console.log(`   ❌ Non trouvé: ${path.basename(p)}`)
         // Fichier n'existe pas, continuer
       }
     }
     
     if (!srtPath) {
       console.warn(`⚠️ Aucun fichier SRT trouvé pour ${videoBasename}`)
+      console.warn(`   Chemins testés:`, possiblePaths.map(p => path.basename(p)))
       return NextResponse.json({ 
         error: 'Aucun sous-titre externe trouvé',
-        searched: possiblePaths.map(p => path.basename(p))
+        searched: possiblePaths.map(p => path.basename(p)),
+        videoDir,
+        videoBasename
       }, { status: 404 })
     }
     
