@@ -11,6 +11,7 @@ import { promisify } from 'util'
 import { rm } from 'fs/promises'
 import path from 'path'
 import { ErrorHandler, UserFriendlyError } from './error-handler'
+import { cleanupBufferInstance } from './adaptive-buffer'
 
 const execAsync = promisify(exec)
 
@@ -153,6 +154,9 @@ class FFmpegManager {
     if (session.timeout) {
       clearTimeout(session.timeout)
     }
+
+    // 📊 PHASE 3 : Nettoyer le buffer adaptatif
+    cleanupBufferInstance(sessionId)
 
     // Tuer le processus si PID connu
     if (session.pid) {

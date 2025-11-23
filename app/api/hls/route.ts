@@ -13,6 +13,7 @@ import crypto from 'crypto'
 import ffmpegManager from '@/lib/ffmpeg-manager'
 import { ErrorHandler, createErrorResponse } from '@/lib/error-handler'
 import { detectHardwareCapabilities } from '@/lib/hardware-detection'
+import { getBufferInstance, cleanupBufferInstance } from '@/lib/adaptive-buffer'
 
 // Répertoire temporaire pour les segments HLS
 const HLS_TEMP_DIR = '/tmp/leon-hls'
@@ -182,6 +183,9 @@ export async function GET(request: NextRequest) {
       let stderrBuffer = ''
       
       // Logger la progression FFmpeg
+      // 📊 PHASE 3 : Buffering adaptatif intelligent
+      const bufferManager = getBufferInstance(sessionId)
+      
       ffmpeg.stderr?.on('data', (data) => {
         const message = data.toString()
         stderrBuffer += message
@@ -192,6 +196,38 @@ export async function GET(request: NextRequest) {
           const progressLine = message.split('\n')[0].trim()
           if (progressLine.includes('speed=')) {
             console.log(`[${new Date().toISOString()}] [HLS] ⏱️ ${progressLine.slice(0, 100)}`)
+            
+            // Extraire les métriques pour le buffering adaptatif
+            const frameMatch = progressLine.match(/frame=\s*(\d+)/)
+            const fpsMatch = progressLine.match(/fps=\s*([\d.]+)/)
+            const speedMatch = progressLine.match(/speed=\s*([\d.]+)x/)
+            
+            if (frameMatch && fpsMatch && speedMatch) {
+              const frame = parseInt(frameMatch[1], 10)
+              const fps = parseFloat(fpsMatch[1])
+              const speed = parseFloat(speedMatch[1])
+              
+              // Estimer le nombre de segments générés (2s par segment @ 24fps = 48 frames)
+              const segmentsGenerated = Math.floor(frame / 48)
+              
+              // TODO: Récupérer le nombre de segments consommés du player
+              // Pour l'instant, on estime à 0 (sera implémenté côté client)
+              const segmentsConsumed = 0
+              
+              bufferManager.recordMetrics({
+                speed,
+                fps,
+                segmentsGenerated,
+                segmentsConsumed,
+                timestamp: Date.now()
+              })
+              
+              // Afficher le statut du buffer toutes les 10 secondes
+              if (frame % 240 === 0) { // Environ toutes les 10s @ 24fps
+                const status = bufferManager.getStatusReport()
+                console.log(`[${new Date().toISOString()}] [BUFFER] 📊 Statut:`, status)
+              }
+            }
           }
         } else if (message.includes('error') || message.includes('Error')) {
           console.error(`[${new Date().toISOString()}] [HLS] ❌ FFmpeg erreur:`, message.slice(0, 300))
