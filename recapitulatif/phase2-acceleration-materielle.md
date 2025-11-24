@@ -197,3 +197,4 @@ ffmpeg -hwaccels
 - [FFmpeg VideoToolbox](https://trac.ffmpeg.org/wiki/HWAccelIntro#VideoToolbox)
 - [Synology DS718+ Specs](https://www.synology.com/en-us/products/DS718+) (Intel Celeron J3455 avec Quick Sync)
 
+

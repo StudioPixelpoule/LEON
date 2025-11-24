@@ -72,3 +72,4 @@ export default function SearchResultsGrid({ movies, query, onMovieClick }: Searc
     </section>
   )
 }
+

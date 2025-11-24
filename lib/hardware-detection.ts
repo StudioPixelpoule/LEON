@@ -166,3 +166,4 @@ export function resetHardwareCache(): void {
   cachedCapabilities = null
 }
 
+

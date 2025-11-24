@@ -102,3 +102,4 @@ Pour mettre à jour les infos d'un film :
 1. Supprimez le film de la base
 2. Relancez un scan
 3. Le film sera ré-identifié avec les dernières infos TMDB
+
