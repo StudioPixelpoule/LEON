@@ -4,12 +4,13 @@
 
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Header from '@/components/Header/Header'
 import HeroSection from '@/components/HeroSection/HeroSection'
 import MovieRow from '@/components/MovieRow/MovieRow'
 import MovieModal from '@/components/MovieModal/MovieModalWithTV'
 import ContinueWatchingRow from '@/components/ContinueWatchingRow/ContinueWatchingRow'
+import FavoritesRow from '@/components/FavoritesRow/FavoritesRow'
 import RandomMoviesRow from '@/components/RandomMoviesRow/RandomMoviesRow'
 import SearchResultsGrid from '@/components/SearchResultsGrid/SearchResultsGrid'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
@@ -66,7 +67,7 @@ export default function FilmsPage() {
     }
     
     loadMovies()
-  }, [refreshKey]) // Re-mélanger quand refreshKey change
+  }, []) // Charger une seule fois au montage
   
   // Fonction de mélange aléatoire (shuffle)
   function shuffleArray<T>(array: T[]): T[] {
@@ -157,40 +158,51 @@ export default function FilmsPage() {
   }
   
   // Afficher TOUS les films, même sans poster (placeholder utilisé)
-  const validMovies = movies.filter(m => m.tmdb_id) // Uniquement ceux identifiés sur TMDB
+  const validMovies = useMemo(() => 
+    movies.filter(m => m.tmdb_id), // Uniquement ceux identifiés sur TMDB
+    [movies]
+  )
   
   // Films VRAIMENT récemment ajoutés dans LEON (par created_at)
   // Tri par date de création décroissante (les plus récents d'abord)
-  const recentMovies = [...validMovies]
-    .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
-    .slice(0, 30)
+  const recentMovies = useMemo(() => 
+    [...validMovies]
+      .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
+      .slice(0, 30),
+    [validMovies]
+  )
   
-  // Mélanger les films les mieux notés
-  const allTopRated = [...validMovies]
-    .filter(m => m.rating && m.rating >= 7)
-    .sort((a, b) => (b.rating || 0) - (a.rating || 0))
-    .slice(0, 60)
-  const topRated = shuffleArray(allTopRated).slice(0, 30)
+  // Mélanger les films les mieux notés (une seule fois quand movies change)
+  const topRated = useMemo(() => {
+    const allTopRated = [...validMovies]
+      .filter(m => m.rating && m.rating >= 7)
+      .sort((a, b) => (b.rating || 0) - (a.rating || 0))
+      .slice(0, 60)
+    return shuffleArray(allTopRated).slice(0, 30)
+  }, [validMovies])
   
-  // Utiliser le système de classification intelligent
+  // Utiliser le système de classification intelligent (mémorisé)
   // Chaque film sera dans maximum 2 catégories
-  const genreGroups = groupMoviesByCategories(validMovies)
-  
-  // Mélanger les films dans chaque catégorie
-  Object.keys(genreGroups).forEach(genre => {
-    genreGroups[genre] = shuffleArray(genreGroups[genre])
-  })
-  
-  // Sélectionner TOUTES les catégories qui ont au moins 3 films
-  const topGenres = selectTopCategories(genreGroups, 99) // Pas de limite sur le nombre de catégories
+  const topGenres = useMemo(() => {
+    const genreGroups = groupMoviesByCategories(validMovies)
+    
+    // Mélanger les films dans chaque catégorie
+    Object.keys(genreGroups).forEach(genre => {
+      genreGroups[genre] = shuffleArray(genreGroups[genre])
+    })
+    
+    // Sélectionner TOUTES les catégories qui ont au moins 3 films
+    return selectTopCategories(genreGroups, 99) // Pas de limite sur le nombre de catégories
+  }, [validMovies])
   
   // Compter les films uniques affichés
-  const displayedMovieIds = new Set<string>()
-  recentMovies.forEach(m => displayedMovieIds.add(m.id))
-  topRated.forEach(m => displayedMovieIds.add(m.id))
-  topGenres.forEach(({ movies }) => movies.forEach(m => displayedMovieIds.add(m.id)))
-  
-  const notDisplayedCount = validMovies.length - displayedMovieIds.size
+  const notDisplayedCount = useMemo(() => {
+    const displayedMovieIds = new Set<string>()
+    recentMovies.forEach(m => displayedMovieIds.add(m.id))
+    topRated.forEach(m => displayedMovieIds.add(m.id))
+    topGenres.forEach(({ movies: genreMovies }) => genreMovies.forEach(m => displayedMovieIds.add(m.id)))
+    return validMovies.length - displayedMovieIds.size
+  }, [validMovies, recentMovies, topRated, topGenres])
   
   // La lecture est maintenant gérée directement par la modale MovieModal
   // qui ouvre le lecteur vidéo intégré
@@ -247,7 +259,13 @@ export default function FilmsPage() {
                   setAutoPlay(true)
                 }}
                 onRefresh={() => setRefreshKey(k => k + 1)}
-                refreshKey={refreshKey} // ✨ Passer refreshKey pour mise à jour immédiate
+                refreshKey={refreshKey}
+              />
+              
+              {/* Carrousel: Ma liste (favoris) */}
+              <FavoritesRow 
+                onMovieClick={setSelectedMovie}
+                refreshKey={refreshKey}
               />
               
               {/* Bouton refresh discret */}

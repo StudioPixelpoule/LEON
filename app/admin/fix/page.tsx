@@ -434,7 +434,7 @@ export default function FixPage() {
             
             {currentIssue.type !== 'duplicate' && currentIssue.poster_url && currentIssue.poster_url !== '/placeholder-poster.png' && (
               <button onClick={handleSkip} className={styles.validButton}>
-                ✅ C'est bon
+                ✅ C&apos;est bon
               </button>
             )}
             

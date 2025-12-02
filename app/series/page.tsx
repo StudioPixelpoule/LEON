@@ -128,7 +128,7 @@ export default function SeriesPage() {
           <h1>Aucune série disponible</h1>
           <p>Scannez vos séries pour les voir apparaître ici</p>
           <a href="/admin" className={styles.adminLink}>
-            Aller à l'admin
+            Aller à l&apos;admin
           </a>
         </div>
       </>

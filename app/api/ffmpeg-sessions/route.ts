@@ -5,6 +5,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
 import ffmpegManager from '@/lib/ffmpeg-manager'
 
 export async function GET() {

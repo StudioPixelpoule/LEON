@@ -1,0 +1,84 @@
+# Dépendances (reconstruites dans Docker)
+node_modules
+.pnp
+.pnp.js
+
+# Build Next.js (reconstruit dans Docker)
+.next
+out
+build
+
+# Git
+.git
+.gitignore
+
+# Environnement local
+.env
+.env.*
+*.local
+
+# Fichiers Mac
+.DS_Store
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# IDE
+.vscode
+.idea
+*.code-workspace
+
+# Tests
+coverage
+.nyc_output
+
+# Documentation (pas nécessaire en prod)
+*.md
+docs
+
+# Fichiers de déploiement
+deploy.tar.gz
+deploy.sh
+
+# Cache et fichiers temporaires
+.cache
+cache/
+tmp/
+temp/
+*.tmp
+
+# Segments HLS (fichiers binaires de cache de transcodage)
+# Note: Ne pas exclure lib/segment-*.ts qui sont des fichiers source TypeScript
+cache/**/segment*.ts
+tmp/**/segment*.ts
+**/*.m3u8
+
+# Médias (ils sont montés via Docker, pas copiés !)
+media
+films
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.m4v
+
+# Très gros fichiers à ignorer
+*.iso
+*.dmg
+*.zip
+*.tar
+*.tar.gz
+*.rar
+
+# Dossiers Synology/NAS
+@eaDir
+
+# Optimisation (vieux fichiers)
+Optimisation
+recapitulatif
+supabase/*.sql
+
+

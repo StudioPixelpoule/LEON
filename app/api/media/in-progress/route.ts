@@ -5,6 +5,9 @@
  */
 
 import { NextResponse } from 'next/server'
+
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
 import { createSupabaseClient } from '@/lib/supabase'
 
 export async function GET() {

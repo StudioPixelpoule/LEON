@@ -3,6 +3,9 @@
  */
 
 import { NextResponse } from 'next/server'
+
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 import { rm } from 'fs/promises'

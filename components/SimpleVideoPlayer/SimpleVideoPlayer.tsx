@@ -7,6 +7,8 @@ import menuStyles from './SettingsMenu.module.css'
 import { useBufferStatus } from '@/lib/hooks/useBufferStatus'
 import { SegmentPreloader } from '@/lib/segment-preloader'
 import { usePlaybackPosition } from '@/lib/hooks/usePlaybackPosition'
+import { useNetworkResilience } from '@/lib/hooks/useNetworkResilience'
+import { HLS_BASE_CONFIG, selectHlsConfig } from '@/lib/hls-config'
 
 interface SimpleVideoPlayerProps {
   src: string
@@ -71,6 +73,10 @@ export default function SimpleVideoPlayer({
   const maxRetries = 10
   const realDurationRef = useRef<number>(0) // Durée réelle du fichier
   
+  // 🔧 FIX #1: Refs pour préserver la position lors des récupérations d'erreur
+  const lastKnownPositionRef = useRef<number>(0)
+  const isRecoveringRef = useRef<boolean>(false)
+  
   // États du lecteur
   const [isPlaying, setIsPlaying] = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
@@ -85,6 +91,10 @@ export default function SimpleVideoPlayer({
   const [error, setError] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [bufferReady, setBufferReady] = useState(false) // 🚦 Flag pour bloquer l'autoplay
+  
+  // 🔧 FIX #2: Tracker le temps maximum disponible (transcodé)
+  const [maxSeekableTime, setMaxSeekableTime] = useState<number>(Infinity)
+  const [seekWarning, setSeekWarning] = useState<string | null>(null)
   
   // Menu et pistes
   const [showSettingsMenu, setShowSettingsMenu] = useState(false)
@@ -120,6 +130,31 @@ export default function SimpleVideoPlayer({
     getAudioTrack(), 
     isPlaying && isRemuxing // Activer seulement pendant le HLS remuxing
   )
+
+  // 🔧 PHASE 5: Hook pour la résilience réseau (reconnexion automatique)
+  const { 
+    isOnline, 
+    connectionQuality, 
+    isReconnecting,
+    handleNetworkError,
+    savePosition,
+    getSavedPosition,
+  } = useNetworkResilience({
+    onReconnect: () => {
+      console.log('[NETWORK] ✅ Reconnexion détectée, reprise de lecture...')
+      const video = videoRef.current
+      if (video && video.paused) {
+        video.play().catch(() => {})
+      }
+    },
+    onDisconnect: () => {
+      console.log('[NETWORK] ❌ Déconnexion détectée')
+      const video = videoRef.current
+      if (video) {
+        savePosition(video.currentTime)
+      }
+    },
+  })
 
   // 🔧 PHASE 3: Hook pour charger ET sauvegarder la position de lecture
   const { initialPosition, markAsFinished } = usePlaybackPosition({
@@ -337,6 +372,54 @@ export default function SimpleVideoPlayer({
     }
   }, [showSettingsMenu])
 
+  // 🔧 FIX #3: Synchroniser isPlaying avec l'état réel du video
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    
+    const syncPlayState = () => {
+      const actuallyPlaying = !video.paused && !video.ended && video.readyState > 2
+      if (actuallyPlaying !== isPlaying) {
+        setIsPlaying(actuallyPlaying)
+      }
+    }
+    
+    // Vérifier périodiquement (backup)
+    const syncInterval = setInterval(syncPlayState, 1000)
+    
+    // Événements directs
+    video.addEventListener('playing', syncPlayState)
+    video.addEventListener('pause', syncPlayState)
+    video.addEventListener('ended', syncPlayState)
+    video.addEventListener('waiting', syncPlayState)
+    
+    return () => {
+      clearInterval(syncInterval)
+      video.removeEventListener('playing', syncPlayState)
+      video.removeEventListener('pause', syncPlayState)
+      video.removeEventListener('ended', syncPlayState)
+      video.removeEventListener('waiting', syncPlayState)
+    }
+  }, [isPlaying])
+
+  // 🔧 FIX #3: Gérer spécifiquement le fullscreen
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (document.fullscreenElement) {
+        // En fullscreen : forcer la disparition des contrôles après 3s
+        setTimeout(() => {
+          const video = videoRef.current
+          if (video && !video.paused) {
+            setShowControls(false)
+          }
+        }, 3000)
+      }
+    }
+    
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  }, [])
+
   // Raccourcis clavier
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
@@ -406,49 +489,34 @@ export default function SimpleVideoPlayer({
     if (isHLS) {
       // Utiliser HLS.js pour les navigateurs non-Safari
       if (Hls.isSupported()) {
-        // 🎯 Configuration OPTIMISÉE pour transcodage en temps réel
-        const hls = new Hls({
-          debug: false,
-          enableWorker: true,
-          startPosition: -1,                // -1 = démarrer au début du buffer (accepte les micro-décalages)
-          // 🔧 Buffer RÉDUIT pour ne pas dépasser les segments disponibles
-          maxBufferLength: 8,               // 8s ahead (4 segments de 2s) - ENCORE PLUS CONSERVATEUR
-          maxMaxBufferLength: 16,           // 16s max
-          maxBufferSize: 8 * 1000 * 1000,   // 8MB
-          backBufferLength: 5,              // Garder 5s en arrière
-          maxBufferHole: 0.5,               // Tolérance 500ms
-          nudgeOffset: 0.1,                 // Accepter les décalages jusqu'à 100ms
-          nudgeMaxRetry: 3,                 // Réessayer 3x avant d'abandonner
-          // ❌ DÉSACTIVER le prefetch pour éviter les 404
-          startFragPrefetch: false,
-          // Timeouts plus tolérants pour attendre FFmpeg
-          manifestLoadingTimeOut: 15000,    // 15s pour manifest (plus tolérant)
-          manifestLoadingMaxRetry: 2,       // Moins de retries (évite les 500 en boucle)
-          manifestLoadingRetryDelay: 2000,  // 2s entre chaque retry (plus lent)
-          levelLoadingTimeOut: 15000,       // 15s pour level
-          levelLoadingMaxRetry: 2,          // Moins de retries
-          levelLoadingRetryDelay: 2000,     // 2s entre chaque retry
-          fragLoadingTimeOut: 20000,        // 20s pour fragments
-          fragLoadingMaxRetry: 6,           // Plus de retries pour fragments
-          fragLoadingRetryDelay: 1000,      // 1s entre chaque retry
-          // ABR et progressive
-          progressive: true,
-          lowLatencyMode: false,            // Désactiver low-latency (on n'est pas en live)
-          startLevel: -1
+        // 🎯 PHASE 5: Configuration OPTIMISÉE avec sélection intelligente
+        const hlsConfig = selectHlsConfig({
+          isFirstLoad: true,
+          connectionQuality: connectionQuality as 'excellent' | 'good' | 'poor',
         })
+        const hls = new Hls(hlsConfig)
         hlsRef.current = hls
         
-        // 🔧 CRITICAL: Réinitialiser currentTime AVANT de charger HLS
-        // Si on ne fait pas ça, HLS.js va essayer de sauter à l'ancien currentTime
-        // et demander des segments qui n'existent pas encore (ex: segment 166 au lieu de 0)
-        video.currentTime = 0
-        video.load() // Force reset de l'état interne du <video>
+        // 🔧 FIX #1: Ne PAS reset à 0 si on a une position sauvegardée (ex: reprise de lecture)
+        // Seulement reset si c'est vraiment une nouvelle vidéo
+        if (lastKnownPositionRef.current === 0 && initialPosition === 0) {
+          video.currentTime = 0
+          video.load() // Force reset de l'état interne du <video>
+        } else {
+          console.log(`📍 Position existante détectée: ${lastKnownPositionRef.current.toFixed(1)}s ou initialPosition: ${initialPosition}s`)
+        }
         
         hls.loadSource(currentVideoUrl.current)
         hls.attachMedia(video)
         
         hls.on(Hls.Events.MANIFEST_PARSED, () => {
           retryCountRef.current = 0
+          
+          // 🔧 FIX #1: Restaurer la position si on en avait une (ex: après changement de piste)
+          if (lastKnownPositionRef.current > 5 && video.currentTime < 5) {
+            console.log(`📍 Restauration position après manifest: ${lastKnownPositionRef.current.toFixed(1)}s`)
+            video.currentTime = lastKnownPositionRef.current
+          }
           
           // 🧹 Nettoyer l'ancien intervalle si existant
           if (bufferCheckIntervalRef.current) {
@@ -558,7 +626,15 @@ export default function SimpleVideoPlayer({
         // video.addEventListener('play', startBufferWatchdog, { once: true })
         
         hls.on(Hls.Events.ERROR, (event, data) => {
-          console.error('❌ Erreur HLS:', data)
+          console.error('❌ Erreur HLS:', data.type, data.details)
+          
+          // 🔧 FIX #1: TOUJOURS sauvegarder la position AVANT toute action
+          const savedPosition = lastKnownPositionRef.current || video.currentTime || 0
+          const wasPlaying = !video.paused
+          
+          if (savedPosition > 5) {
+            console.log(`📍 Position sauvegardée avant récupération: ${savedPosition.toFixed(1)}s`)
+          }
           
           if (data.fatal) {
             switch(data.type) {
@@ -567,18 +643,18 @@ export default function SimpleVideoPlayer({
                 
                 // ✅ RETRY GRADUEL : 1s, 3s, 5s, 10s
                 const retryDelays = [1000, 3000, 5000, 10000]
-                const maxRetries = retryDelays.length
+                const maxNetworkRetries = retryDelays.length
                 
-                if (retryCountRef.current >= maxRetries) {
-                  console.error(`❌ Maximum de tentatives atteint (${maxRetries})`)
-                  setError('Impossible de charger la vidéo après plusieurs tentatives')
+                if (retryCountRef.current >= maxNetworkRetries) {
+                  console.error(`❌ Maximum de tentatives atteint (${maxNetworkRetries})`)
+                  setError(`Impossible de charger la vidéo après plusieurs tentatives. Position sauvegardée: ${formatTime(savedPosition)}`)
                   setIsLoading(false)
                   return
                 }
                 
                 const delay = retryDelays[retryCountRef.current]
                 retryCountRef.current++
-                console.log(`🔄 Retry ${retryCountRef.current}/${maxRetries} dans ${delay}ms`)
+                console.log(`🔄 Retry ${retryCountRef.current}/${maxNetworkRetries} dans ${delay}ms`)
                 
                 // ✅ NE PAS détruire HLS.js, juste recharger la source
                 setTimeout(() => {
@@ -595,56 +671,58 @@ export default function SimpleVideoPlayer({
                 hls.recoverMediaError()
                 break
               default:
-                // Pour les autres erreurs fatales, réessayer après un délai
-                console.log('🔄 Rechargement complet dans 3s...')
+                // 🔧 FIX #1: Pour les erreurs fatales, préserver la position
+                console.log(`🔄 Rechargement complet dans 3s... (position: ${savedPosition.toFixed(1)}s)`)
+                isRecoveringRef.current = true
+                
                 setTimeout(() => {
                   hls.destroy()
-                  // 🔧 Config identique à l'initialisation
-                  const newHls = new Hls({
-                    debug: false,
-                    enableWorker: true,
-                    startPosition: -1,
-                    maxBufferLength: 8,
-                    maxMaxBufferLength: 16,
-                    maxBufferSize: 8 * 1000 * 1000,
-                    backBufferLength: 5,
-                    maxBufferHole: 0.5,
-                    nudgeOffset: 0.1,
-                    nudgeMaxRetry: 3,
-                    startFragPrefetch: false,
-                    manifestLoadingTimeOut: 15000,
-                    manifestLoadingMaxRetry: 2,
-                    manifestLoadingRetryDelay: 2000,
-                    levelLoadingTimeOut: 15000,
-                    levelLoadingMaxRetry: 2,
-                    levelLoadingRetryDelay: 2000,
-                    fragLoadingTimeOut: 20000,
-                    fragLoadingMaxRetry: 6,
-                    fragLoadingRetryDelay: 1000,
-                    progressive: true,
-                    lowLatencyMode: false
+                  
+                  // 🔧 PHASE 5: Config de récupération avec position sauvegardée
+                  const recoveryConfig = selectHlsConfig({
+                    isRecovery: true,
+                    startPosition: savedPosition,
                   })
+                  const newHls = new Hls(recoveryConfig)
                   hlsRef.current = newHls
                   
-                  // 🔧 CRITICAL: Réinitialiser currentTime avant rechargement
-                  video.currentTime = 0
-                  video.load()
+                  // 🔧 FIX #1: Ne PAS reset à 0 si on a une position sauvegardée
+                  if (savedPosition <= 5) {
+                    video.currentTime = 0
+                    video.load()
+                  }
                   
                   newHls.loadSource(currentVideoUrl.current)
                   newHls.attachMedia(video)
+                  
+                  // 🔧 FIX #1: Restaurer la position après rechargement
+                  newHls.on(Hls.Events.MANIFEST_PARSED, () => {
+                    console.log(`✅ Manifest rechargé, restauration position: ${savedPosition.toFixed(1)}s`)
+                    if (video && savedPosition > 5) {
+                      video.currentTime = savedPosition
+                      if (wasPlaying) {
+                        video.play().catch(() => {})
+                      }
+                    }
+                    retryCountRef.current = 0
+                    setTimeout(() => {
+                      isRecoveringRef.current = false
+                    }, 2000)
+                  })
                 }, 3000)
                 break
             }
           } else if (data.details === 'bufferStalledError') {
-            console.log('⏳ Buffer en attente...')
+            console.log('⏳ Buffer en attente du transcodage...')
+          } else if (data.details === 'fragLoadError' || data.details === 'fragLoadTimeOut') {
+            console.log(`⏳ Segment non prêt, FFmpeg en cours de transcodage...`)
+            // Ne rien faire, HLS.js va réessayer automatiquement
           } else if (data.details === 'levelLoadError') {
             // 🔧 Erreur non-fatale de chargement de playlist (souvent 500)
-            // Si FFmpeg est mort, on ne retry pas indéfiniment
             console.warn('⚠️ Erreur chargement playlist (non-fatal):', data.response?.code)
             
             if (data.response?.code === 500) {
               console.warn('⚠️ Serveur retourne 500 - possible FFmpeg mort')
-              // HLS.js va retry automatiquement, mais on log pour debug
             }
           }
         })
@@ -733,10 +811,25 @@ export default function SimpleVideoPlayer({
       const currentPos = video.currentTime
       const lastTime = lastTimeRef.current
       
+      // 🔧 FIX #1: Sauvegarder la position valide (> 1s pour éviter les faux positifs)
+      if (currentPos > 1 && !isRecoveringRef.current) {
+        lastKnownPositionRef.current = currentPos
+      }
+      
       // 🔍 DEBUG: Détecter les VRAIS sauts anormaux (pas les initialisations)
-      // On ignore les sauts de moins de 2s (seek normaux) et les initialisations (lastTime = 0)
-      if (Math.abs(currentPos - lastTime) > 10 && lastTime > 0.1 && !isSeeking) {
+      if (Math.abs(currentPos - lastTime) > 10 && lastTime > 0.1 && !isSeeking && !isRecoveringRef.current) {
         console.warn(`⚠️ SAUT DÉTECTÉ: ${lastTime.toFixed(1)}s → ${currentPos.toFixed(1)}s (delta: ${(currentPos - lastTime).toFixed(1)}s)`)
+        
+        // 🔧 FIX #1: Si c'est un reset non voulu vers 0, restaurer la position
+        if (currentPos < 5 && lastKnownPositionRef.current > 30) {
+          console.log(`🔄 RÉCUPÉRATION: Restauration vers ${lastKnownPositionRef.current.toFixed(1)}s`)
+          isRecoveringRef.current = true
+          video.currentTime = lastKnownPositionRef.current
+          setTimeout(() => {
+            isRecoveringRef.current = false
+          }, 2000)
+          return // Ne pas mettre à jour l'état avec la mauvaise position
+        }
       }
       
       // Mettre à jour la référence
@@ -753,6 +846,13 @@ export default function SimpleVideoPlayer({
       if (video.buffered.length > 0 && actualDuration > 0) {
         const bufferedEnd = video.buffered.end(video.buffered.length - 1)
         setBuffered((bufferedEnd / actualDuration) * 100)
+        
+        // 🔧 FIX #2: Calculer le temps max seekable (dernier segment disponible + marge)
+        // Le temps seekable = dernier buffer + 10s de marge (segments en cours de chargement)
+        const newMaxSeekable = bufferedEnd + 10
+        if (newMaxSeekable !== maxSeekableTime) {
+          setMaxSeekableTime(newMaxSeekable)
+        }
       }
       
       // 🔧 PHASE 4: Mise à jour du preloader (segments de 2s)
@@ -1212,31 +1312,8 @@ export default function SimpleVideoPlayer({
       
       // Recharger avec HLS.js
       if (Hls.isSupported()) {
-        // 🔧 Config identique à l'initialisation
-        const hls = new Hls({
-          debug: false,
-          enableWorker: true,
-          startPosition: -1,
-          maxBufferLength: 8,
-          maxMaxBufferLength: 16,
-          maxBufferSize: 8 * 1000 * 1000,
-          backBufferLength: 5,
-          maxBufferHole: 0.5,
-          nudgeOffset: 0.1,
-          nudgeMaxRetry: 3,
-          startFragPrefetch: false,
-          manifestLoadingTimeOut: 15000,
-          manifestLoadingMaxRetry: 2,
-          manifestLoadingRetryDelay: 2000,
-          levelLoadingTimeOut: 15000,
-          levelLoadingMaxRetry: 2,
-          levelLoadingRetryDelay: 2000,
-          fragLoadingTimeOut: 20000,
-          fragLoadingMaxRetry: 6,
-          fragLoadingRetryDelay: 1000,
-          progressive: true,
-          lowLatencyMode: false
-        })
+        // 🔧 PHASE 5: Config optimisée pour changement de piste
+        const hls = new Hls(HLS_BASE_CONFIG)
         hlsRef.current = hls
         
         // 🔧 Nettoyer l'état vidéo avant rechargement (mais garder currentPos pour le restaurer après)
@@ -1700,7 +1777,11 @@ export default function SimpleVideoPlayer({
       clearTimeout(hideControlsTimeout.current)
     }
 
-    if (isPlaying && !showSettingsMenu) {
+    // 🔧 FIX #3: Vérifier l'état réel de la vidéo, pas juste le state
+    const videoElement = videoRef.current
+    const actuallyPlaying = videoElement && !videoElement.paused && !videoElement.ended
+    
+    if ((actuallyPlaying || isPlaying) && !showSettingsMenu) {
       hideControlsTimeout.current = setTimeout(() => {
         setShowControls(false)
       }, 3000)
@@ -1765,9 +1846,30 @@ export default function SimpleVideoPlayer({
     const rect = progressRef.current.getBoundingClientRect()
     const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
     const actualDuration = realDurationRef.current || duration || videoRef.current.duration
+    const targetTime = percent * actualDuration
     
+    // 🔧 FIX #2: Vérifier si le seek est dans la zone disponible (seulement pour HLS en cours de transcodage)
+    const isHLS = src.includes('/api/hls')
+    if (isHLS && targetTime > maxSeekableTime && maxSeekableTime < actualDuration * 0.95) {
+      const availableMinutes = Math.floor(maxSeekableTime / 60)
+      const availableSeconds = Math.floor(maxSeekableTime % 60)
+      
+      setSeekWarning(`Transcodage en cours... Disponible jusqu'à ${availableMinutes}:${availableSeconds.toString().padStart(2, '0')}`)
+      
+      // Effacer le warning après 3s
+      setTimeout(() => setSeekWarning(null), 3000)
+      
+      // Permettre quand même le seek jusqu'au max disponible
+      if (isFinite(maxSeekableTime) && maxSeekableTime > 0) {
+        videoRef.current.currentTime = Math.min(targetTime, maxSeekableTime - 5)
+      }
+      return
+    }
+    
+    // Seek normal
+    setSeekWarning(null)
     if (isFinite(actualDuration) && actualDuration > 0) {
-      videoRef.current.currentTime = percent * actualDuration
+      videoRef.current.currentTime = targetTime
     }
   }
 
@@ -1776,13 +1878,21 @@ export default function SimpleVideoPlayer({
     
     setIsDragging(true)
     const rect = progressRef.current.getBoundingClientRect()
+    const isHLS = src.includes('/api/hls')
     
     const updatePosition = (clientX: number) => {
       const percent = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
       const actualDuration = realDurationRef.current || duration || videoRef.current?.duration || 0
+      const targetTime = percent * actualDuration
       
       if (isFinite(actualDuration) && actualDuration > 0 && videoRef.current) {
-        videoRef.current.currentTime = percent * actualDuration
+        // 🔧 FIX #2: Limiter au temps disponible pendant le drag (seulement pour HLS)
+        if (isHLS && targetTime > maxSeekableTime && maxSeekableTime < actualDuration * 0.95) {
+          const safeTime = Math.max(0, maxSeekableTime - 2)
+          videoRef.current.currentTime = safeTime
+        } else {
+          videoRef.current.currentTime = targetTime
+        }
       }
     }
     
@@ -1794,6 +1904,7 @@ export default function SimpleVideoPlayer({
     
     const handleMouseUp = () => {
       setIsDragging(false)
+      setSeekWarning(null) // Effacer le warning à la fin du drag
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
@@ -1869,6 +1980,14 @@ export default function SimpleVideoPlayer({
               Changement de langue en cours... Cela peut prendre quelques minutes.
             </div>
           )}
+        </div>
+      )}
+      
+      {/* 🔧 FIX #2: Warning de seek */}
+      {seekWarning && (
+        <div className={styles.seekWarning}>
+          <span>⏳</span>
+          <span>{seekWarning}</span>
         </div>
       )}
       

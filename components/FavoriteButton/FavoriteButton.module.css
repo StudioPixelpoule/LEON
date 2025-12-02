@@ -1,0 +1,131 @@
+/* FavoriteButton - Cœur élégant et sobre */
+
+.button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: all 200ms ease;
+  color: rgba(255, 255, 255, 0.7);
+  padding: 0;
+}
+
+.button:hover {
+  background: rgba(0, 0, 0, 0.6);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.9);
+  transform: scale(1.05);
+}
+
+.button:active {
+  transform: scale(0.95);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* État actif (favori) */
+.button.active {
+  color: rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.button.active:hover {
+  color: rgba(255, 100, 100, 0.9);
+}
+
+/* Icône cœur */
+.heart {
+  transition: all 200ms ease;
+}
+
+.button.active .heart {
+  animation: heartPulse 300ms ease;
+}
+
+@keyframes heartPulse {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+/* Tailles */
+.small {
+  width: 32px;
+  height: 32px;
+}
+
+.small .heart {
+  width: 16px;
+  height: 16px;
+}
+
+.medium {
+  width: 40px;
+  height: 40px;
+}
+
+.medium .heart {
+  width: 20px;
+  height: 20px;
+}
+
+.large {
+  width: 48px;
+  height: 48px;
+}
+
+.large .heart {
+  width: 24px;
+  height: 24px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .small {
+    width: 28px;
+    height: 28px;
+  }
+
+  .small .heart {
+    width: 14px;
+    height: 14px;
+  }
+
+  .medium {
+    width: 36px;
+    height: 36px;
+  }
+
+  .medium .heart {
+    width: 18px;
+    height: 18px;
+  }
+
+  .large {
+    width: 44px;
+    height: 44px;
+  }
+
+  .large .heart {
+    width: 22px;
+    height: 22px;
+  }
+}
+
+
+
+
+

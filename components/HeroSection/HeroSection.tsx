@@ -9,13 +9,17 @@ import Image from 'next/image'
 import type { Media } from '@/lib/supabase'
 import styles from './HeroSection.module.css'
 
+// Type partiel pour accepter Media et GroupedMedia
+type HeroMovie = Pick<Media, 'id' | 'title' | 'overview' | 'backdrop_url' | 'poster_url' | 'rating' | 'year' | 'genres' | 'formatted_runtime'>
+
 type HeroSectionProps = {
-  movie: Media
-  onPlayClick: () => void
+  movie: HeroMovie
+  onPlayClick?: () => void
   onInfoClick: () => void
+  showPlayButton?: boolean
 }
 
-export default function HeroSection({ movie, onPlayClick, onInfoClick }: HeroSectionProps) {
+export default function HeroSection({ movie, onPlayClick, onInfoClick, showPlayButton = true }: HeroSectionProps) {
   const backdropUrl = movie.backdrop_url || movie.poster_url || '/placeholder-backdrop.png'
   const [showOverview, setShowOverview] = useState(true)
   
@@ -73,14 +77,16 @@ export default function HeroSection({ movie, onPlayClick, onInfoClick }: HeroSec
           )}
           
           <div className={styles.actions}>
-            <button className={styles.playButton} onClick={onPlayClick}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M8 5V19L19 12L8 5Z"/>
-              </svg>
-              Lire
-            </button>
+            {showPlayButton && onPlayClick && (
+              <button className={styles.playButton} onClick={onPlayClick}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M8 5V19L19 12L8 5Z"/>
+                </svg>
+                Lire
+              </button>
+            )}
             <button className={styles.infoButton} onClick={onInfoClick}>
-              Plus d'infos
+              Plus d&apos;infos
             </button>
           </div>
         </div>

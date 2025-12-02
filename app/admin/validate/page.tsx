@@ -138,10 +138,10 @@ export default function ValidatePage() {
         <div className={styles.empty}>
           <Check size={48} />
           <h2>Tous les films sont validés !</h2>
-          <p>Aucun film n'a besoin de validation de poster.</p>
+          <p>Aucun film n&apos;a besoin de validation de poster.</p>
           <button onClick={() => window.location.href = '/admin'} className={styles.backButton}>
             <ChevronLeft size={16} />
-            Retour à l'admin
+            Retour à l&apos;admin
           </button>
         </div>
       </div>
@@ -165,10 +165,10 @@ export default function ValidatePage() {
         <div className={styles.empty}>
           <Check size={48} />
           <h2>Tous les films sont validés !</h2>
-          <p>Aucun film n'a besoin de validation de poster.</p>
+          <p>Aucun film n&apos;a besoin de validation de poster.</p>
           <button onClick={() => window.location.href = '/admin'} className={styles.backButton}>
             <ChevronLeft size={16} />
-            Retour à l'admin
+            Retour à l&apos;admin
           </button>
         </div>
       </div>

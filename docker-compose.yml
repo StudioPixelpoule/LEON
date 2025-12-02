@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  leon:
+    container_name: leon
+    build:
+      context: .
+      args:
+        - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+        - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+    image: leon-app:latest
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    
+    # Accès au GPU Intel Quick Sync pour transcodage VAAPI
+    devices:
+      - /dev/dri:/dev/dri
+    # Groupe nécessaire pour l'accès au GPU (render n'existe pas sur Synology)
+    group_add:
+      - video
+
+    # Montage des volumes du NAS
+    volumes:
+      # Médias en lecture seule (sécurité)
+      - /volume1/docker/leon/media/films:/leon/media/films:ro
+      # Cache de transcodage HLS (performances)
+      - /volume1/docker/leon/cache:/tmp/leon-hls
+    
+    # Configuration environnement
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PCLOUD_LOCAL_PATH=/leon/media/films
+      - HLS_TEMP_DIR=/tmp/leon-hls
+      # Optimisation Node.js
+      - MAX_OLD_SPACE_SIZE=4096
+    
+    # Limites ressources (NAS J3455 a max 6GB RAM, on limite à 4GB pour être safe)
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+    
+    # Logging rotatif pour ne pas saturer le disque
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+

@@ -4,6 +4,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
 import { supabase } from '@/lib/supabase'
 import { getDownloadLink } from '@/lib/pcloud'
 

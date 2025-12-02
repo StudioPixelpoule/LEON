@@ -5,6 +5,9 @@
  */
 
 import { NextResponse } from 'next/server'
+
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
 import OpenSubtitlesApi from 'opensubtitles-api'
 import { promises as fs } from 'fs'
 import path from 'path'
@@ -62,8 +65,12 @@ export async function POST(request: Request) {
 
     // Télécharger les sous-titres FR et EN
     for (const lang of ['fr', 'en']) {
-      const langSubs = subtitles[lang]
-      if (!langSubs || langSubs.length === 0) continue
+      const langSubsRaw = subtitles[lang]
+      if (!langSubsRaw) continue
+      
+      // Normaliser en tableau
+      const langSubs = Array.isArray(langSubsRaw) ? langSubsRaw : [langSubsRaw]
+      if (langSubs.length === 0) continue
 
       // Prendre le meilleur sous-titre (premier résultat)
       const bestSub = langSubs[0]

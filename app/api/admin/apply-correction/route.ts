@@ -11,6 +11,9 @@
  */
 
 import { NextResponse } from 'next/server'
+
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
 import { supabase } from '@/lib/supabase'
 import { getMovieDetails, getTMDBImageUrl } from '@/lib/tmdb'
 
@@ -69,11 +72,14 @@ export async function POST(request: Request) {
           )
         }
         
+        // Extraire l'année de release_date (format: "2024-05-15")
+        const releaseYear = details.release_date ? parseInt(details.release_date.split('-')[0]) : null
+        
         updateData = {
           tmdb_id: tmdbId,
           title: details.title,
           original_title: details.original_title,
-          year: details.year,
+          year: releaseYear,
           poster_url: details.poster_path ? getTMDBImageUrl(details.poster_path, 'w500') : null,
           backdrop_url: details.backdrop_path ? getTMDBImageUrl(details.backdrop_path, 'original') : null,
           overview: details.overview,

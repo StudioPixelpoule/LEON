@@ -3,6 +3,9 @@
  */
 
 import { NextResponse } from 'next/server'
+
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
 import { supabase } from '@/lib/supabase'
 
 export interface GroupedMedia {
@@ -25,6 +28,12 @@ export interface GroupedMedia {
   subtitles: any | null
   quality: string | null
   created_at: string | null
+  // Champs optionnels pour la compatibilité avec les séries
+  type?: 'movie' | 'tv'
+  series_name?: string | null
+  media_type?: string | null
+  season_count?: number | null
+  episode_count?: number | null
 }
 
 export async function GET(request: Request) {

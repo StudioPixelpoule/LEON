@@ -5,6 +5,9 @@
  */
 
 import { NextResponse } from 'next/server'
+
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
 import { supabase } from '@/lib/supabase'
 import { getMovieDetails, getTMDBImageUrl, getYearFromDate } from '@/lib/tmdb'
 import { searchMovie } from '@/lib/tmdb'
@@ -140,7 +143,8 @@ export async function POST() {
                 title: existing.title,
                 year: 0,
                 confidence: 100,
-                tmdbId: existing.tmdb_id
+                tmdbId: existing.tmdb_id,
+                hasPoster: !!existing.poster_url
               }
             })
             continue
@@ -165,7 +169,7 @@ export async function POST() {
           console.log(`📝 Nom nettoyé: "${cleanName}"${year ? ` (${year})` : ''}`)
           
           // Rechercher le film sur TMDB
-          const movieResults = await searchMovie(cleanName, year)
+          const movieResults = await searchMovie(cleanName, year ?? undefined)
           
           let mediaDetails = null
           let confidence = 0

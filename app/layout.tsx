@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Nunito } from 'next/font/google'
 import '@/styles/globals.css'
+import { AuthProvider } from '@/contexts/AuthContext'
 
 const nunito = Nunito({ 
   weight: ['200', '500', '800'],
@@ -21,7 +22,9 @@ export default function RootLayout({
   return (
     <html lang="fr">
       <body className={nunito.className}>
-        {children}
+        <AuthProvider>
+          {children}
+        </AuthProvider>
       </body>
     </html>
   )

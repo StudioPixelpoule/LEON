@@ -116,3 +116,8 @@ Cliquer sur "Validation posters" dans le menu latéral
 **Migration** : Interface linéaire → Interface grille  
 **Auteur** : Pixel Poule
 
+
+
+
+
+

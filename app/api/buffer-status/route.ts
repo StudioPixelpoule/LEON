@@ -5,6 +5,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
 import { getBufferInstance } from '@/lib/adaptive-buffer'
 
 export async function GET(request: NextRequest) {
@@ -36,5 +39,6 @@ export async function GET(request: NextRequest) {
     )
   }
 }
+
 
 

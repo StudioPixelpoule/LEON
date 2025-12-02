@@ -3,6 +3,9 @@ import { exec } from 'child_process'
 import { promisify } from 'util'
 import path from 'path'
 
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
+
 const execAsync = promisify(exec)
 
 /**

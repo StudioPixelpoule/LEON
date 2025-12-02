@@ -486,7 +486,7 @@ function PostersSection() {
         <div className={styles.successState}>
           <Check size={64} style={{ color: '#10b981' }} />
           <h3>Tous les films sont validés ! 🎉</h3>
-          <p>Aucun film n'a besoin de validation de poster.</p>
+          <p>Aucun film n&apos;a besoin de validation de poster.</p>
         </div>
       )}
 
@@ -666,7 +666,7 @@ function StatsSection() {
     <div className={styles.section}>
       <h2 className={styles.sectionTitle}>Statistiques globales</h2>
       <p className={styles.sectionDesc}>
-        Vue d'ensemble de la bibliothèque LEON
+        Vue d&apos;ensemble de la bibliothèque LEON
       </p>
       
       <div className={styles.placeholder}>

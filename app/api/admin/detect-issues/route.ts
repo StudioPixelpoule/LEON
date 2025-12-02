@@ -10,6 +10,9 @@
  */
 
 import { NextResponse } from 'next/server'
+
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
 import { supabase } from '@/lib/supabase'
 
 interface Issue {
@@ -106,9 +109,10 @@ export async function GET() {
         return acc
       }, {} as Record<number, any[]>)
     
-    Object.entries(tmdbGroups).forEach(([tmdbId, medias]) => {
-      if (medias.length > 1) {
-        medias.forEach((media, index) => {
+    for (const tmdbId of Object.keys(tmdbGroups)) {
+      const medias = tmdbGroups[parseInt(tmdbId)]
+      if (medias && medias.length > 1) {
+        medias.forEach((media: any, index: number) => {
           issues.push({
             id: `duplicate_${media.id}`,
             media_id: media.id,
@@ -123,7 +127,7 @@ export async function GET() {
           })
         })
       }
-    })
+    }
     
     // 4. Détecter les matchs suspects (nom de fichier très différent du titre)
     const suspiciousMatches = allMedia
@@ -140,8 +144,8 @@ export async function GET() {
           .trim()
         
         // Vérifier si les mots du titre sont dans le nom de fichier
-        const titleWords = title.split(/\s+/).filter(w => w.length > 3)
-        const matchingWords = titleWords.filter(word => 
+        const titleWords = title.split(/\s+/).filter((w: string) => w.length > 3)
+        const matchingWords = titleWords.filter((word: string) => 
           filenameClean.includes(word.toLowerCase())
         )
         

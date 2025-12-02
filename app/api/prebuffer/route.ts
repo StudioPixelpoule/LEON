@@ -4,6 +4,9 @@ import { readFile } from 'fs/promises'
 import path from 'path'
 import crypto from 'crypto'
 
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
+
 const HLS_TEMP_DIR = '/tmp/leon-hls'
 
 export async function GET(request: NextRequest) {

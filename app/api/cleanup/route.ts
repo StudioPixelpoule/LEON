@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import ffmpegManager from '@/lib/ffmpeg-manager'
 
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
+
 export async function POST() {
   try {
     // Utiliser le gestionnaire centralisé pour nettoyer

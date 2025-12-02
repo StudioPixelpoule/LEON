@@ -6,16 +6,26 @@
 
 import { useState } from 'react'
 import Image from 'next/image'
-import type { Media } from '@/lib/supabase'
 import styles from './MovieRow.module.css'
 
-type MovieRowProps = {
+// Type minimal pour les films affichés dans une row
+interface MovieRowItem {
+  id: string
   title: string
-  movies: Media[]
-  onMovieClick: (movie: Media) => void
+  poster_url: string | null
+  year?: number | null
+  rating?: number | null
+  genres?: string[] | null
+  formatted_runtime?: string | null
 }
 
-export default function MovieRow({ title, movies, onMovieClick }: MovieRowProps) {
+type MovieRowProps<T extends MovieRowItem> = {
+  title: string
+  movies: T[]
+  onMovieClick: (movie: T) => void
+}
+
+export default function MovieRow<T extends MovieRowItem>({ title, movies, onMovieClick }: MovieRowProps<T>) {
   if (movies.length === 0) return null
   
   return (

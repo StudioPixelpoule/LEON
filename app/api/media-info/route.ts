@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
+
 const execAsync = promisify(exec)
 
 interface StreamInfo {

@@ -64,7 +64,7 @@ export async function identifyMedia(
   // Pour les séries, chercher UNIQUEMENT le nom de la série (sans S01E01)
   const searchQuery = isTVShow && tvInfo ? tvInfo.showName : cleanName
   console.log(`🔎 Recherche TMDB: "${searchQuery}"${year ? ` (${year})` : ''}`)
-  const results = await searchMedia(searchQuery, year, mediaType)
+  const results = await searchMedia(searchQuery, year ?? undefined, mediaType)
 
   if (results.length === 0) {
     console.log(`❌ Aucun résultat TMDB`)
@@ -149,8 +149,8 @@ export async function identifyMedia(
 
   // Ajouter les infos de série si applicable
   if (best.result.type === 'tv' && tvInfo) {
-    match.seasonNumber = tvInfo.season
-    match.episodeNumber = tvInfo.episode
+    match.seasonNumber = tvInfo.season ?? undefined
+    match.episodeNumber = tvInfo.episode ?? undefined
     match.showName = tvInfo.showName
   }
 

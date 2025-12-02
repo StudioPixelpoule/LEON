@@ -1,6 +1,8 @@
 /**
  * Détection automatique du matériel disponible pour accélération GPU
  * Supporte : VideoToolbox (macOS), VAAPI/QSV (Intel Quick Sync Linux), fallback CPU
+ * 
+ * Optimisé pour Synology NAS avec Intel Quick Sync
  */
 
 import { exec } from 'child_process'
@@ -16,6 +18,10 @@ export interface HardwareCapabilities {
   decoderArgs: string[]
   encoderArgs: string[]
   platform: 'macos' | 'linux' | 'unknown'
+  // 🔧 Nouvelles propriétés pour optimisation
+  supportsHEVC: boolean
+  maxConcurrentTranscodes: number
+  recommendedPreset: string
 }
 
 let cachedCapabilities: HardwareCapabilities | null = null
@@ -56,66 +62,100 @@ export async function detectHardwareCapabilities(): Promise<HardwareCapabilities
         decoderArgs: ['-hwaccel', 'videotoolbox'],
         encoderArgs: [
           '-c:v', 'h264_videotoolbox',
-          '-b:v', '3000k',
-          '-maxrate', '4000k',
-          '-bufsize', '6000k',
+          '-b:v', '4000k', // 🔧 Augmenté pour meilleure qualité
+          '-maxrate', '5000k',
+          '-bufsize', '8000k',
           '-profile:v', 'main',
-          '-level', '4.0',
+          '-level', '4.1',
           '-allow_sw', '1', // Fallback CPU si GPU échoue
-        ]
+        ],
+        supportsHEVC: true,
+        maxConcurrentTranscodes: 3,
+        recommendedPreset: 'default',
       }
       return cachedCapabilities
     }
 
-    // 🐧 LINUX : Intel Quick Sync (VAAPI ou QSV)
+    // 🐧 LINUX : Intel Quick Sync (VAAPI prioritaire, plus compatible Docker)
     if (platform === 'linux') {
-      // Préférer QSV si disponible (plus performant)
-      if (availableAccels.includes('qsv')) {
-        console.log(`[${new Date().toISOString()}] [HARDWARE] ✅ Intel Quick Sync (QSV) détecté`)
-        
-        cachedCapabilities = {
-          acceleration: 'qsv',
-          encoder: 'h264_qsv',
-          platform: 'linux',
-          decoderArgs: ['-hwaccel', 'qsv', '-hwaccel_device', '/dev/dri/renderD128'],
-          encoderArgs: [
-            '-c:v', 'h264_qsv',
-            '-preset', 'fast', // fast, medium, slow
-            '-b:v', '3000k',
-            '-maxrate', '4000k',
-            '-bufsize', '6000k',
-            '-profile:v', 'main',
-            '-level', '4.0',
-          ]
+      // Vérifier si /dev/dri/renderD128 existe (GPU accessible)
+      const { existsSync } = await import('fs')
+      const hasGpuDevice = existsSync('/dev/dri/renderD128')
+      
+      if (!hasGpuDevice) {
+        console.warn(`[${new Date().toISOString()}] [HARDWARE] ⚠️ /dev/dri/renderD128 non accessible, fallback CPU`)
+      }
+      
+      // VAAPI est plus compatible avec Docker que QSV
+      if (hasGpuDevice && availableAccels.includes('vaapi')) {
+        // Tester si VAAPI fonctionne réellement
+        try {
+          await execAsync('ffmpeg -hide_banner -init_hw_device vaapi=va:/dev/dri/renderD128 -f lavfi -i nullsrc=s=1920x1080:d=1 -vf "format=nv12,hwupload" -c:v h264_vaapi -f null - 2>&1', { timeout: 10000 })
+          console.log(`[${new Date().toISOString()}] [HARDWARE] ✅ Intel Quick Sync (VAAPI) testé et fonctionnel`)
+          
+          cachedCapabilities = {
+            acceleration: 'vaapi',
+            encoder: 'h264_vaapi',
+            platform: 'linux',
+            decoderArgs: ['-hwaccel', 'vaapi', '-hwaccel_device', '/dev/dri/renderD128', '-hwaccel_output_format', 'vaapi'],
+            encoderArgs: [
+              '-vf', 'format=nv12|vaapi,hwupload', // Upload vers GPU avec fallback
+              '-c:v', 'h264_vaapi',
+              '-b:v', '4000k', // 🔧 Augmenté pour meilleure qualité
+              '-maxrate', '5000k',
+              '-bufsize', '8000k',
+              '-profile:v', 'main',
+              '-level', '4.1',
+              '-quality', '4', // 🔧 Balance qualité/vitesse (1=meilleure qualité, 7=plus rapide)
+            ],
+            supportsHEVC: true,
+            maxConcurrentTranscodes: 2, // Synology NAS peut gérer 2 transcodes simultanés
+            recommendedPreset: 'fast',
+          }
+          return cachedCapabilities
+        } catch (vaapiError) {
+          console.warn(`[${new Date().toISOString()}] [HARDWARE] ⚠️ VAAPI test échoué:`, (vaapiError as Error).message?.slice(0, 100))
         }
-        return cachedCapabilities
       }
 
-      // Sinon VAAPI (Intel Quick Sync via VAAPI)
-      if (availableAccels.includes('vaapi')) {
-        console.log(`[${new Date().toISOString()}] [HARDWARE] ✅ Intel Quick Sync (VAAPI) détecté`)
-        
-        cachedCapabilities = {
-          acceleration: 'vaapi',
-          encoder: 'h264_vaapi',
-          platform: 'linux',
-          decoderArgs: ['-hwaccel', 'vaapi', '-hwaccel_device', '/dev/dri/renderD128'],
-          encoderArgs: [
-            '-vf', 'format=nv12,hwupload', // Upload vers GPU
-            '-c:v', 'h264_vaapi',
-            '-b:v', '3000k',
-            '-maxrate', '4000k',
-            '-bufsize', '6000k',
-            '-profile:v', 'main',
-            '-level', '4.0',
-          ]
+      // QSV en fallback si VAAPI échoue
+      if (hasGpuDevice && availableAccels.includes('qsv')) {
+        try {
+          await execAsync('ffmpeg -hide_banner -init_hw_device qsv=qsv:hw -f lavfi -i nullsrc=s=1920x1080:d=1 -c:v h264_qsv -f null - 2>&1', { timeout: 10000 })
+          console.log(`[${new Date().toISOString()}] [HARDWARE] ✅ Intel Quick Sync (QSV) testé et fonctionnel`)
+          
+          cachedCapabilities = {
+            acceleration: 'qsv',
+            encoder: 'h264_qsv',
+            platform: 'linux',
+            decoderArgs: ['-hwaccel', 'qsv', '-hwaccel_device', '/dev/dri/renderD128'],
+            encoderArgs: [
+              '-c:v', 'h264_qsv',
+              '-preset', 'fast',
+              '-b:v', '4000k', // 🔧 Augmenté pour meilleure qualité
+              '-maxrate', '5000k',
+              '-bufsize', '8000k',
+              '-profile:v', 'main',
+              '-level', '4.1',
+              '-look_ahead', '0', // 🔧 Désactiver lookahead pour réduire la latence
+            ],
+            supportsHEVC: true,
+            maxConcurrentTranscodes: 2,
+            recommendedPreset: 'fast',
+          }
+          return cachedCapabilities
+        } catch (qsvError) {
+          console.warn(`[${new Date().toISOString()}] [HARDWARE] ⚠️ QSV test échoué:`, (qsvError as Error).message?.slice(0, 100))
         }
-        return cachedCapabilities
       }
     }
 
     // ⚠️ FALLBACK : Pas d'accélération matérielle disponible
     console.warn(`[${new Date().toISOString()}] [HARDWARE] ⚠️ Aucune accélération matérielle détectée, utilisation CPU`)
+    
+    // Détecter le nombre de cores CPU disponibles
+    const cpuCount = require('os').cpus().length
+    const threads = Math.max(2, Math.min(cpuCount - 1, 6)) // 2-6 threads
     
     cachedCapabilities = {
       acceleration: 'none',
@@ -124,14 +164,19 @@ export async function detectHardwareCapabilities(): Promise<HardwareCapabilities
       decoderArgs: [],
       encoderArgs: [
         '-c:v', 'libx264',
-        '-preset', 'veryfast', // veryfast pour minimiser la charge CPU
+        '-preset', 'superfast', // 🔧 superfast au lieu de veryfast pour démarrage plus rapide
+        '-tune', 'zerolatency', // 🔧 Optimisé pour streaming temps réel
         '-b:v', '3000k',
         '-maxrate', '4000k',
         '-bufsize', '6000k',
         '-profile:v', 'main',
-        '-level', '4.0',
-        '-threads', '4',
-      ]
+        '-level', '4.1',
+        '-threads', String(threads),
+        '-x264-params', 'rc-lookahead=0:sync-lookahead=0', // 🔧 Réduire la latence
+      ],
+      supportsHEVC: false,
+      maxConcurrentTranscodes: 1, // CPU = 1 seul transcode à la fois
+      recommendedPreset: 'superfast',
     }
     return cachedCapabilities
 
@@ -146,14 +191,18 @@ export async function detectHardwareCapabilities(): Promise<HardwareCapabilities
       decoderArgs: [],
       encoderArgs: [
         '-c:v', 'libx264',
-        '-preset', 'veryfast',
+        '-preset', 'superfast',
+        '-tune', 'zerolatency',
         '-b:v', '3000k',
         '-maxrate', '4000k',
         '-bufsize', '6000k',
         '-profile:v', 'main',
-        '-level', '4.0',
+        '-level', '4.1',
         '-threads', '4',
-      ]
+      ],
+      supportsHEVC: false,
+      maxConcurrentTranscodes: 1,
+      recommendedPreset: 'superfast',
     }
     return cachedCapabilities
   }

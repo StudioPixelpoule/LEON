@@ -120,6 +120,13 @@
   letter-spacing: 0.01em;
 }
 
+/* Groupe de boutons d'action (Lire + Favori) */
+.actionButtons {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
 .playButton {
   background: var(--color-white);
   color: var(--color-black);

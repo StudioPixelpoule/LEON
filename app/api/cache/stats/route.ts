@@ -4,6 +4,9 @@
  */
 
 import { NextResponse } from 'next/server'
+
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
 import { getCacheInstance } from '@/lib/segment-cache'
 
 export async function GET() {
@@ -29,5 +32,6 @@ export async function GET() {
     }, { status: 500 })
   }
 }
+
 
 

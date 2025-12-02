@@ -3,6 +3,9 @@ import { createSupabaseClient } from '@/lib/supabase'
 import { promises as fs } from 'fs'
 import path from 'path'
 
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
+
 export async function GET() {
   try {
     const supabase = createSupabaseClient()
@@ -161,4 +164,5 @@ export async function GET() {
     )
   }
 }
+
 

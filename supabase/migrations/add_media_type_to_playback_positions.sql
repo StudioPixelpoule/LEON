@@ -31,3 +31,8 @@ ALTER COLUMN media_type SET NOT NULL;
 COMMENT ON COLUMN playback_positions.media_type IS 'Type de média: "movie" pour les films, "episode" pour les épisodes de séries';
 
 
+
+
+
+
+

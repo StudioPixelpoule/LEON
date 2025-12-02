@@ -9,6 +9,7 @@ import { useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { User, Settings, LogOut, Shield } from 'lucide-react'
+import { useAuth } from '@/contexts/AuthContext'
 import HeaderSearch from './HeaderSearch'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
 import styles from './Header.module.css'
@@ -24,6 +25,7 @@ interface HeaderProps {
 export default function Header({ movies, onMovieClick, series, onSeriesClick, onSearch }: HeaderProps) {
   const pathname = usePathname()
   const router = useRouter()
+  const { user, signOut } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   
@@ -56,11 +58,14 @@ export default function Header({ movies, onMovieClick, series, onSeriesClick, on
     console.log('Paramètres à venir')
   }
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setMenuOpen(false)
-    // TODO: implémenter la déconnexion
-    console.log('Déconnexion à venir')
+    await signOut()
   }
+  
+  // Extraire le nom affiché de l'utilisateur
+  const displayName = user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'Utilisateur'
+  const userEmail = user?.email || ''
   
   return (
     <header className={styles.header}>
@@ -111,8 +116,8 @@ export default function Header({ movies, onMovieClick, series, onSeriesClick, on
                     <User size={24} />
                   </div>
                   <div className={styles.userInfo}>
-                    <p className={styles.userName}>Utilisateur</p>
-                    <p className={styles.userEmail}>user@leon.app</p>
+                    <p className={styles.userName}>{displayName}</p>
+                    <p className={styles.userEmail}>{userEmail}</p>
                   </div>
                 </div>
 

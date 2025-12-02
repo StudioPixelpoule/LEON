@@ -91,3 +91,8 @@ Lors de la sélection d'une nouvelle affiche, **toutes les métadonnées** sont 
 **Date** : 24 novembre 2024  
 **Auteur** : Pixel Poule
 
+
+
+
+
+

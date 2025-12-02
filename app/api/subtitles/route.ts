@@ -3,6 +3,9 @@ import { spawn } from 'child_process'
 import { exec } from 'child_process'
 import { promisify } from 'util'
 
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
+
 const execAsync = promisify(exec)
 
 export async function GET(request: NextRequest) {

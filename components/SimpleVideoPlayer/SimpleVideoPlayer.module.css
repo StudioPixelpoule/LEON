@@ -181,6 +181,37 @@
   line-height: 1.4;
 }
 
+/* 🔧 FIX #2: Warning de seek */
+.seekWarning {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.9);
+  color: #fbbf24;
+  padding: 16px 24px;
+  border-radius: 8px;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  z-index: 25;
+  animation: fadeInScale 0.2s ease;
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+}
+
+@keyframes fadeInScale {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
 /* Bouton play central - Triangle simple sans fond */
 .centerPlayButton {
   position: absolute;

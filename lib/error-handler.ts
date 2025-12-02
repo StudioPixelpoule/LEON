@@ -144,12 +144,12 @@ export class ErrorHandler {
     errorCode: keyof typeof ERROR_CODES,
     technicalDetails?: any
   ): UserFriendlyError {
-    const config = ERROR_CODES[errorCode]
+    const config = ERROR_CODES[errorCode] as { code: string; message: string; httpStatus: number; recoverable?: boolean }
     return new UserFriendlyError(
       config.code,
       config.message,
       technicalDetails,
-      config.recoverable || false,
+      config.recoverable ?? false,
       config.httpStatus
     )
   }

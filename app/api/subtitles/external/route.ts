@@ -3,6 +3,9 @@ import { readFile, access } from 'fs/promises'
 import { constants } from 'fs'
 import path from 'path'
 
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
+
 /**
  * API pour charger des sous-titres SRT externes
  * Cherche un fichier .srt/.fr.srt/.en.srt à côté de la vidéo

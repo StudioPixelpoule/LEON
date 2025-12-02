@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
 import { createClient } from '@supabase/supabase-js'
 
 export async function POST(request: NextRequest) {

@@ -4,6 +4,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
 import { searchMovie, getTMDBImageUrl, getYearFromDate } from '@/lib/tmdb'
 
 export async function POST(request: NextRequest) {

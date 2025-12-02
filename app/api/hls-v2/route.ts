@@ -4,6 +4,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
 import { spawn, ChildProcess } from 'child_process'
 import { stat, mkdir, readFile, rm, writeFile, readdir } from 'fs/promises'
 import { existsSync } from 'fs'
@@ -73,7 +76,7 @@ export async function GET(request: NextRequest) {
     if (existsSync(segmentPath)) {
       try {
         const segmentData = await readFile(segmentPath)
-        return new NextResponse(segmentData, {
+        return new NextResponse(new Uint8Array(segmentData), {
           headers: {
             'Content-Type': 'video/mp2t',
             'Cache-Control': 'public, max-age=3600',

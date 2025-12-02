@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const imageUrl = searchParams.get('url')

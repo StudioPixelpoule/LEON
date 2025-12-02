@@ -11,6 +11,7 @@ import Image from 'next/image'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
 import styles from './MovieModal.module.css'
 import SimpleVideoPlayer from '@/components/SimpleVideoPlayer/SimpleVideoPlayer'
+import FavoriteButton from '@/components/FavoriteButton/FavoriteButton'
 
 type Episode = {
   id: string
@@ -178,27 +179,34 @@ export default function MovieModal({ movie, onClose, onPlayClick, autoPlay = fal
                 <p className={styles.originalTitle}>{movie.original_title}</p>
               )}
               
-              {/* Pour les films : bouton Lire (tous formats) */}
+              {/* Pour les films : boutons Lire + Favori */}
               {!isTVShow && movie.pcloud_fileid && (
-              <button 
-                className={styles.playButton}
-                onClick={() => {
-                  console.log('🎬 Bouton Lire cliqué (film)')
-                  console.log('Film:', movie.title)
-                  console.log('Fichier:', movie.pcloud_fileid)
-                  
-                  const ext = movie.pcloud_fileid.toLowerCase().split('.').pop()
-                  console.log('Format détecté:', ext)
-                  
-                  // Tous les formats → Lecteur web avec transcodage si nécessaire
-                  setShowPlayer(true)
-                }}
-              >
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M8 5V19L19 12L8 5Z"/>
-                </svg>
-                Lire
-              </button>
+                <div className={styles.actionButtons}>
+                  <button 
+                    className={styles.playButton}
+                    onClick={() => {
+                      console.log('🎬 Bouton Lire cliqué (film)')
+                      console.log('Film:', movie.title)
+                      console.log('Fichier:', movie.pcloud_fileid)
+                      
+                      const ext = movie.pcloud_fileid.toLowerCase().split('.').pop()
+                      console.log('Format détecté:', ext)
+                      
+                      // Tous les formats → Lecteur web avec transcodage si nécessaire
+                      setShowPlayer(true)
+                    }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M8 5V19L19 12L8 5Z"/>
+                    </svg>
+                    Lire
+                  </button>
+                  <FavoriteButton 
+                    mediaId={movie.id} 
+                    mediaType="movie" 
+                    size="large"
+                  />
+                </div>
               )}
               
               {/* Pour les séries : afficher le nombre de saisons/épisodes */}

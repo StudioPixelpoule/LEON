@@ -8,6 +8,9 @@
 
 import { NextResponse } from 'next/server'
 
+// Forcer le rendu dynamique (évite le prerendering statique)
+export const dynamic = 'force-dynamic'
+
 const TMDB_API_KEY = process.env.TMDB_API_KEY
 const OMDB_API_KEY = process.env.OMDB_API_KEY || 'b9a5c8f8' // Clé publique OMDb
 
