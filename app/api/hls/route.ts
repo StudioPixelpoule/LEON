@@ -1,7 +1,10 @@
 /**
  * API Route: Streaming HLS (HTTP Live Streaming)
  * GET /api/hls?path=/chemin/vers/video.mkv
- * Transcoder n'importe quel format vers HLS pour lecture universelle
+ * 
+ * FONCTIONNEMENT :
+ * 1. Vérifie si un fichier pré-transcodé existe → Seek instantané
+ * 2. Sinon, transcode en temps réel avec support du seek par redémarrage FFmpeg
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -18,9 +21,30 @@ import { ErrorHandler, createErrorResponse } from '@/lib/error-handler'
 import { detectHardwareCapabilities } from '@/lib/hardware-detection'
 import { getBufferInstance, cleanupBufferInstance } from '@/lib/adaptive-buffer'
 import { getCacheInstance } from '@/lib/segment-cache'
+import transcodingService, { TRANSCODED_DIR } from '@/lib/transcoding-service'
 
 // Répertoire temporaire pour les segments HLS
 const HLS_TEMP_DIR = '/tmp/leon-hls'
+
+/**
+ * Obtenir le répertoire pré-transcodé pour un fichier
+ */
+function getPreTranscodedDir(filepath: string): string {
+  const filename = path.basename(filepath, path.extname(filepath))
+  const safeName = filename.replace(/[^a-zA-Z0-9àâäéèêëïîôùûüç\s\-_.()[\]]/gi, '_')
+  return path.join(TRANSCODED_DIR, safeName)
+}
+
+/**
+ * Vérifier si un fichier pré-transcodé est disponible
+ */
+async function hasPreTranscoded(filepath: string): Promise<boolean> {
+  const preTranscodedDir = getPreTranscodedDir(filepath)
+  const donePath = path.join(preTranscodedDir, '.done')
+  const playlistPath = path.join(preTranscodedDir, 'playlist.m3u8')
+  
+  return existsSync(donePath) && existsSync(playlistPath)
+}
 
 export async function GET(request: NextRequest) {
   const startTime = Date.now()
@@ -30,6 +54,7 @@ export async function GET(request: NextRequest) {
   const playlist = searchParams.get('playlist') // Si on demande le .m3u8
   const audioTrack = searchParams.get('audio') || '0' // Index de la piste audio
   const subtitleTrack = searchParams.get('subtitle') // Index de la piste sous-titre (optionnel)
+  const seekTo = searchParams.get('seek') // 🆕 Position de seek en secondes
   
   const timestamp = new Date().toISOString()
   
@@ -41,10 +66,16 @@ export async function GET(request: NextRequest) {
   // macOS utilise NFD (décomposé), donc on normalise TOUJOURS en NFD
   const filepath = filepathRaw.normalize('NFD')
 
+  // 🆕 VÉRIFIER SI UN FICHIER PRÉ-TRANSCODÉ EXISTE
+  const usePreTranscoded = await hasPreTranscoded(filepath)
+  const preTranscodedDir = getPreTranscodedDir(filepath)
+  
   console.log(`[${timestamp}] [HLS] Requête`, {
     file: filepath.split('/').pop(),
     segment: segment || 'playlist',
-    audioTrack
+    audioTrack,
+    preTranscoded: usePreTranscoded,
+    seekTo: seekTo || 'none'
   })
   
   try {
@@ -56,6 +87,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(errorResponse.body, { status: errorResponse.status })
   }
 
+  // 🆕 SI PRÉ-TRANSCODÉ : Servir directement les fichiers HLS (seek instantané!)
+  if (usePreTranscoded) {
+    return servePreTranscoded(filepath, preTranscodedDir, segment, audioTrack, timestamp)
+  }
+
+  // SINON : Transcodage temps réel (comportement actuel)
   // Créer un ID unique pour ce fichier ET la piste audio
   const sessionId = ffmpegManager.generateSessionId(filepath, audioTrack)
   const fileHash = crypto.createHash('md5').update(sessionId).digest('hex')
@@ -413,6 +450,70 @@ export async function GET(request: NextRequest) {
     
     const errorResponse = createErrorResponse(error as Error)
     return NextResponse.json(errorResponse.body, { status: errorResponse.status })
+  }
+}
+
+/**
+ * 🆕 Servir les fichiers HLS pré-transcodés (seek instantané!)
+ */
+async function servePreTranscoded(
+  originalPath: string,
+  preTranscodedDir: string,
+  segment: string | null,
+  audioTrack: string,
+  timestamp: string
+): Promise<NextResponse> {
+  // Si on demande un segment spécifique
+  if (segment) {
+    const segmentPath = path.join(preTranscodedDir, segment)
+    
+    try {
+      const segmentData = await readFile(segmentPath)
+      console.log(`[${timestamp}] [HLS-PRE] ✅ Segment servi: ${segment}`)
+      
+      return new NextResponse(segmentData as unknown as BodyInit, {
+        headers: {
+          'Content-Type': 'video/mp2t',
+          'Cache-Control': 'public, max-age=31536000', // Cache long car fichier statique
+          'X-Pre-Transcoded': 'true',
+        }
+      })
+    } catch {
+      return NextResponse.json({ error: 'Segment non trouvé' }, { status: 404 })
+    }
+  }
+
+  // Retourner le playlist
+  const playlistPath = path.join(preTranscodedDir, 'playlist.m3u8')
+  
+  try {
+    let playlistContent = await readFile(playlistPath, 'utf-8')
+    
+    // Remplacer les chemins locaux par des URLs API
+    const lines = playlistContent.split('\n')
+    const modifiedLines = lines.map(line => {
+      if (line.endsWith('.ts')) {
+        const segmentName = path.basename(line)
+        return `/api/hls?path=${encodeURIComponent(originalPath)}&segment=${segmentName}&audio=${audioTrack}`
+      }
+      return line
+    })
+    
+    playlistContent = modifiedLines.join('\n')
+
+    console.log(`[${timestamp}] [HLS-PRE] ✅ Playlist pré-transcodé servi (seek instantané disponible!)`)
+
+    return new NextResponse(playlistContent, {
+      headers: {
+        'Content-Type': 'application/vnd.apple.mpegurl',
+        'Cache-Control': 'public, max-age=3600', // Cache 1h car fichier statique
+        'X-Pre-Transcoded': 'true',
+        'X-Seek-Mode': 'instant', // Indique au player que le seek est instantané
+      }
+    })
+  } catch (error) {
+    console.error(`[${timestamp}] [HLS-PRE] ❌ Erreur lecture playlist:`, error)
+    return NextResponse.json({ error: 'Playlist non trouvé' }, { status: 404 })
   }
 }
 

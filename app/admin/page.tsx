@@ -8,11 +8,11 @@
 import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import Header from '@/components/Header/Header'
-import { FolderSearch, Image as ImageIcon, HardDrive, BarChart3, Search, RefreshCw, Trash2, Check, X, ChevronLeft, ChevronRight, RotateCcw, Edit3, Filter } from 'lucide-react'
+import { FolderSearch, Image as ImageIcon, HardDrive, BarChart3, Search, RefreshCw, Trash2, Check, X, ChevronLeft, ChevronRight, RotateCcw, Edit3, Filter, Film, Play, Pause, Square, Eye } from 'lucide-react'
 import styles from './admin.module.css'
 
 // Sections de la page admin
-type AdminSection = 'scan' | 'cache' | 'posters' | 'stats'
+type AdminSection = 'scan' | 'cache' | 'posters' | 'transcode' | 'stats'
 
 export default function AdminPageV2() {
   const [activeSection, setActiveSection] = useState<AdminSection>('scan')
@@ -52,6 +52,14 @@ export default function AdminPageV2() {
             </button>
             
             <button
+              className={`${styles.navItem} ${activeSection === 'transcode' ? styles.active : ''}`}
+              onClick={() => setActiveSection('transcode')}
+            >
+              <Film className={styles.icon} size={20} strokeWidth={1.5} />
+              Pré-transcodage
+            </button>
+            
+            <button
               className={`${styles.navItem} ${activeSection === 'stats' ? styles.active : ''}`}
               onClick={() => setActiveSection('stats')}
             >
@@ -66,6 +74,7 @@ export default function AdminPageV2() {
           {activeSection === 'scan' && <ScanSection />}
           {activeSection === 'posters' && <PostersSection />}
           {activeSection === 'cache' && <CacheSection />}
+          {activeSection === 'transcode' && <TranscodeSection />}
           {activeSection === 'stats' && <StatsSection />}
         </main>
       </div>
@@ -654,6 +663,329 @@ function PostersSection() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Section: Pré-transcodage des films
+ * Permet de transcoder les films à l'avance pour un seek instantané
+ */
+interface TranscodeStats {
+  totalFiles: number
+  completedFiles: number
+  pendingFiles: number
+  failedFiles: number
+  currentJob?: {
+    id: string
+    filename: string
+    progress: number
+    speed?: number
+    currentTime?: number
+    estimatedDuration?: number
+  }
+  isRunning: boolean
+  isPaused: boolean
+  estimatedTimeRemaining?: number
+  diskUsage?: string
+}
+
+interface TranscodeJob {
+  id: string
+  filename: string
+  status: 'pending' | 'transcoding' | 'completed' | 'failed' | 'cancelled'
+  progress: number
+  error?: string
+}
+
+function TranscodeSection() {
+  const [stats, setStats] = useState<TranscodeStats | null>(null)
+  const [queue, setQueue] = useState<TranscodeJob[]>([])
+  const [loading, setLoading] = useState(true)
+  const [actionLoading, setActionLoading] = useState<string | null>(null)
+
+  // Charger les stats au montage et toutes les 5 secondes
+  useEffect(() => {
+    loadStats()
+    const interval = setInterval(loadStats, 5000)
+    return () => clearInterval(interval)
+  }, [])
+
+  async function loadStats() {
+    try {
+      const response = await fetch('/api/transcode')
+      const data = await response.json()
+      setStats(data.stats)
+      setQueue(data.queue || [])
+    } catch (error) {
+      console.error('Erreur chargement stats transcodage:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function performAction(action: string, extra?: Record<string, unknown>) {
+    setActionLoading(action)
+    try {
+      const response = await fetch('/api/transcode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...extra })
+      })
+      const data = await response.json()
+      
+      if (data.success) {
+        // Rafraîchir les stats
+        await loadStats()
+      } else {
+        alert(`Erreur: ${data.error || 'Erreur inconnue'}`)
+      }
+    } catch (error) {
+      console.error(`Erreur action ${action}:`, error)
+      alert('Erreur lors de l\'action')
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  function formatTime(seconds: number): string {
+    if (!seconds || !isFinite(seconds)) return '--:--'
+    const hours = Math.floor(seconds / 3600)
+    const minutes = Math.floor((seconds % 3600) / 60)
+    if (hours > 0) {
+      return `${hours}h ${minutes}min`
+    }
+    return `${minutes}min`
+  }
+
+  function formatTimeRemaining(seconds: number): string {
+    if (!seconds || !isFinite(seconds)) return 'Calcul en cours...'
+    const hours = Math.floor(seconds / 3600)
+    const minutes = Math.floor((seconds % 3600) / 60)
+    if (hours > 24) {
+      const days = Math.floor(hours / 24)
+      return `~${days} jour${days > 1 ? 's' : ''}`
+    }
+    if (hours > 0) {
+      return `~${hours}h ${minutes}min`
+    }
+    return `~${minutes}min`
+  }
+
+  if (loading) {
+    return (
+      <div className={styles.section}>
+        <div className={styles.loadingState}>
+          <RefreshCw size={32} className={styles.spinning} />
+          <p>Chargement...</p>
+        </div>
+      </div>
+    )
+  }
+
+  const progressPercent = stats?.currentJob?.progress || 0
+
+  return (
+    <div className={styles.section}>
+      <h2 className={styles.sectionTitle}>Pré-transcodage des films</h2>
+      <p className={styles.sectionDesc}>
+        Transcoder les films à l&apos;avance pour un <strong>seek instantané</strong> sur toute la timeline
+      </p>
+
+      {/* Statistiques globales */}
+      <div className={styles.resultCard}>
+        <h3>Progression globale</h3>
+        <div className={styles.stats}>
+          <div className={styles.statItem}>
+            <span className={styles.statValue}>{stats?.completedFiles || 0}</span>
+            <span className={styles.statLabel}>Films transcodés</span>
+          </div>
+          <div className={styles.statItem}>
+            <span className={styles.statValue}>{stats?.pendingFiles || 0}</span>
+            <span className={styles.statLabel}>En attente</span>
+          </div>
+          <div className={styles.statItem}>
+            <span className={styles.statValue}>{stats?.failedFiles || 0}</span>
+            <span className={styles.statLabel}>Échecs</span>
+          </div>
+          <div className={styles.statItem}>
+            <span className={styles.statValue}>{stats?.diskUsage || 'N/A'}</span>
+            <span className={styles.statLabel}>Espace utilisé</span>
+          </div>
+        </div>
+
+        {/* Barre de progression globale */}
+        {stats && stats.totalFiles > 0 && (
+          <div className={styles.globalProgress}>
+            <div className={styles.progressLabel}>
+              <span>{stats.completedFiles} / {stats.totalFiles} films</span>
+              <span>{Math.round((stats.completedFiles / stats.totalFiles) * 100)}%</span>
+            </div>
+            <div className={styles.progressBarContainer}>
+              <div 
+                className={styles.progressBarFill}
+                style={{ width: `${(stats.completedFiles / stats.totalFiles) * 100}%` }}
+              />
+            </div>
+            {stats.estimatedTimeRemaining && (
+              <p className={styles.timeRemaining}>
+                Temps restant estimé : {formatTimeRemaining(stats.estimatedTimeRemaining)}
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Film en cours de transcodage */}
+      {stats?.currentJob && (
+        <div className={styles.resultCard}>
+          <h3>En cours de transcodage</h3>
+          <div className={styles.currentJob}>
+            <div className={styles.jobInfo}>
+              <Film size={24} />
+              <div>
+                <p className={styles.jobTitle}>{stats.currentJob.filename}</p>
+                <p className={styles.jobMeta}>
+                  {stats.currentJob.speed && `${stats.currentJob.speed.toFixed(1)}x`}
+                  {stats.currentJob.currentTime && stats.currentJob.estimatedDuration && (
+                    <> • {formatTime(stats.currentJob.currentTime)} / {formatTime(stats.currentJob.estimatedDuration)}</>
+                  )}
+                </p>
+              </div>
+            </div>
+            <div className={styles.jobProgress}>
+              <div className={styles.progressBarContainer}>
+                <div 
+                  className={styles.progressBarFill}
+                  style={{ width: `${progressPercent}%` }}
+                />
+              </div>
+              <span className={styles.progressPercent}>{Math.round(progressPercent)}%</span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className={styles.actions}>
+        {!stats?.isRunning ? (
+          <>
+            <button
+              className={styles.primaryButton}
+              onClick={() => performAction('scan', { priority: 'alphabetical' })}
+              disabled={actionLoading !== null}
+            >
+              {actionLoading === 'scan' ? (
+                <><RefreshCw size={16} className={styles.spinning} /> Scan...</>
+              ) : (
+                <><Search size={16} /> Scanner les films</>
+              )}
+            </button>
+            
+            <button
+              className={styles.primaryButton}
+              onClick={() => performAction('start')}
+              disabled={actionLoading !== null || (stats?.pendingFiles || 0) === 0}
+            >
+              {actionLoading === 'start' ? (
+                <><RefreshCw size={16} className={styles.spinning} /> Démarrage...</>
+              ) : (
+                <><Play size={16} /> Démarrer le transcodage</>
+              )}
+            </button>
+          </>
+        ) : (
+          <>
+            {stats?.isPaused ? (
+              <button
+                className={styles.primaryButton}
+                onClick={() => performAction('resume')}
+                disabled={actionLoading !== null}
+              >
+                {actionLoading === 'resume' ? (
+                  <><RefreshCw size={16} className={styles.spinning} /> Reprise...</>
+                ) : (
+                  <><Play size={16} /> Reprendre</>
+                )}
+              </button>
+            ) : (
+              <button
+                className={styles.secondaryButton}
+                onClick={() => performAction('pause')}
+                disabled={actionLoading !== null}
+              >
+                {actionLoading === 'pause' ? (
+                  <><RefreshCw size={16} className={styles.spinning} /> Pause...</>
+                ) : (
+                  <><Pause size={16} /> Mettre en pause</>
+                )}
+              </button>
+            )}
+            
+            <button
+              className={styles.dangerButton}
+              onClick={() => {
+                if (confirm('Arrêter complètement le transcodage ?')) {
+                  performAction('stop')
+                }
+              }}
+              disabled={actionLoading !== null}
+            >
+              {actionLoading === 'stop' ? (
+                <><RefreshCw size={16} className={styles.spinning} /> Arrêt...</>
+              ) : (
+                <><Square size={16} /> Arrêter</>
+              )}
+            </button>
+          </>
+        )}
+
+        <button
+          className={styles.secondaryButton}
+          onClick={() => performAction('start-watcher')}
+          disabled={actionLoading !== null}
+        >
+          {actionLoading === 'start-watcher' ? (
+            <><RefreshCw size={16} className={styles.spinning} /> Activation...</>
+          ) : (
+            <><Eye size={16} /> Activer le watcher</>
+          )}
+        </button>
+      </div>
+
+      {/* Queue des films en attente */}
+      {queue.length > 0 && (
+        <div className={styles.resultCard}>
+          <h3>Films en attente ({queue.length})</h3>
+          <div className={styles.queueList}>
+            {queue.slice(0, 10).map((job, index) => (
+              <div key={job.id} className={styles.queueItem}>
+                <span className={styles.queueIndex}>{index + 1}</span>
+                <span className={styles.queueFilename}>{job.filename}</span>
+                <span className={`${styles.queueStatus} ${styles[job.status]}`}>
+                  {job.status === 'pending' && 'En attente'}
+                  {job.status === 'failed' && 'Échec'}
+                </span>
+              </div>
+            ))}
+            {queue.length > 10 && (
+              <p className={styles.queueMore}>... et {queue.length - 10} autres films</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Info */}
+      <div className={styles.infoBox}>
+        <h4>💡 Comment ça fonctionne ?</h4>
+        <ul>
+          <li><strong>Scanner</strong> : Détecte les films non encore transcodés</li>
+          <li><strong>Démarrer</strong> : Lance le transcodage en arrière-plan</li>
+          <li><strong>Watcher</strong> : Surveille le dossier pour les nouveaux films</li>
+          <li>Les films transcodés auront un <strong>seek instantané</strong></li>
+          <li>Les films non transcodés fonctionnent normalement (transcodage temps réel)</li>
+        </ul>
+      </div>
     </div>
   )
 }

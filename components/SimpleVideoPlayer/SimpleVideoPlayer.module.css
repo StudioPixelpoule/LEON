@@ -13,6 +13,11 @@
   overflow: hidden;
 }
 
+/* 🔧 FIX: Masquer le curseur quand les contrôles sont cachés */
+.container.hideCursor {
+  cursor: none;
+}
+
 /* Vidéo */
 .video {
   width: 100%;
@@ -37,10 +42,8 @@
   z-index: 20;
 }
 
-.container:hover .titleBar {
-  opacity: 1;
-}
-
+/* 🔧 FIX: Ne plus utiliser :hover pour afficher les contrôles
+   Seule la classe .visible contrôle maintenant l'affichage */
 .titleBar.visible {
   opacity: 1;
 }
@@ -260,10 +263,8 @@
   z-index: 20;
 }
 
-.container:hover .controls {
-  opacity: 1;
-}
-
+/* 🔧 FIX: Ne plus utiliser :hover pour afficher les contrôles
+   Seule la classe .visible contrôle maintenant l'affichage */
 .controls.visible {
   opacity: 1;
 }

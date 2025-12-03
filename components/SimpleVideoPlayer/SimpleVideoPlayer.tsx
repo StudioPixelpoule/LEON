@@ -420,6 +420,25 @@ export default function SimpleVideoPlayer({
     return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
   }, [])
 
+  // 🔧 FIX #3b: Masquer automatiquement les contrôles quand la vidéo joue
+  useEffect(() => {
+    if (isPlaying && !showSettingsMenu) {
+      // Démarrer le timer pour masquer les contrôles
+      if (hideControlsTimeout.current) {
+        clearTimeout(hideControlsTimeout.current)
+      }
+      hideControlsTimeout.current = setTimeout(() => {
+        setShowControls(false)
+      }, 3000)
+    }
+    
+    return () => {
+      if (hideControlsTimeout.current) {
+        clearTimeout(hideControlsTimeout.current)
+      }
+    }
+  }, [isPlaying, showSettingsMenu])
+
   // Raccourcis clavier
   useEffect(() => {
     const handleKeyPress = (e: KeyboardEvent) => {
@@ -500,8 +519,8 @@ export default function SimpleVideoPlayer({
         // 🔧 FIX #1: Ne PAS reset à 0 si on a une position sauvegardée (ex: reprise de lecture)
         // Seulement reset si c'est vraiment une nouvelle vidéo
         if (lastKnownPositionRef.current === 0 && initialPosition === 0) {
-          video.currentTime = 0
-          video.load() // Force reset de l'état interne du <video>
+        video.currentTime = 0
+        video.load() // Force reset de l'état interne du <video>
         } else {
           console.log(`📍 Position existante détectée: ${lastKnownPositionRef.current.toFixed(1)}s ou initialPosition: ${initialPosition}s`)
         }
@@ -688,8 +707,8 @@ export default function SimpleVideoPlayer({
                   
                   // 🔧 FIX #1: Ne PAS reset à 0 si on a une position sauvegardée
                   if (savedPosition <= 5) {
-                    video.currentTime = 0
-                    video.load()
+                  video.currentTime = 0
+                  video.load()
                   }
                   
                   newHls.loadSource(currentVideoUrl.current)
@@ -1703,24 +1722,24 @@ export default function SimpleVideoPlayer({
           console.log(`📝 [HLS] Blob URL créé: ${blobUrl}`)
           
           // Créer et ajouter l'élément <track>
-          const trackElement = document.createElement('track')
-          trackElement.kind = 'subtitles'
-          trackElement.label = track.language
-          trackElement.srclang = track.language.toLowerCase().slice(0, 2)
-          trackElement.default = true
+      const trackElement = document.createElement('track')
+      trackElement.kind = 'subtitles'
+      trackElement.label = track.language
+      trackElement.srclang = track.language.toLowerCase().slice(0, 2)
+      trackElement.default = true
           trackElement.src = blobUrl
-          
-          video.appendChild(trackElement)
+      
+      video.appendChild(trackElement)
           console.log(`📝 [HLS] Élément <track> ajouté avec Blob URL`)
-          
+      
           // Activer immédiatement
           setTimeout(() => {
-            const textTrack = Array.from(video.textTracks).find(
-              t => t.label === track.language
-            )
+        const textTrack = Array.from(video.textTracks).find(
+          t => t.label === track.language
+        )
             
-            if (textTrack) {
-              textTrack.mode = 'showing'
+        if (textTrack) {
+          textTrack.mode = 'showing'
               console.log(`✅ [HLS] TextTrack activé: ${textTrack.label}, cues=${textTrack.cues?.length || 0}`)
               console.log(`📝 [HLS] Position vidéo: ${video.currentTime.toFixed(1)}s`)
               console.log(`📝 [HLS] Premier cue: ${textTrack.cues?.[0]?.startTime}s - ${textTrack.cues?.[0]?.endTime}s`)
@@ -1765,7 +1784,7 @@ export default function SimpleVideoPlayer({
         })
         .catch(err => {
           console.error(`❌ [HLS DEBUG] Erreur requête manuelle:`, err)
-        })
+      })
     }
   }, [subtitleTracks, getFilepath, src])
 
@@ -1941,7 +1960,7 @@ export default function SimpleVideoPlayer({
   return (
     <div 
       ref={containerRef}
-      className={styles.container} 
+      className={`${styles.container} ${!showControls ? styles.hideCursor : ''}`} 
       onMouseMove={handleMouseMove}
       onMouseLeave={() => !showSettingsMenu && setShowControls(false)}
     >

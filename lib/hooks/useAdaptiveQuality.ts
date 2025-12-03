@@ -219,3 +219,4 @@ function selectOptimalQuality(bandwidthKbps: number): QualityLevel {
   return QUALITY_LEVELS[QUALITY_LEVELS.length - 1]
 }
 
+
