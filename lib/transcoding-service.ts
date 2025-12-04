@@ -104,6 +104,9 @@ class TranscodingService {
       // Créer les répertoires
       await this.ensureDirectories()
       
+      // Nettoyer les transcodages interrompus (avec .transcoding)
+      await this.cleanupInProgress()
+      
       // Charger l'état sauvegardé
       await this.loadState()
       
@@ -328,10 +331,17 @@ class TranscodingService {
   /**
    * Vérifier si un fichier est déjà transcodé
    * Vérifie .done OU (playlist.m3u8 + assez de segments)
+   * Retourne false si .transcoding existe (transcodage interrompu)
    */
   async isAlreadyTranscoded(outputDir: string): Promise<boolean> {
     const donePath = path.join(outputDir, '.done')
+    const transcodingPath = path.join(outputDir, '.transcoding')
     const playlistPath = path.join(outputDir, 'playlist.m3u8')
+    
+    // 0. Si .transcoding existe, c'est un transcodage interrompu
+    if (existsSync(transcodingPath)) {
+      return false
+    }
     
     // 1. Vérification rapide : fichier .done existe
     if (existsSync(donePath)) {
@@ -363,8 +373,41 @@ class TranscodingService {
   }
   
   /**
+   * Nettoyer les transcodages en cours (interrompus)
+   * Appelé au démarrage pour supprimer les dossiers avec .transcoding
+   */
+  private async cleanupInProgress(): Promise<void> {
+    try {
+      if (!existsSync(TRANSCODED_DIR)) return
+      
+      const entries = await readdir(TRANSCODED_DIR, { withFileTypes: true })
+      let cleanedCount = 0
+      
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        
+        const dirPath = path.join(TRANSCODED_DIR, entry.name)
+        const transcodingPath = path.join(dirPath, '.transcoding')
+        
+        // Si .transcoding existe, le transcodage a été interrompu
+        if (existsSync(transcodingPath)) {
+          console.log(`🧹 Nettoyage transcodage interrompu: ${entry.name}`)
+          await rm(dirPath, { recursive: true, force: true })
+          cleanedCount++
+        }
+      }
+      
+      if (cleanedCount > 0) {
+        console.log(`✅ ${cleanedCount} transcodage(s) interrompu(s) nettoyé(s)`)
+      }
+    } catch (error) {
+      console.error('❌ Erreur nettoyage en cours:', error)
+    }
+  }
+  
+  /**
    * Nettoyer les transcodages incomplets
-   * Supprime les dossiers qui n'ont pas assez de segments
+   * Supprime les dossiers avec .transcoding ou qui n'ont pas assez de segments
    */
   async cleanupIncomplete(): Promise<{ cleaned: string[], kept: string[] }> {
     const cleaned: string[] = []
@@ -378,7 +421,15 @@ class TranscodingService {
         
         const dirPath = path.join(TRANSCODED_DIR, entry.name)
         const donePath = path.join(dirPath, '.done')
-        const playlistPath = path.join(dirPath, 'playlist.m3u8')
+        const transcodingPath = path.join(dirPath, '.transcoding')
+        
+        // Si .transcoding existe, c'est un transcodage interrompu - supprimer
+        if (existsSync(transcodingPath)) {
+          console.log(`🗑️ Suppression transcodage interrompu: ${entry.name}`)
+          await rm(dirPath, { recursive: true, force: true })
+          cleaned.push(entry.name)
+          continue
+        }
         
         // Si .done existe, garder
         if (existsSync(donePath)) {
@@ -550,6 +601,10 @@ class TranscodingService {
    */
   private async transcodeFile(job: TranscodeJob): Promise<void> {
     await mkdir(job.outputDir, { recursive: true })
+    
+    // Créer le fichier verrou .transcoding
+    const transcodingLockPath = path.join(job.outputDir, '.transcoding')
+    await writeFile(transcodingLockPath, new Date().toISOString())
 
     // Obtenir la durée du fichier
     try {
@@ -626,6 +681,11 @@ class TranscodingService {
         this.currentProcess = null
         
         if (code === 0) {
+          // Supprimer le verrou .transcoding
+          try {
+            await rm(transcodingLockPath, { force: true })
+          } catch {}
+          // Créer le fichier .done
           await writeFile(path.join(job.outputDir, '.done'), new Date().toISOString())
           resolve()
         } else {
@@ -815,6 +875,7 @@ class TranscodingService {
     transcodedAt: string
     segmentCount: number
     totalSize: number
+    isComplete: boolean
   }>> {
     const transcoded: Array<{
       name: string
@@ -822,6 +883,7 @@ class TranscodingService {
       transcodedAt: string
       segmentCount: number
       totalSize: number
+      isComplete: boolean
     }> = []
 
     try {
@@ -833,6 +895,10 @@ class TranscodingService {
         
         const folderPath = path.join(TRANSCODED_DIR, entry.name)
         const donePath = path.join(folderPath, '.done')
+        const transcodingPath = path.join(folderPath, '.transcoding')
+        
+        // Si .transcoding existe, ignorer (transcodage en cours ou interrompu)
+        if (existsSync(transcodingPath)) continue
         
         // Vérifier si le transcodage est complet
         if (!existsSync(donePath)) continue
@@ -859,7 +925,8 @@ class TranscodingService {
             folder: entry.name,
             transcodedAt,
             segmentCount: segments.length,
-            totalSize
+            totalSize,
+            isComplete: true
           })
         } catch (error) {
           console.error(`Erreur lecture ${folderPath}:`, error)
