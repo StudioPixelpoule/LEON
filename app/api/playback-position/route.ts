@@ -91,12 +91,12 @@ export async function POST(request: NextRequest) {
       .from('playback_positions')
       .upsert({
         media_id: mediaId,
-        media_type: 'movie', // Par défaut "movie" (sera "episode" pour les séries)
-        position: time, // Utiliser 'time' au lieu de 'currentTime'
+        media_type: 'movie',
+        position: time,
         duration: duration || null,
         updated_at: new Date().toISOString()
       }, {
-        onConflict: 'media_id,media_type' // Spécifier les colonnes pour le conflit
+        onConflict: 'media_id' // Contrainte unique sur media_id uniquement
       })
       .select()
 

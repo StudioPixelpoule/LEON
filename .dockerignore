@@ -1,10 +1,10 @@
-# Dépendances (reconstruites dans Docker)
-node_modules
+# Dépendances racine (PAS celles dans .next/standalone qui sont nécessaires)
+/node_modules
 .pnp
 .pnp.js
 
-# Build Next.js (reconstruit dans Docker)
-.next
+# Build Next.js - GARDER standalone et static (pré-compilés sur Mac)
+.next/cache
 out
 build
 

@@ -49,27 +49,36 @@ export async function GET() {
     // 3. Fusionner les données
     const formattedData = positions
       .map(pos => {
-        // Convertir m.id en string pour la comparaison
-        const media = mediaList?.find(m => String(m.id) === pos.media_id)
-        if (!media) return null
+        // Convertir m.id en string pour la comparaison (gère UUID vs TEXT)
+        const media = mediaList?.find(m => String(m.id) === String(pos.media_id))
+        if (!media) {
+          console.warn(`[API] Media non trouvé pour position media_id=${pos.media_id}`)
+          return null
+        }
         
-        // IMPORTANT : Utiliser la duration du MEDIA (en minutes), pas celle de playback_positions !
-        const mediaDurationSeconds = media.duration ? media.duration * 60 : 0
-        const progressPercent = mediaDurationSeconds > 0 
-          ? Math.round((pos.position / mediaDurationSeconds) * 100) 
-          : 0
+        // Utiliser la duration du MEDIA (en minutes) OU celle sauvegardée dans playback_positions
+        const mediaDurationSeconds = media.duration 
+          ? media.duration * 60 
+          : (pos.duration || 0)
         
-        console.log(`[API] Film "${media.title}": position=${pos.position}s, duration=${mediaDurationSeconds}s, progress=${progressPercent}%`)
+        // Calculer le pourcentage (avec fallback si pas de durée)
+        let progressPercent = 0
+        if (mediaDurationSeconds > 0) {
+          progressPercent = Math.round((pos.position / mediaDurationSeconds) * 100)
+        } else if (pos.position > 0) {
+          // Si pas de durée mais position > 0, afficher quand même (estimé à 10%)
+          progressPercent = 10
+        }
         
         return {
           ...media,
           position: pos.position,
-          saved_duration: pos.duration, // Duration de playback_positions (pour référence)
+          saved_duration: pos.duration,
           playback_updated_at: pos.updated_at,
-          progress_percent: progressPercent
+          progress_percent: Math.min(progressPercent, 99) // Plafonner à 99%
         }
       })
-      .filter(item => item !== null && item.progress_percent >= 1 && item.progress_percent < 95) // Entre 1% et 95%
+      .filter(item => item !== null && item.progress_percent > 0 && item.progress_percent < 95)
 
     return NextResponse.json({
       success: true,

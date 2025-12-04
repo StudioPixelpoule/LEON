@@ -43,7 +43,19 @@ async function hasPreTranscoded(filepath: string): Promise<boolean> {
   const donePath = path.join(preTranscodedDir, '.done')
   const playlistPath = path.join(preTranscodedDir, 'playlist.m3u8')
   
-  return existsSync(donePath) && existsSync(playlistPath)
+  const doneExists = existsSync(donePath)
+  const playlistExists = existsSync(playlistPath)
+  
+  // 🔍 DEBUG: Logger la vérification pré-transcodage
+  console.log(`[HLS-DEBUG] Vérification pré-transcodé:`, {
+    filepath: filepath.split('/').pop(),
+    preTranscodedDir,
+    doneExists,
+    playlistExists,
+    result: doneExists && playlistExists
+  })
+  
+  return doneExists && playlistExists
 }
 
 export async function GET(request: NextRequest) {

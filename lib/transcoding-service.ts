@@ -3,10 +3,9 @@
  * 
  * Fonctionnalités :
  * - Transcodage batch de tous les films existants
- * - Watcher pour les nouveaux fichiers ajoutés
- * - Gestion des priorités (films populaires, récents, etc.)
- * - Pause/reprise du transcodage
- * - Statistiques et progression
+ * - Priorisation par date (derniers ajouts en premier)
+ * - Persistance de la queue (reprise après redémarrage)
+ * - Démarrage automatique du watcher et du transcodage
  */
 
 import { spawn, exec } from 'child_process'
@@ -22,8 +21,10 @@ const execAsync = promisify(exec)
 // Configuration - Chemins DANS le conteneur Docker
 const TRANSCODED_DIR = process.env.TRANSCODED_DIR || '/leon/transcoded'
 const MEDIA_DIR = process.env.MEDIA_DIR || '/leon/media/films'
-const MAX_CONCURRENT_TRANSCODES = 1 // Un seul transcodage à la fois pour ne pas surcharger
-const SEGMENT_DURATION = 2 // Durée des segments HLS en secondes
+const STATE_FILE = path.join(TRANSCODED_DIR, 'queue-state.json')
+const MAX_CONCURRENT_TRANSCODES = 1
+const SEGMENT_DURATION = 2
+const AUTO_SAVE_INTERVAL = 30000 // Sauvegarde toutes les 30 secondes
 
 // Extensions vidéo supportées
 const VIDEO_EXTENSIONS = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v']
@@ -35,15 +36,17 @@ export interface TranscodeJob {
   filename: string
   outputDir: string
   status: 'pending' | 'transcoding' | 'completed' | 'failed' | 'cancelled'
-  progress: number // 0-100
-  startedAt?: Date
-  completedAt?: Date
+  progress: number
+  startedAt?: string // Date ISO string pour sérialisation JSON
+  completedAt?: string
   error?: string
-  priority: number // Plus élevé = plus prioritaire
-  estimatedDuration?: number // Durée estimée en secondes
-  currentTime?: number // Temps actuel transcodé
-  speed?: number // Vitesse de transcodage (ex: 2.5x)
+  priority: number // Timestamp de modification (plus récent = plus prioritaire)
+  estimatedDuration?: number
+  currentTime?: number
+  speed?: number
   pid?: number
+  fileSize?: number // Taille du fichier en bytes
+  mtime?: string // Date de modification du fichier
 }
 
 export interface TranscodeStats {
@@ -54,8 +57,19 @@ export interface TranscodeStats {
   currentJob?: TranscodeJob
   isRunning: boolean
   isPaused: boolean
-  estimatedTimeRemaining?: number // En secondes
+  estimatedTimeRemaining?: number
   diskUsage?: string
+  autoStartEnabled: boolean
+  watcherActive: boolean
+}
+
+interface QueueState {
+  queue: TranscodeJob[]
+  completedJobs: TranscodeJob[]
+  isRunning: boolean
+  isPaused: boolean
+  lastSaved: string
+  version: number
 }
 
 // Déclaration globale pour le singleton
@@ -70,10 +84,45 @@ class TranscodingService {
   private isRunning: boolean = false
   private isPaused: boolean = false
   private currentProcess: ReturnType<typeof spawn> | null = null
+  private autoSaveInterval: NodeJS.Timeout | null = null
+  private autoStartEnabled: boolean = true
+  private initialized: boolean = false
 
   constructor() {
     console.log('🎬 Initialisation TranscodingService')
-    this.ensureDirectories()
+    this.init()
+  }
+
+  /**
+   * Initialisation asynchrone au démarrage
+   */
+  private async init(): Promise<void> {
+    if (this.initialized) return
+    this.initialized = true
+
+    try {
+      // Créer les répertoires
+      await this.ensureDirectories()
+      
+      // Charger l'état sauvegardé
+      await this.loadState()
+      
+      // Démarrer l'auto-save
+      this.startAutoSave()
+      
+      // Démarrer automatiquement si la queue n'était pas en pause
+      if (this.queue.length > 0 && !this.isPaused && this.autoStartEnabled) {
+        console.log('🔄 Reprise automatique du transcodage...')
+        setTimeout(() => this.start(), 5000) // Attendre 5s pour que tout soit initialisé
+      }
+      
+      // Démarrer le watcher automatiquement
+      setTimeout(() => this.startWatcher(), 10000) // Attendre 10s
+      
+      console.log('✅ Service de transcodage initialisé')
+    } catch (error) {
+      console.error('❌ Erreur initialisation:', error)
+    }
   }
 
   /**
@@ -89,10 +138,90 @@ class TranscodingService {
   }
 
   /**
-   * Scanner les films et créer la queue de transcodage
+   * Charger l'état depuis le fichier JSON
    */
-  async scanAndQueue(priorityMode: 'alphabetical' | 'recent' | 'popular' = 'alphabetical'): Promise<number> {
-    console.log(`🔍 Scan des films (mode: ${priorityMode})...`)
+  private async loadState(): Promise<void> {
+    try {
+      if (!existsSync(STATE_FILE)) {
+        console.log('📄 Pas d\'état sauvegardé, démarrage fresh')
+        return
+      }
+
+      const data = await readFile(STATE_FILE, 'utf-8')
+      const state: QueueState = JSON.parse(data)
+
+      // Restaurer uniquement les jobs pending (pas ceux en cours de transcodage)
+      this.queue = state.queue.filter(j => j.status === 'pending')
+      this.completedJobs = state.completedJobs || []
+      this.isPaused = state.isPaused || false
+
+      // Re-trier par priorité (date de modification)
+      this.queue.sort((a, b) => b.priority - a.priority)
+
+      console.log(`📂 État restauré: ${this.queue.length} jobs en attente, ${this.completedJobs.length} terminés`)
+      console.log(`   Dernière sauvegarde: ${state.lastSaved}`)
+    } catch (error) {
+      console.error('❌ Erreur chargement état:', error)
+    }
+  }
+
+  /**
+   * Sauvegarder l'état dans le fichier JSON
+   */
+  async saveState(): Promise<void> {
+    try {
+      const state: QueueState = {
+        queue: this.queue,
+        completedJobs: this.completedJobs.slice(-100), // Garder les 100 derniers
+        isRunning: this.isRunning,
+        isPaused: this.isPaused,
+        lastSaved: new Date().toISOString(),
+        version: 1
+      }
+
+      await writeFile(STATE_FILE, JSON.stringify(state, null, 2))
+    } catch (error) {
+      console.error('❌ Erreur sauvegarde état:', error)
+    }
+  }
+
+  /**
+   * Démarrer l'auto-save périodique
+   */
+  private startAutoSave(): void {
+    if (this.autoSaveInterval) return
+
+    this.autoSaveInterval = setInterval(() => {
+      this.saveState()
+    }, AUTO_SAVE_INTERVAL)
+
+    console.log(`💾 Auto-save activé (${AUTO_SAVE_INTERVAL / 1000}s)`)
+  }
+
+  /**
+   * Démarrer le watcher automatiquement
+   */
+  private async startWatcher(): Promise<void> {
+    try {
+      // Import dynamique pour éviter les problèmes de dépendances circulaires
+      const fileWatcherModule = await import('./file-watcher')
+      const fileWatcher = fileWatcherModule.default
+      
+      if (!fileWatcher.isActive()) {
+        await fileWatcher.start()
+        console.log('👁️ Watcher démarré automatiquement')
+      }
+    } catch (error) {
+      console.error('❌ Erreur démarrage watcher:', error)
+    }
+  }
+
+  /**
+   * Scanner les films et créer la queue de transcodage
+   * Toujours trié par date de modification (plus récent en premier)
+   */
+  async scanAndQueue(): Promise<number> {
+    console.log('🔍 Scan des films (priorité: derniers ajouts)...')
     
     const files = await this.scanMediaDirectory()
     let addedCount = 0
@@ -110,21 +239,6 @@ class TranscodingService {
         continue
       }
 
-      // Calculer la priorité
-      let priority = 0
-      switch (priorityMode) {
-        case 'recent':
-          priority = file.mtime.getTime()
-          break
-        case 'popular':
-          // TODO: Récupérer depuis la DB les films les plus regardés
-          priority = Math.random() * 1000
-          break
-        case 'alphabetical':
-        default:
-          priority = -file.filename.charCodeAt(0)
-      }
-
       const job: TranscodeJob = {
         id: crypto.randomUUID(),
         filepath: file.filepath,
@@ -132,25 +246,40 @@ class TranscodingService {
         outputDir,
         status: 'pending',
         progress: 0,
-        priority
+        priority: file.mtime.getTime(), // Priorité = timestamp de modification
+        fileSize: file.size,
+        mtime: file.mtime.toISOString()
       }
 
       this.queue.push(job)
       addedCount++
     }
 
-    // Trier par priorité (plus élevé en premier)
+    // Trier par priorité (timestamp plus élevé = plus récent = premier)
     this.queue.sort((a, b) => b.priority - a.priority)
 
+    // Sauvegarder l'état
+    await this.saveState()
+
     console.log(`✅ ${addedCount} films ajoutés à la queue (${this.queue.length} total)`)
+    
+    // Afficher les 5 premiers
+    if (this.queue.length > 0) {
+      console.log('📋 Prochains films à transcoder:')
+      this.queue.slice(0, 5).forEach((job, i) => {
+        const date = job.mtime ? new Date(job.mtime).toLocaleDateString('fr-FR') : 'N/A'
+        console.log(`   ${i + 1}. ${job.filename} (ajouté le ${date})`)
+      })
+    }
+
     return addedCount
   }
 
   /**
    * Scanner le répertoire media
    */
-  private async scanMediaDirectory(): Promise<Array<{ filepath: string; filename: string; mtime: Date }>> {
-    const files: Array<{ filepath: string; filename: string; mtime: Date }> = []
+  private async scanMediaDirectory(): Promise<Array<{ filepath: string; filename: string; mtime: Date; size: number }>> {
+    const files: Array<{ filepath: string; filename: string; mtime: Date; size: number }> = []
 
     const scanDir = async (dir: string) => {
       try {
@@ -168,7 +297,8 @@ class TranscodingService {
               files.push({
                 filepath: fullPath,
                 filename: entry.name,
-                mtime: stats.mtime
+                mtime: stats.mtime,
+                size: stats.size
               })
             }
           }
@@ -179,6 +309,10 @@ class TranscodingService {
     }
 
     await scanDir(MEDIA_DIR)
+    
+    // Trier par date de modification (plus récent en premier)
+    files.sort((a, b) => b.mtime.getTime() - a.mtime.getTime())
+    
     return files
   }
 
@@ -187,24 +321,92 @@ class TranscodingService {
    */
   private getOutputDir(filepath: string): string {
     const filename = path.basename(filepath, path.extname(filepath))
-    // Nettoyer le nom de fichier pour éviter les problèmes
     const safeName = filename.replace(/[^a-zA-Z0-9àâäéèêëïîôùûüç\s\-_.()[\]]/gi, '_')
     return path.join(TRANSCODED_DIR, safeName)
   }
 
   /**
    * Vérifier si un fichier est déjà transcodé
+   * Vérifie .done OU (playlist.m3u8 + assez de segments)
    */
   async isAlreadyTranscoded(outputDir: string): Promise<boolean> {
-    const playlistPath = path.join(outputDir, 'playlist.m3u8')
     const donePath = path.join(outputDir, '.done')
+    const playlistPath = path.join(outputDir, 'playlist.m3u8')
     
-    // Vérifier si le fichier .done existe (transcodage complet)
+    // 1. Vérification rapide : fichier .done existe
     if (existsSync(donePath)) {
       return true
     }
     
+    // 2. Vérification approfondie : playlist + segments suffisants
+    if (existsSync(playlistPath)) {
+      try {
+        const playlistContent = await readFile(playlistPath, 'utf-8')
+        // Vérifier que le playlist est complet (contient #EXT-X-ENDLIST)
+        if (playlistContent.includes('#EXT-X-ENDLIST')) {
+          // Compter les segments déclarés dans le playlist
+          const segmentCount = (playlistContent.match(/segment\d+\.ts/g) || []).length
+          
+          if (segmentCount > 100) {
+            // Créer le fichier .done pour les prochaines fois
+            console.log(`📝 Création .done pour ${outputDir} (${segmentCount} segments détectés)`)
+            await writeFile(donePath, new Date().toISOString())
+            return true
+          }
+        }
+      } catch (error) {
+        console.error(`⚠️ Erreur lecture playlist ${playlistPath}:`, error)
+      }
+    }
+    
     return false
+  }
+  
+  /**
+   * Nettoyer les transcodages incomplets
+   * Supprime les dossiers qui n'ont pas assez de segments
+   */
+  async cleanupIncomplete(): Promise<{ cleaned: string[], kept: string[] }> {
+    const cleaned: string[] = []
+    const kept: string[] = []
+    
+    try {
+      const entries = await readdir(TRANSCODED_DIR, { withFileTypes: true })
+      
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        
+        const dirPath = path.join(TRANSCODED_DIR, entry.name)
+        const donePath = path.join(dirPath, '.done')
+        const playlistPath = path.join(dirPath, 'playlist.m3u8')
+        
+        // Si .done existe, garder
+        if (existsSync(donePath)) {
+          kept.push(entry.name)
+          continue
+        }
+        
+        // Compter les segments
+        const files = await readdir(dirPath)
+        const segmentCount = files.filter(f => f.match(/^segment\d+\.ts$/)).length
+        
+        if (segmentCount < 100) {
+          // Transcodage incomplet - supprimer
+          console.log(`🗑️ Suppression transcodage incomplet: ${entry.name} (${segmentCount} segments)`)
+          await rm(dirPath, { recursive: true, force: true })
+          cleaned.push(entry.name)
+        } else {
+          // Assez de segments - créer .done
+          console.log(`📝 Création .done pour: ${entry.name} (${segmentCount} segments)`)
+          await writeFile(donePath, new Date().toISOString())
+          kept.push(entry.name)
+        }
+      }
+    } catch (error) {
+      console.error('❌ Erreur cleanup incomplets:', error)
+    }
+    
+    return { cleaned, kept }
   }
 
   /**
@@ -225,7 +427,7 @@ class TranscodingService {
    * Démarrer le service de transcodage
    */
   async start(): Promise<void> {
-    if (this.isRunning) {
+    if (this.isRunning && !this.isPaused) {
       console.log('⚠️ Service déjà en cours')
       return
     }
@@ -234,13 +436,14 @@ class TranscodingService {
     this.isPaused = false
     console.log('🚀 Démarrage du service de transcodage')
 
+    await this.saveState()
     await this.processQueue()
   }
 
   /**
    * Mettre en pause le transcodage
    */
-  pause(): void {
+  async pause(): Promise<void> {
     this.isPaused = true
     console.log('⏸️ Transcodage en pause')
     
@@ -251,6 +454,8 @@ class TranscodingService {
       this.queue.unshift(this.currentJob)
       this.currentJob = null
     }
+
+    await this.saveState()
   }
 
   /**
@@ -262,6 +467,8 @@ class TranscodingService {
     this.isPaused = false
     console.log('▶️ Reprise du transcodage')
     
+    await this.saveState()
+    
     if (this.isRunning) {
       await this.processQueue()
     }
@@ -270,7 +477,7 @@ class TranscodingService {
   /**
    * Arrêter complètement le service
    */
-  stop(): void {
+  async stop(): Promise<void> {
     this.isRunning = false
     this.isPaused = false
     
@@ -278,6 +485,13 @@ class TranscodingService {
       this.currentProcess.kill('SIGKILL')
     }
     
+    if (this.currentJob) {
+      this.currentJob.status = 'pending'
+      this.queue.unshift(this.currentJob)
+      this.currentJob = null
+    }
+    
+    await this.saveState()
     console.log('🛑 Service de transcodage arrêté')
   }
 
@@ -291,15 +505,16 @@ class TranscodingService {
 
       this.currentJob = job
       job.status = 'transcoding'
-      job.startedAt = new Date()
+      job.startedAt = new Date().toISOString()
 
       console.log(`🎬 Transcodage: ${job.filename}`)
+      await this.saveState()
 
       try {
         await this.transcodeFile(job)
         
         job.status = 'completed'
-        job.completedAt = new Date()
+        job.completedAt = new Date().toISOString()
         job.progress = 100
         
         this.completedJobs.push(job)
@@ -307,16 +522,26 @@ class TranscodingService {
       } catch (error) {
         job.status = 'failed'
         job.error = error instanceof Error ? error.message : String(error)
-        job.completedAt = new Date()
+        job.completedAt = new Date().toISOString()
+        
+        // Réessayer plus tard (ajouter en fin de queue)
+        if (!job.error.includes('SIGKILL') && !job.error.includes('SIGTERM')) {
+          job.status = 'pending'
+          job.priority = 0 // Basse priorité pour les retry
+          this.queue.push(job)
+        }
         
         console.error(`❌ Échec: ${job.filename}`, error)
       }
 
       this.currentJob = null
+      await this.saveState()
     }
 
-    if (this.queue.length === 0) {
+    if (this.queue.length === 0 && this.isRunning) {
       console.log('🎉 Queue de transcodage terminée!')
+      this.isRunning = false
+      await this.saveState()
     }
   }
 
@@ -324,7 +549,6 @@ class TranscodingService {
    * Transcoder un fichier
    */
   private async transcodeFile(job: TranscodeJob): Promise<void> {
-    // Créer le répertoire de sortie
     await mkdir(job.outputDir, { recursive: true })
 
     // Obtenir la durée du fichier
@@ -337,42 +561,33 @@ class TranscodingService {
       job.estimatedDuration = undefined
     }
 
-    // Détecter le hardware
     const hardware = await detectHardwareCapabilities()
-    
     const playlistPath = path.join(job.outputDir, 'playlist.m3u8')
     
-    // Construire la commande FFmpeg
     const ffmpegArgs = [
-      // Décodage matériel si disponible
       ...hardware.decoderArgs,
       '-i', job.filepath,
-      // Mapper toutes les pistes audio
       '-map', '0:v:0',
-      '-map', '0:a?', // Toutes les pistes audio
-      // Encodage vidéo
+      '-map', '0:a?',
       ...(hardware.acceleration === 'vaapi' 
         ? [] 
         : ['-vf', 'format=yuv420p']),
       ...hardware.encoderArgs,
-      // GOP et keyframes pour seek précis
       '-g', '48',
       '-keyint_min', '24',
       '-sc_threshold', '0',
       '-force_key_frames', `expr:gte(t,n_forced*${SEGMENT_DURATION})`,
-      // Audio : haute qualité
       '-c:a', 'aac',
       '-b:a', '192k',
       '-ac', '2',
       '-ar', '48000',
-      // HLS
       '-f', 'hls',
       '-hls_time', String(SEGMENT_DURATION),
       '-hls_list_size', '0',
       '-hls_segment_type', 'mpegts',
       '-hls_flags', 'independent_segments',
       '-hls_segment_filename', path.join(job.outputDir, 'segment%d.ts'),
-      '-hls_playlist_type', 'vod', // VOD car fichier complet
+      '-hls_playlist_type', 'vod',
       '-start_number', '0',
       playlistPath
     ]
@@ -388,7 +603,6 @@ class TranscodingService {
       ffmpeg.stderr?.on('data', (data) => {
         const message = data.toString()
         
-        // Parser la progression
         const timeMatch = message.match(/time=(\d+):(\d+):(\d+)\.(\d+)/)
         const speedMatch = message.match(/speed=\s*([\d.]+)x/)
         
@@ -412,7 +626,6 @@ class TranscodingService {
         this.currentProcess = null
         
         if (code === 0) {
-          // Créer le fichier .done
           await writeFile(path.join(job.outputDir, '.done'), new Date().toISOString())
           resolve()
         } else {
@@ -428,21 +641,30 @@ class TranscodingService {
   }
 
   /**
-   * Ajouter un fichier à la queue avec haute priorité
+   * Ajouter un fichier à la queue avec haute priorité (nouveau fichier)
    */
-  addToQueue(filepath: string, highPriority: boolean = false): TranscodeJob | null {
-    // Vérifier si déjà dans la queue
+  async addToQueue(filepath: string, highPriority: boolean = false): Promise<TranscodeJob | null> {
     const existing = this.queue.find(j => j.filepath === filepath)
     if (existing) {
       if (highPriority) {
-        existing.priority = Date.now() // Mettre en haut de la queue
+        existing.priority = Date.now()
         this.queue.sort((a, b) => b.priority - a.priority)
+        await this.saveState()
       }
       return existing
     }
 
     const outputDir = this.getOutputDir(filepath)
     const filename = path.basename(filepath)
+
+    // Obtenir les stats du fichier
+    let fileSize = 0
+    let mtime = new Date().toISOString()
+    try {
+      const stats = await stat(filepath)
+      fileSize = stats.size
+      mtime = stats.mtime.toISOString()
+    } catch {}
 
     const job: TranscodeJob = {
       id: crypto.randomUUID(),
@@ -451,7 +673,9 @@ class TranscodingService {
       outputDir,
       status: 'pending',
       progress: 0,
-      priority: highPriority ? Date.now() : 0
+      priority: highPriority ? Date.now() : 0,
+      fileSize,
+      mtime
     }
 
     if (highPriority) {
@@ -460,6 +684,7 @@ class TranscodingService {
       this.queue.push(job)
     }
 
+    await this.saveState()
     console.log(`➕ Ajouté à la queue: ${filename} (priorité: ${highPriority ? 'haute' : 'normale'})`)
     return job
   }
@@ -467,22 +692,22 @@ class TranscodingService {
   /**
    * Annuler un job
    */
-  cancelJob(jobId: string): boolean {
-    // Si c'est le job en cours
+  async cancelJob(jobId: string): Promise<boolean> {
     if (this.currentJob?.id === jobId) {
       if (this.currentProcess) {
         this.currentProcess.kill('SIGTERM')
       }
       this.currentJob.status = 'cancelled'
       this.currentJob = null
+      await this.saveState()
       return true
     }
 
-    // Sinon, le retirer de la queue
     const index = this.queue.findIndex(j => j.id === jobId)
     if (index !== -1) {
       this.queue[index].status = 'cancelled'
       this.queue.splice(index, 1)
+      await this.saveState()
       return true
     }
 
@@ -493,28 +718,32 @@ class TranscodingService {
    * Obtenir les statistiques
    */
   async getStats(): Promise<TranscodeStats> {
-    // Calculer l'espace disque utilisé
     let diskUsage = 'N/A'
     try {
       const { stdout } = await execAsync(`du -sh ${TRANSCODED_DIR} 2>/dev/null`)
       diskUsage = stdout.split('\t')[0]
     } catch {}
 
-    // Estimer le temps restant
     let estimatedTimeRemaining: number | undefined
     if (this.currentJob?.speed && this.currentJob?.estimatedDuration && this.currentJob?.currentTime) {
       const remaining = this.currentJob.estimatedDuration - this.currentJob.currentTime
       estimatedTimeRemaining = remaining / this.currentJob.speed
 
-      // Ajouter le temps pour les jobs en attente (estimation grossière)
       for (const job of this.queue) {
         if (job.estimatedDuration) {
           estimatedTimeRemaining += job.estimatedDuration / (this.currentJob.speed || 1)
         } else {
-          estimatedTimeRemaining += 7200 // Estimation 2h par film
+          estimatedTimeRemaining += 7200
         }
       }
     }
+
+    // Vérifier si le watcher est actif
+    let watcherActive = false
+    try {
+      const fileWatcherModule = await import('./file-watcher')
+      watcherActive = fileWatcherModule.default.isActive()
+    } catch {}
 
     return {
       totalFiles: this.queue.length + this.completedJobs.length + (this.currentJob ? 1 : 0),
@@ -525,7 +754,9 @@ class TranscodingService {
       isRunning: this.isRunning,
       isPaused: this.isPaused,
       estimatedTimeRemaining,
-      diskUsage
+      diskUsage,
+      autoStartEnabled: this.autoStartEnabled,
+      watcherActive
     }
   }
 
@@ -558,6 +789,104 @@ class TranscodingService {
       return false
     }
   }
+
+  /**
+   * Supprimer un film transcodé par son nom de dossier
+   */
+  async deleteTranscoded(folderName: string): Promise<boolean> {
+    const outputDir = path.join(TRANSCODED_DIR, folderName)
+    
+    try {
+      await rm(outputDir, { recursive: true, force: true })
+      console.log(`🗑️ Supprimé: ${outputDir}`)
+      return true
+    } catch (error) {
+      console.error(`❌ Erreur suppression ${outputDir}:`, error)
+      return false
+    }
+  }
+
+  /**
+   * Lister tous les films transcodés
+   */
+  async listTranscoded(): Promise<Array<{
+    name: string
+    folder: string
+    transcodedAt: string
+    segmentCount: number
+    totalSize: number
+  }>> {
+    const transcoded: Array<{
+      name: string
+      folder: string
+      transcodedAt: string
+      segmentCount: number
+      totalSize: number
+    }> = []
+
+    try {
+      const entries = await readdir(TRANSCODED_DIR, { withFileTypes: true })
+      
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        if (entry.name.startsWith('.')) continue // Ignorer les fichiers cachés
+        
+        const folderPath = path.join(TRANSCODED_DIR, entry.name)
+        const donePath = path.join(folderPath, '.done')
+        
+        // Vérifier si le transcodage est complet
+        if (!existsSync(donePath)) continue
+        
+        try {
+          // Lire la date de completion
+          const doneContent = await readFile(donePath, 'utf-8')
+          const transcodedAt = doneContent.trim()
+          
+          // Compter les segments et calculer la taille
+          const files = await readdir(folderPath)
+          const segments = files.filter(f => f.endsWith('.ts'))
+          
+          let totalSize = 0
+          for (const file of files) {
+            try {
+              const fileStat = await stat(path.join(folderPath, file))
+              totalSize += fileStat.size
+            } catch {}
+          }
+          
+          transcoded.push({
+            name: entry.name.replace(/_/g, ' '), // Restaurer les espaces
+            folder: entry.name,
+            transcodedAt,
+            segmentCount: segments.length,
+            totalSize
+          })
+        } catch (error) {
+          console.error(`Erreur lecture ${folderPath}:`, error)
+        }
+      }
+      
+      // Trier par date de transcodage (plus récent en premier)
+      transcoded.sort((a, b) => {
+        const dateA = new Date(a.transcodedAt).getTime()
+        const dateB = new Date(b.transcodedAt).getTime()
+        return dateB - dateA
+      })
+      
+    } catch (error) {
+      console.error('Erreur listage transcodés:', error)
+    }
+    
+    return transcoded
+  }
+
+  /**
+   * Activer/désactiver le démarrage automatique
+   */
+  setAutoStart(enabled: boolean): void {
+    this.autoStartEnabled = enabled
+    console.log(`🔧 Auto-start: ${enabled ? 'activé' : 'désactivé'}`)
+  }
 }
 
 // Singleton global
@@ -572,4 +901,3 @@ const transcodingService = global.__transcodingServiceSingleton
 
 export default transcodingService
 export { TranscodingService, TRANSCODED_DIR, MEDIA_DIR }
-

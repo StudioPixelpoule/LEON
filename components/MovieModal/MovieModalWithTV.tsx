@@ -91,8 +91,6 @@ export default function MovieModal({ movie, onClose, onPlayClick, autoPlay = fal
   
   // Afficher le lecteur vidéo pour les films (tous formats via HLS)
   if (showPlayer && !isTVShow && movie.pcloud_fileid) {
-    console.log('✅ Lecteur film ouvert')
-    
     // Déterminer l'URL selon le format
     const ext = movie.pcloud_fileid.toLowerCase().split('.').pop()
     const needsTranscode = ext === 'mkv' || ext === 'avi'
@@ -100,12 +98,6 @@ export default function MovieModal({ movie, onClose, onPlayClick, autoPlay = fal
     const videoUrl = needsTranscode
       ? `/api/hls?path=${encodeURIComponent(movie.pcloud_fileid)}&playlist=true`
       : `/api/stream?path=${encodeURIComponent(movie.pcloud_fileid)}`
-    
-    const videoType = needsTranscode ? 'application/x-mpegURL' : 'video/mp4'
-    
-    console.log('URL vidéo:', videoUrl)
-    console.log('Type:', videoType)
-    console.log('Transcodage HLS:', needsTranscode ? 'Oui' : 'Non')
     
     // Utiliser SimpleVideoPlayer pour TOUS les formats (plus fiable)
     return (

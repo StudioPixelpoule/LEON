@@ -683,10 +683,13 @@ interface TranscodeStats {
     speed?: number
     currentTime?: number
     estimatedDuration?: number
+    mtime?: string
   }
   isRunning: boolean
   isPaused: boolean
   estimatedTimeRemaining?: number
+  autoStartEnabled?: boolean
+  watcherActive?: boolean
   diskUsage?: string
 }
 
@@ -696,18 +699,32 @@ interface TranscodeJob {
   status: 'pending' | 'transcoding' | 'completed' | 'failed' | 'cancelled'
   progress: number
   error?: string
+  mtime?: string
+  priority?: number
+}
+
+// Type pour les films transcodés
+interface TranscodedFile {
+  name: string
+  folder: string
+  transcodedAt: string
+  segmentCount: number
+  totalSize: number
 }
 
 function TranscodeSection() {
   const [stats, setStats] = useState<TranscodeStats | null>(null)
   const [queue, setQueue] = useState<TranscodeJob[]>([])
+  const [transcoded, setTranscoded] = useState<TranscodedFile[]>([])
+  const [watcher, setWatcher] = useState<{ isWatching: boolean; watchedDirs: number; knownFiles: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [showTranscoded, setShowTranscoded] = useState(false)
 
-  // Charger les stats au montage et toutes les 5 secondes
+  // Charger les stats au montage et toutes les 3 secondes
   useEffect(() => {
     loadStats()
-    const interval = setInterval(loadStats, 5000)
+    const interval = setInterval(loadStats, 3000)
     return () => clearInterval(interval)
   }, [])
 
@@ -717,6 +734,8 @@ function TranscodeSection() {
       const data = await response.json()
       setStats(data.stats)
       setQueue(data.queue || [])
+      setWatcher(data.watcher || null)
+      setTranscoded(data.transcoded || [])
     } catch (error) {
       console.error('Erreur chargement stats transcodage:', error)
     } finally {
@@ -735,7 +754,6 @@ function TranscodeSection() {
       const data = await response.json()
       
       if (data.success) {
-        // Rafraîchir les stats
         await loadStats()
       } else {
         alert(`Erreur: ${data.error || 'Erreur inconnue'}`)
@@ -745,6 +763,28 @@ function TranscodeSection() {
       alert('Erreur lors de l\'action')
     } finally {
       setActionLoading(null)
+    }
+  }
+
+  async function deleteTranscoded(folder: string, name: string) {
+    if (!confirm(`Supprimer le film transcodé "${name}" ?\nCela libérera de l'espace disque mais le film devra être re-transcodé.`)) {
+      return
+    }
+    
+    try {
+      const response = await fetch(`/api/transcode?folder=${encodeURIComponent(folder)}`, {
+        method: 'DELETE'
+      })
+      const data = await response.json()
+      
+      if (data.success) {
+        await loadStats()
+      } else {
+        alert(`Erreur: ${data.error || 'Erreur suppression'}`)
+      }
+    } catch (error) {
+      console.error('Erreur suppression:', error)
+      alert('Erreur lors de la suppression')
     }
   }
 
@@ -772,6 +812,26 @@ function TranscodeSection() {
     return `~${minutes}min`
   }
 
+  function formatDate(isoString: string | undefined): string {
+    if (!isoString) return ''
+    try {
+      return new Date(isoString).toLocaleDateString('fr-FR', { 
+        day: 'numeric', 
+        month: 'short',
+        year: 'numeric'
+      })
+    } catch {
+      return ''
+    }
+  }
+
+  function formatSize(bytes: number): string {
+    if (!bytes || bytes === 0) return '0 B'
+    const units = ['B', 'KB', 'MB', 'GB', 'TB']
+    const i = Math.floor(Math.log(bytes) / Math.log(1024))
+    return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`
+  }
+
   if (loading) {
     return (
       <div className={styles.section}>
@@ -789,8 +849,25 @@ function TranscodeSection() {
     <div className={styles.section}>
       <h2 className={styles.sectionTitle}>Pré-transcodage des films</h2>
       <p className={styles.sectionDesc}>
-        Transcoder les films à l&apos;avance pour un <strong>seek instantané</strong> sur toute la timeline
+        Transcoder les films à l&apos;avance pour un <strong>seek instantané</strong> sur toute la timeline.
+        Les derniers films ajoutés sont toujours transcodés en premier.
       </p>
+
+      {/* Statut du système */}
+      <div className={styles.statusBar}>
+        <div className={styles.statusItem}>
+          <span className={`${styles.statusDot} ${stats?.isRunning && !stats?.isPaused ? styles.active : ''}`} />
+          <span>Transcodage: {stats?.isRunning ? (stats?.isPaused ? 'En pause' : 'Actif') : 'Arrêté'}</span>
+        </div>
+        <div className={styles.statusItem}>
+          <span className={`${styles.statusDot} ${watcher?.isWatching ? styles.active : ''}`} />
+          <span>Watcher: {watcher?.isWatching ? 'Actif' : 'Inactif'}</span>
+        </div>
+        <div className={styles.statusItem}>
+          <span className={`${styles.statusDot} ${stats?.autoStartEnabled ? styles.active : ''}`} />
+          <span>Auto-reprise: {stats?.autoStartEnabled ? 'Activée' : 'Désactivée'}</span>
+        </div>
+      </div>
 
       {/* Statistiques globales */}
       <div className={styles.resultCard}>
@@ -850,6 +927,9 @@ function TranscodeSection() {
                   {stats.currentJob.currentTime && stats.currentJob.estimatedDuration && (
                     <> • {formatTime(stats.currentJob.currentTime)} / {formatTime(stats.currentJob.estimatedDuration)}</>
                   )}
+                  {stats.currentJob.mtime && (
+                    <> • Ajouté le {formatDate(stats.currentJob.mtime)}</>
+                  )}
                 </p>
               </div>
             </div>
@@ -872,7 +952,7 @@ function TranscodeSection() {
           <>
             <button
               className={styles.primaryButton}
-              onClick={() => performAction('scan', { priority: 'alphabetical' })}
+              onClick={() => performAction('scan')}
               disabled={actionLoading !== null}
             >
               {actionLoading === 'scan' ? (
@@ -940,49 +1020,115 @@ function TranscodeSection() {
           </>
         )}
 
-        <button
-          className={styles.secondaryButton}
-          onClick={() => performAction('start-watcher')}
-          disabled={actionLoading !== null}
-        >
-          {actionLoading === 'start-watcher' ? (
-            <><RefreshCw size={16} className={styles.spinning} /> Activation...</>
-          ) : (
-            <><Eye size={16} /> Activer le watcher</>
-          )}
-        </button>
+        {!watcher?.isWatching ? (
+          <button
+            className={styles.secondaryButton}
+            onClick={() => performAction('start-watcher')}
+            disabled={actionLoading !== null}
+          >
+            {actionLoading === 'start-watcher' ? (
+              <><RefreshCw size={16} className={styles.spinning} /> Activation...</>
+            ) : (
+              <><Eye size={16} /> Activer le watcher</>
+            )}
+          </button>
+        ) : (
+          <button
+            className={styles.secondaryButton}
+            onClick={() => performAction('stop-watcher')}
+            disabled={actionLoading !== null}
+          >
+            {actionLoading === 'stop-watcher' ? (
+              <><RefreshCw size={16} className={styles.spinning} /> Arrêt...</>
+            ) : (
+              <><Eye size={16} /> Désactiver le watcher</>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Queue des films en attente */}
       {queue.length > 0 && (
         <div className={styles.resultCard}>
           <h3>Films en attente ({queue.length})</h3>
+          <p className={styles.queueSubtitle}>Triés par date d&apos;ajout (plus récent en premier)</p>
           <div className={styles.queueList}>
-            {queue.slice(0, 10).map((job, index) => (
+            {queue.slice(0, 15).map((job, index) => (
               <div key={job.id} className={styles.queueItem}>
                 <span className={styles.queueIndex}>{index + 1}</span>
-                <span className={styles.queueFilename}>{job.filename}</span>
+                <div className={styles.queueInfo}>
+                  <span className={styles.queueFilename}>{job.filename}</span>
+                  {job.mtime && (
+                    <span className={styles.queueDate}>Ajouté le {formatDate(job.mtime)}</span>
+                  )}
+                </div>
                 <span className={`${styles.queueStatus} ${styles[job.status]}`}>
                   {job.status === 'pending' && 'En attente'}
-                  {job.status === 'failed' && 'Échec'}
+                  {job.status === 'failed' && 'Échec - Retry prévu'}
                 </span>
               </div>
             ))}
-            {queue.length > 10 && (
-              <p className={styles.queueMore}>... et {queue.length - 10} autres films</p>
+            {queue.length > 15 && (
+              <p className={styles.queueMore}>... et {queue.length - 15} autres films</p>
             )}
           </div>
         </div>
       )}
 
+      {/* Films transcodés */}
+      <div className={styles.resultCard}>
+        <div className={styles.transcodedHeader}>
+          <h3>Films transcodés ({transcoded.length})</h3>
+          <button
+            className={styles.toggleButton}
+            onClick={() => setShowTranscoded(!showTranscoded)}
+          >
+            {showTranscoded ? 'Masquer' : 'Afficher'}
+          </button>
+        </div>
+        
+        {transcoded.length === 0 ? (
+          <p className={styles.emptyState}>Aucun film transcodé pour le moment</p>
+        ) : (
+          <>
+            <p className={styles.transcodedSummary}>
+              Espace total : {formatSize(transcoded.reduce((acc, t) => acc + t.totalSize, 0))}
+            </p>
+            
+            {showTranscoded && (
+              <div className={styles.transcodedList}>
+                {transcoded.map((film) => (
+                  <div key={film.folder} className={styles.transcodedItem}>
+                    <div className={styles.transcodedInfo}>
+                      <span className={styles.transcodedName}>{film.name}</span>
+                      <span className={styles.transcodedMeta}>
+                        {formatSize(film.totalSize)} • {film.segmentCount} segments • Transcodé le {formatDate(film.transcodedAt)}
+                      </span>
+                    </div>
+                    <button
+                      className={styles.deleteButton}
+                      onClick={() => deleteTranscoded(film.folder, film.name)}
+                      title="Supprimer ce film transcodé"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
       {/* Info */}
       <div className={styles.infoBox}>
         <h4>💡 Comment ça fonctionne ?</h4>
         <ul>
-          <li><strong>Scanner</strong> : Détecte les films non encore transcodés</li>
-          <li><strong>Démarrer</strong> : Lance le transcodage en arrière-plan</li>
-          <li><strong>Watcher</strong> : Surveille le dossier pour les nouveaux films</li>
-          <li>Les films transcodés auront un <strong>seek instantané</strong></li>
+          <li><strong>Priorité</strong> : Les films récemment ajoutés sont toujours transcodés en premier</li>
+          <li><strong>Persistance</strong> : La queue est sauvegardée automatiquement et reprend après un redémarrage</li>
+          <li><strong>Watcher</strong> : Détecte automatiquement les nouveaux films ajoutés au dossier</li>
+          <li><strong>Auto-reprise</strong> : Le transcodage reprend automatiquement au démarrage du conteneur</li>
+          <li>Les films transcodés ont un <strong>seek instantané</strong> sur toute la timeline</li>
           <li>Les films non transcodés fonctionnent normalement (transcodage temps réel)</li>
         </ul>
       </div>

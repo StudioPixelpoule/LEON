@@ -1,21 +1,34 @@
 /**
  * Watcher pour détecter les nouveaux fichiers vidéo ajoutés
- * Utilise fs.watch pour surveiller le répertoire media
+ * 
+ * Fonctionnalités :
+ * - Surveillance récursive du répertoire media
+ * - Détection des nouveaux fichiers avec debounce
+ * - Ajout automatique à la queue de transcodage
+ * - Démarrage automatique au boot (appelé par transcoding-service)
  */
 
 import { watch, FSWatcher } from 'fs'
-import { readdir, stat } from 'fs/promises'
+import { readdir, stat, writeFile, readFile } from 'fs/promises'
+import { existsSync } from 'fs'
 import path from 'path'
-import transcodingService from './transcoding-service'
 
-// Chemin DANS le conteneur Docker
+// Chemins DANS le conteneur Docker
 const MEDIA_DIR = process.env.MEDIA_DIR || '/leon/media/films'
+const TRANSCODED_DIR = process.env.TRANSCODED_DIR || '/leon/transcoded'
+const WATCHER_STATE_FILE = path.join(TRANSCODED_DIR, 'watcher-state.json')
 
 // Extensions vidéo supportées
 const VIDEO_EXTENSIONS = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.m4v']
 
 // Debounce pour éviter les événements multiples
-const DEBOUNCE_MS = 5000 // 5 secondes
+const DEBOUNCE_MS = 10000 // 10 secondes (fichiers volumineux)
+
+// Interface pour l'état du watcher
+interface WatcherState {
+  knownFiles: string[] // Fichiers déjà connus
+  lastScan: string
+}
 
 // Déclaration globale pour le singleton
 declare global {
@@ -23,13 +36,47 @@ declare global {
 }
 
 class FileWatcher {
-  private watcher: FSWatcher | null = null
+  private watchers: FSWatcher[] = []
   private isWatching: boolean = false
   private pendingFiles: Map<string, NodeJS.Timeout> = new Map()
   private watchedDirs: Set<string> = new Set()
+  private knownFiles: Set<string> = new Set()
 
   constructor() {
     console.log('👁️ Initialisation FileWatcher')
+    this.loadState()
+  }
+
+  /**
+   * Charger l'état sauvegardé
+   */
+  private async loadState(): Promise<void> {
+    try {
+      if (!existsSync(WATCHER_STATE_FILE)) return
+
+      const data = await readFile(WATCHER_STATE_FILE, 'utf-8')
+      const state: WatcherState = JSON.parse(data)
+      
+      this.knownFiles = new Set(state.knownFiles || [])
+      console.log(`📂 État watcher restauré: ${this.knownFiles.size} fichiers connus`)
+    } catch (error) {
+      console.error('❌ Erreur chargement état watcher:', error)
+    }
+  }
+
+  /**
+   * Sauvegarder l'état
+   */
+  private async saveState(): Promise<void> {
+    try {
+      const state: WatcherState = {
+        knownFiles: Array.from(this.knownFiles),
+        lastScan: new Date().toISOString()
+      }
+      await writeFile(WATCHER_STATE_FILE, JSON.stringify(state, null, 2))
+    } catch (error) {
+      console.error('❌ Erreur sauvegarde état watcher:', error)
+    }
   }
 
   /**
@@ -44,13 +91,45 @@ class FileWatcher {
     console.log(`👁️ Démarrage surveillance: ${MEDIA_DIR}`)
     
     try {
-      // Surveiller récursivement
+      // Scanner d'abord pour connaître les fichiers existants
+      await this.initialScan()
+      
+      // Puis surveiller récursivement
       await this.watchRecursively(MEDIA_DIR)
       this.isWatching = true
-      console.log('✅ Surveillance active')
+      console.log(`✅ Surveillance active (${this.watchedDirs.size} dossiers, ${this.knownFiles.size} fichiers connus)`)
     } catch (error) {
       console.error('❌ Erreur démarrage watcher:', error)
     }
+  }
+
+  /**
+   * Scan initial pour connaître les fichiers existants
+   */
+  private async initialScan(): Promise<void> {
+    const scanDir = async (dir: string) => {
+      try {
+        const entries = await readdir(dir, { withFileTypes: true })
+        
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name)
+          
+          if (entry.isDirectory()) {
+            await scanDir(fullPath)
+          } else if (entry.isFile()) {
+            const ext = path.extname(entry.name).toLowerCase()
+            if (VIDEO_EXTENSIONS.includes(ext)) {
+              this.knownFiles.add(fullPath)
+            }
+          }
+        }
+      } catch (error) {
+        // Ignorer les erreurs de permission
+      }
+    }
+
+    await scanDir(MEDIA_DIR)
+    await this.saveState()
   }
 
   /**
@@ -70,6 +149,7 @@ class FileWatcher {
         console.error(`❌ Erreur watcher ${dir}:`, error)
       })
 
+      this.watchers.push(watcher)
       this.watchedDirs.add(dir)
 
       // Surveiller les sous-répertoires
@@ -94,7 +174,10 @@ class FileWatcher {
     if (!VIDEO_EXTENSIONS.includes(ext)) return
 
     // Ignorer les fichiers temporaires
-    if (filepath.includes('.tmp') || filepath.includes('.part')) return
+    if (filepath.includes('.tmp') || filepath.includes('.part') || filepath.includes('.crdownload')) return
+
+    // Ignorer les fichiers déjà connus
+    if (this.knownFiles.has(filepath)) return
 
     console.log(`📁 Événement: ${eventType} - ${path.basename(filepath)}`)
 
@@ -120,22 +203,41 @@ class FileWatcher {
       const stats = await stat(filepath)
       
       // Ignorer les fichiers trop petits (probablement incomplets)
-      if (stats.size < 10 * 1024 * 1024) { // < 10MB
+      if (stats.size < 50 * 1024 * 1024) { // < 50MB
         console.log(`⏳ Fichier trop petit, en attente: ${path.basename(filepath)}`)
         return
       }
 
+      // Attendre un peu et vérifier que la taille n'a pas changé
+      await new Promise(resolve => setTimeout(resolve, 5000))
+      const stats2 = await stat(filepath)
+      
+      if (stats2.size !== stats.size) {
+        console.log(`⏳ Fichier en cours d'écriture: ${path.basename(filepath)}`)
+        // Re-programmer le traitement
+        this.handleFileEvent('change', filepath)
+        return
+      }
+
+      // Marquer comme connu
+      this.knownFiles.add(filepath)
+      await this.saveState()
+
       console.log(`🆕 Nouveau fichier détecté: ${path.basename(filepath)} (${(stats.size / (1024*1024*1024)).toFixed(2)} GB)`)
 
+      // Importer le service de transcodage de manière dynamique
+      const transcodingServiceModule = await import('./transcoding-service')
+      const transcodingService = transcodingServiceModule.default
+      
       // Ajouter à la queue de transcodage avec haute priorité
-      const job = transcodingService.addToQueue(filepath, true)
+      const job = await transcodingService.addToQueue(filepath, true)
       
       if (job) {
         console.log(`➕ Ajouté à la queue de transcodage: ${job.filename}`)
         
         // Si le service n'est pas en cours, le démarrer
         const serviceStats = await transcodingService.getStats()
-        if (!serviceStats.isRunning) {
+        if (!serviceStats.isRunning && !serviceStats.isPaused) {
           console.log('🚀 Démarrage automatique du transcodage')
           transcodingService.start()
         }
@@ -152,6 +254,14 @@ class FileWatcher {
   stop(): void {
     if (!this.isWatching) return
 
+    // Fermer tous les watchers
+    for (const watcher of this.watchers) {
+      try {
+        watcher.close()
+      } catch {}
+    }
+    
+    this.watchers = []
     this.isWatching = false
     this.watchedDirs.clear()
     
@@ -174,12 +284,27 @@ class FileWatcher {
   /**
    * Obtenir les statistiques du watcher
    */
-  getStats(): { isWatching: boolean; watchedDirs: number; pendingFiles: number } {
+  getStats(): { isWatching: boolean; watchedDirs: number; pendingFiles: number; knownFiles: number } {
     return {
       isWatching: this.isWatching,
       watchedDirs: this.watchedDirs.size,
-      pendingFiles: this.pendingFiles.size
+      pendingFiles: this.pendingFiles.size,
+      knownFiles: this.knownFiles.size
     }
+  }
+
+  /**
+   * Forcer un re-scan complet
+   */
+  async rescan(): Promise<number> {
+    console.log('🔄 Re-scan complet des fichiers...')
+    
+    const previousCount = this.knownFiles.size
+    await this.initialScan()
+    const newCount = this.knownFiles.size - previousCount
+    
+    console.log(`✅ Scan terminé: ${newCount} nouveaux fichiers détectés`)
+    return newCount
   }
 }
 
@@ -195,4 +320,3 @@ const fileWatcher = global.__fileWatcherSingleton
 
 export default fileWatcher
 export { FileWatcher }
-

@@ -95,6 +95,7 @@ export default function SimpleVideoPlayer({
   // 🔧 FIX #2: Tracker le temps maximum disponible (transcodé)
   const [maxSeekableTime, setMaxSeekableTime] = useState<number>(Infinity)
   const [seekWarning, setSeekWarning] = useState<string | null>(null)
+  const [isPreTranscoded, setIsPreTranscoded] = useState<boolean>(false) // 🎯 PRÉ-TRANSCODÉ = seek illimité
   
   // Menu et pistes
   const [showSettingsMenu, setShowSettingsMenu] = useState(false)
@@ -579,21 +580,39 @@ export default function SimpleVideoPlayer({
               bufferedSeconds = video.buffered.end(0) - video.buffered.start(0)
             }
             
-            // État FFmpeg (check toutes les secondes = 4 x 250ms)
+            // État FFmpeg (check au 1er appel PUIS toutes les secondes)
             let ffmpegStatus = null
-            if (checkCount % 4 === 0) {
+            if (checkCount === 1 || checkCount % 4 === 0) {
               ffmpegStatus = await getFFmpegStatus()
             }
             
             const segmentsReady = ffmpegStatus?.segmentsReady || 0
             const isComplete = ffmpegStatus?.isComplete || false
+            const preTranscodedStatus = ffmpegStatus?.preTranscoded || false
+            
+            // 🎯 Mettre à jour l'état pré-transcodé pour permettre le scrubbing complet
+            if (preTranscodedStatus && !isPreTranscoded) {
+              setIsPreTranscoded(true)
+              setMaxSeekableTime(Infinity) // Seek illimité pour pré-transcodé
+              console.log('[PLAYER] 🎯 Fichier pré-transcodé détecté - scrubbing complet activé')
+            }
             
             // 🧠 DÉCISION INTELLIGENTE
-            // - Si transcodage complet : lancer dès qu'on a 10s
+            // - Si PRÉ-TRANSCODÉ : démarrer dès qu'on a 2s de buffer (seek instantané disponible)
+            // - Si transcodage complet en temps réel : lancer dès qu'on a 10s
             // - Sinon : attendre 15 segments OU 30s de buffer
-            const canStart = isComplete 
-              ? bufferedSeconds >= 10
-              : (segmentsReady >= 15 || bufferedSeconds >= 30)
+            let canStart = false
+            if (preTranscodedStatus) {
+              // Fichier pré-transcodé = démarrage ultra-rapide
+              canStart = bufferedSeconds >= 2
+              if (checkCount % 4 === 0 && !canStart) {
+                console.log(`[BUFFER] Pré-transcodé, attente buffer: ${bufferedSeconds.toFixed(1)}s/2s`)
+              }
+            } else if (isComplete) {
+              canStart = bufferedSeconds >= 10
+            } else {
+              canStart = segmentsReady >= 15 || bufferedSeconds >= 30
+            }
             
             // Log toutes les secondes
             if (checkCount % 4 === 0) {
@@ -868,8 +887,9 @@ export default function SimpleVideoPlayer({
         
         // 🔧 FIX #2: Calculer le temps max seekable (dernier segment disponible + marge)
         // Le temps seekable = dernier buffer + 10s de marge (segments en cours de chargement)
+        // Ne mettre à jour que si la différence est significative (>5s) pour éviter les re-renders inutiles
         const newMaxSeekable = bufferedEnd + 10
-        if (newMaxSeekable !== maxSeekableTime) {
+        if (Math.abs(newMaxSeekable - maxSeekableTime) > 5) {
           setMaxSeekableTime(newMaxSeekable)
         }
       }
@@ -987,7 +1007,8 @@ export default function SimpleVideoPlayer({
       video.removeEventListener('seeked', handleSeeked)
       video.removeEventListener('error', handleError)
     }
-  }, [duration])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [src]) // 🔧 FIX: Dépendre uniquement de src, PAS de duration (sinon boucle infinie)
 
   // Changement de langue audio DYNAMIQUE
   const handleAudioChange = useCallback((track: AudioTrack, idx: number) => {
@@ -1867,6 +1888,15 @@ export default function SimpleVideoPlayer({
     const actualDuration = realDurationRef.current || duration || videoRef.current.duration
     const targetTime = percent * actualDuration
     
+    // 🎯 PRÉ-TRANSCODÉ = seek illimité, pas de restriction
+    if (isPreTranscoded) {
+      setSeekWarning(null)
+      if (isFinite(actualDuration) && actualDuration > 0) {
+        videoRef.current.currentTime = targetTime
+      }
+      return
+    }
+    
     // 🔧 FIX #2: Vérifier si le seek est dans la zone disponible (seulement pour HLS en cours de transcodage)
     const isHLS = src.includes('/api/hls')
     if (isHLS && targetTime > maxSeekableTime && maxSeekableTime < actualDuration * 0.95) {
@@ -1905,7 +1935,13 @@ export default function SimpleVideoPlayer({
       const targetTime = percent * actualDuration
       
       if (isFinite(actualDuration) && actualDuration > 0 && videoRef.current) {
-        // 🔧 FIX #2: Limiter au temps disponible pendant le drag (seulement pour HLS)
+        // 🎯 PRÉ-TRANSCODÉ = seek illimité
+        if (isPreTranscoded) {
+          videoRef.current.currentTime = targetTime
+          return
+        }
+        
+        // 🔧 FIX #2: Limiter au temps disponible pendant le drag (seulement pour HLS en temps réel)
         if (isHLS && targetTime > maxSeekableTime && maxSeekableTime < actualDuration * 0.95) {
           const safeTime = Math.max(0, maxSeekableTime - 2)
           videoRef.current.currentTime = safeTime

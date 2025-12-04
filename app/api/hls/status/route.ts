@@ -18,11 +18,21 @@ import path from 'path'
 import crypto from 'crypto'
 
 const HLS_TEMP_DIR = '/tmp/leon-hls'
+const TRANSCODED_DIR = process.env.TRANSCODED_DIR || '/leon/transcoded'
+
+/**
+ * Obtenir le répertoire pré-transcodé pour un fichier
+ */
+function getPreTranscodedDir(filepath: string): string {
+  const filename = path.basename(filepath, path.extname(filepath))
+  const safeName = filename.replace(/[^a-zA-Z0-9àâäéèêëïîôùûüç\s\-_.()[\]]/gi, '_')
+  return path.join(TRANSCODED_DIR, safeName)
+}
 
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const filepathRaw = searchParams.get('path')
-  const audioTrack = searchParams.get('audio') || '0' // 🔧 Récupérer la piste audio
+  const audioTrack = searchParams.get('audio') || '0'
   
   if (!filepathRaw) {
     return NextResponse.json({ 
@@ -34,7 +44,38 @@ export async function GET(request: NextRequest) {
     // Normaliser le chemin (même logique que /api/hls)
     const filepath = filepathRaw.normalize('NFD')
     
-    // 🔧 Générer le hash de session avec filepath + audio (DOIT correspondre à /api/hls)
+    // 🆕 VÉRIFIER D'ABORD SI LE FICHIER EST PRÉ-TRANSCODÉ
+    const preTranscodedDir = getPreTranscodedDir(filepath)
+    const preTranscodedDone = path.join(preTranscodedDir, '.done')
+    const preTranscodedPlaylist = path.join(preTranscodedDir, 'playlist.m3u8')
+    
+    if (existsSync(preTranscodedDone) && existsSync(preTranscodedPlaylist)) {
+      // Fichier pré-transcodé trouvé ! Retourner les infos
+      try {
+        const files = await readdir(preTranscodedDir)
+        const segments = files.filter(f => f.endsWith('.ts'))
+        
+        return NextResponse.json({
+          exists: true,
+          segmentsReady: segments.length,
+          totalSegments: segments.length,
+          isComplete: true, // 🎯 PRÉ-TRANSCODÉ = COMPLET
+          hasPlaylist: true,
+          progress: 100,
+          preTranscoded: true, // 🆕 Indicateur
+          message: 'Fichier pré-transcodé disponible',
+          timestamp: new Date().toISOString()
+        }, {
+          headers: {
+            'Cache-Control': 'no-store, no-cache, must-revalidate',
+          }
+        })
+      } catch (err) {
+        console.warn('⚠️ Erreur lecture dossier pré-transcodé:', err)
+      }
+    }
+    
+    // SINON : Vérifier le transcodage temps réel
     const sessionId = `${filepath}_audio${audioTrack}`
     const sessionHash = crypto
       .createHash('md5')
@@ -52,6 +93,7 @@ export async function GET(request: NextRequest) {
         isComplete: false,
         hasPlaylist: false,
         progress: 0,
+        preTranscoded: false,
         message: 'Transcodage non démarré'
       })
     }

@@ -12,18 +12,20 @@ import fileWatcher from '@/lib/file-watcher'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET(request: NextRequest) {
+export async function GET() {
   try {
     const stats = await transcodingService.getStats()
     const queue = transcodingService.getQueue()
     const completed = transcodingService.getCompletedJobs()
     const watcherStats = fileWatcher.getStats()
+    const transcoded = await transcodingService.listTranscoded()
 
     return NextResponse.json({
       stats,
       queue: queue.slice(0, 50), // Limiter à 50 pour la performance
       completed: completed.slice(-20), // 20 derniers terminés
-      watcher: watcherStats
+      watcher: watcherStats,
+      transcoded // Liste des films transcodés
     })
   } catch (error) {
     console.error('❌ Erreur GET /api/transcode:', error)
@@ -45,7 +47,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true, message: 'Transcodage démarré' })
 
       case 'pause':
-        transcodingService.pause()
+        await transcodingService.pause()
         return NextResponse.json({ success: true, message: 'Transcodage en pause' })
 
       case 'resume':
@@ -53,12 +55,12 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ success: true, message: 'Transcodage repris' })
 
       case 'stop':
-        transcodingService.stop()
+        await transcodingService.stop()
         return NextResponse.json({ success: true, message: 'Transcodage arrêté' })
 
       case 'scan':
-        const priorityMode = priority || 'alphabetical'
-        const count = await transcodingService.scanAndQueue(priorityMode)
+        // Scan avec priorité par date (toujours derniers ajouts en premier)
+        const count = await transcodingService.scanAndQueue()
         return NextResponse.json({ 
           success: true, 
           message: `${count} films ajoutés à la queue`,
@@ -72,7 +74,7 @@ export async function POST(request: NextRequest) {
             { status: 400 }
           )
         }
-        const job = transcodingService.addToQueue(filepath, priority === 'high')
+        const job = await transcodingService.addToQueue(filepath, priority === 'high')
         return NextResponse.json({ 
           success: true, 
           message: 'Film ajouté à la queue',
@@ -86,6 +88,35 @@ export async function POST(request: NextRequest) {
       case 'stop-watcher':
         fileWatcher.stop()
         return NextResponse.json({ success: true, message: 'Watcher arrêté' })
+
+      case 'rescan-watcher':
+        const newFiles = await fileWatcher.rescan()
+        return NextResponse.json({ 
+          success: true, 
+          message: `${newFiles} nouveaux fichiers détectés`,
+          count: newFiles
+        })
+
+      case 'set-autostart':
+        const enabled = body.enabled !== false
+        transcodingService.setAutoStart(enabled)
+        return NextResponse.json({ 
+          success: true, 
+          message: `Auto-start ${enabled ? 'activé' : 'désactivé'}` 
+        })
+
+      case 'save-state':
+        await transcodingService.saveState()
+        return NextResponse.json({ success: true, message: 'État sauvegardé' })
+
+      case 'cleanup-incomplete':
+        const result = await transcodingService.cleanupIncomplete()
+        return NextResponse.json({ 
+          success: true, 
+          message: `${result.cleaned.length} transcodages incomplets supprimés, ${result.kept.length} conservés`,
+          cleaned: result.cleaned,
+          kept: result.kept
+        })
 
       default:
         return NextResponse.json(
@@ -107,9 +138,10 @@ export async function DELETE(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const jobId = searchParams.get('jobId')
     const filepath = searchParams.get('filepath')
+    const folder = searchParams.get('folder')
 
     if (jobId) {
-      const success = transcodingService.cancelJob(jobId)
+      const success = await transcodingService.cancelJob(jobId)
       return NextResponse.json({ 
         success, 
         message: success ? 'Job annulé' : 'Job non trouvé' 
@@ -124,16 +156,23 @@ export async function DELETE(request: NextRequest) {
       })
     }
 
+    if (folder) {
+      const success = await transcodingService.deleteTranscoded(folder)
+      return NextResponse.json({ 
+        success, 
+        message: success ? 'Film transcodé supprimé' : 'Erreur suppression' 
+      })
+    }
+
     return NextResponse.json(
-      { error: 'jobId ou filepath requis' },
+      { error: 'jobId, filepath ou folder requis' },
       { status: 400 }
     )
   } catch (error) {
     console.error('❌ Erreur DELETE /api/transcode:', error)
     return NextResponse.json(
-      { error: 'Erreur annulation' },
+      { error: 'Erreur suppression' },
       { status: 500 }
     )
   }
 }
-
