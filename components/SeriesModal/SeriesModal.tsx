@@ -225,6 +225,21 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
     return null
   }
 
+  // Trouver l'épisode suivant
+  function getNextEpisode(current: Episode): Episode | null {
+    const allEpisodes = seriesDetails.seasons.flatMap(s => s.episodes)
+    const sorted = allEpisodes.sort((a, b) => {
+      if (a.season_number !== b.season_number) return a.season_number - b.season_number
+      return a.episode_number - b.episode_number
+    })
+    
+    const currentIndex = sorted.findIndex(ep => ep.id === current.id)
+    if (currentIndex >= 0 && currentIndex < sorted.length - 1) {
+      return sorted[currentIndex + 1]
+    }
+    return null
+  }
+
   // Afficher le lecteur vidéo si un épisode est sélectionné
   if (showPlayer && currentEpisode) {
     // Déterminer si transcodage nécessaire
@@ -234,6 +249,9 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
     const videoUrl = needsTranscode
       ? `/api/hls?path=${encodeURIComponent(currentEpisode.filepath)}&playlist=true`
       : `/api/stream?path=${encodeURIComponent(currentEpisode.filepath)}`
+    
+    // Trouver l'épisode suivant pour le auto-play
+    const nextEp = getNextEpisode(currentEpisode)
     
     return (
       <SimpleVideoPlayer
@@ -247,6 +265,19 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
         }
         mediaId={currentEpisode.id}
         mediaType="episode"
+        nextEpisode={nextEp ? {
+          id: nextEp.id,
+          title: nextEp.title,
+          seasonNumber: nextEp.season_number,
+          episodeNumber: nextEp.episode_number,
+          thumbnail: nextEp.still_url 
+            ? `/api/proxy-image?url=${encodeURIComponent(nextEp.still_url)}`
+            : undefined
+        } : undefined}
+        onNextEpisode={nextEp ? () => {
+          // Passer à l'épisode suivant
+          handlePlayEpisode(nextEp)
+        } : undefined}
         onClose={() => {
           setShowPlayer(false)
           setCurrentEpisode(null)

@@ -10,6 +10,14 @@ import { usePlaybackPosition } from '@/lib/hooks/usePlaybackPosition'
 import { useNetworkResilience } from '@/lib/hooks/useNetworkResilience'
 import { HLS_BASE_CONFIG, selectHlsConfig } from '@/lib/hls-config'
 
+interface NextEpisodeInfo {
+  id: string
+  title: string
+  seasonNumber: number
+  episodeNumber: number
+  thumbnail?: string
+}
+
 interface SimpleVideoPlayerProps {
   src: string
   title?: string
@@ -18,6 +26,8 @@ interface SimpleVideoPlayerProps {
   poster?: string
   mediaId?: string // ID du film/épisode pour sauvegarder la position
   mediaType?: 'movie' | 'episode' // Type de média
+  nextEpisode?: NextEpisodeInfo // Épisode suivant (pour les séries)
+  onNextEpisode?: () => void // Callback pour passer à l'épisode suivant
 }
 
 interface AudioTrack {
@@ -63,7 +73,9 @@ export default function SimpleVideoPlayer({
   onClose,
   poster,
   mediaId,
-  mediaType = 'movie'
+  mediaType = 'movie',
+  nextEpisode,
+  onNextEpisode
 }: SimpleVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const progressRef = useRef<HTMLDivElement>(null)
@@ -107,6 +119,12 @@ export default function SimpleVideoPlayer({
   const [selectedSubtitle, setSelectedSubtitle] = useState<number | null>(null)
   const [isDownloadingSubtitles, setIsDownloadingSubtitles] = useState(false)
   const [subtitleOffset, setSubtitleOffset] = useState<number>(0) // Décalage en secondes pour synchroniser les sous-titres
+  
+  // États pour l'épisode suivant (style Netflix)
+  const [showNextEpisodeUI, setShowNextEpisodeUI] = useState(false)
+  const [nextEpisodeCountdown, setNextEpisodeCountdown] = useState(10)
+  const [isCountdownPaused, setIsCountdownPaused] = useState(false)
+  const nextEpisodeTimerRef = useRef<NodeJS.Timeout | null>(null)
   
   // Refs pour la gestion d'état
   const hideControlsTimeout = useRef<NodeJS.Timeout>()
@@ -210,6 +228,36 @@ export default function SimpleVideoPlayer({
       }
     }
   }, [src])
+
+  // 🎬 Gestion du countdown pour l'épisode suivant
+  useEffect(() => {
+    // Démarrer le countdown quand l'UI s'affiche et que le compte à rebours n'est pas en pause
+    if (showNextEpisodeUI && !isCountdownPaused && nextEpisodeCountdown > 0) {
+      nextEpisodeTimerRef.current = setInterval(() => {
+        setNextEpisodeCountdown(prev => {
+          if (prev <= 1) {
+            // Countdown terminé, passer à l'épisode suivant
+            if (nextEpisodeTimerRef.current) {
+              clearInterval(nextEpisodeTimerRef.current)
+              nextEpisodeTimerRef.current = null
+            }
+            if (onNextEpisode) {
+              onNextEpisode()
+            }
+            return 0
+          }
+          return prev - 1
+        })
+      }, 1000)
+    }
+    
+    return () => {
+      if (nextEpisodeTimerRef.current) {
+        clearInterval(nextEpisodeTimerRef.current)
+        nextEpisodeTimerRef.current = null
+      }
+    }
+  }, [showNextEpisodeUI, isCountdownPaused, onNextEpisode])
 
   // Charger les infos des pistes et la durée
   useEffect(() => {
@@ -901,6 +949,25 @@ export default function SimpleVideoPlayer({
       if (preloaderRef.current && currentPos > 0) {
         const currentSegmentIndex = Math.floor(currentPos / 2) // Segments de 2s
         preloaderRef.current.updateCurrentSegment(currentSegmentIndex)
+      }
+      
+      // 🎬 Épisode suivant: Afficher le UI quand on arrive à la fin (30s avant la fin)
+      const totalDuration = realDurationRef.current || video.duration
+      if (nextEpisode && onNextEpisode && totalDuration > 0) {
+        const timeRemaining = totalDuration - currentPos
+        if (timeRemaining <= 30 && timeRemaining > 0 && !showNextEpisodeUI) {
+          setShowNextEpisodeUI(true)
+          setNextEpisodeCountdown(10)
+          setIsCountdownPaused(false)
+        }
+        // Masquer si on recule avant les 30 dernières secondes
+        if (timeRemaining > 30 && showNextEpisodeUI) {
+          setShowNextEpisodeUI(false)
+          if (nextEpisodeTimerRef.current) {
+            clearInterval(nextEpisodeTimerRef.current)
+            nextEpisodeTimerRef.current = null
+          }
+        }
       }
     }
     
@@ -2095,6 +2162,61 @@ export default function SimpleVideoPlayer({
               }
             }}>Réessayer</button>
             <button onClick={onClose}>Fermer</button>
+          </div>
+        </div>
+      )}
+
+      {/* 🎬 Épisode suivant (style Netflix) */}
+      {showNextEpisodeUI && nextEpisode && onNextEpisode && (
+        <div className={styles.nextEpisodeOverlay}>
+          <div className={styles.nextEpisodeCard}>
+            {nextEpisode.thumbnail && (
+              <div className={styles.nextEpisodeThumbnail}>
+                <img 
+                  src={nextEpisode.thumbnail} 
+                  alt={nextEpisode.title}
+                />
+              </div>
+            )}
+            <div className={styles.nextEpisodeInfo}>
+              <span className={styles.nextEpisodeLabel}>Épisode suivant</span>
+              <span className={styles.nextEpisodeTitle}>
+                S{nextEpisode.seasonNumber}E{nextEpisode.episodeNumber} · {nextEpisode.title}
+              </span>
+            </div>
+          </div>
+          <div className={styles.nextEpisodeButtons}>
+            <button 
+              className={styles.nextEpisodePlay}
+              onClick={() => {
+                if (nextEpisodeTimerRef.current) {
+                  clearInterval(nextEpisodeTimerRef.current)
+                  nextEpisodeTimerRef.current = null
+                }
+                onNextEpisode()
+              }}
+            >
+              <svg viewBox="0 0 24 24" width="20" height="20">
+                <path d="M8 5v14l11-7z" fill="currentColor"/>
+              </svg>
+              Lire maintenant
+            </button>
+            <button 
+              className={styles.nextEpisodeCancel}
+              onClick={() => {
+                setShowNextEpisodeUI(false)
+                setIsCountdownPaused(true)
+                if (nextEpisodeTimerRef.current) {
+                  clearInterval(nextEpisodeTimerRef.current)
+                  nextEpisodeTimerRef.current = null
+                }
+              }}
+            >
+              Annuler
+            </button>
+          </div>
+          <div className={styles.nextEpisodeCountdown}>
+            Lecture dans {nextEpisodeCountdown}s
           </div>
         </div>
       )}
