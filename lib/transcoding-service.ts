@@ -105,10 +105,16 @@ class TranscodingService {
       await this.ensureDirectories()
       
       // Nettoyer les transcodages interrompus (avec .transcoding)
-      await this.cleanupInProgress()
+      const cleanedCount = await this.cleanupInProgress()
       
       // Charger l'état sauvegardé
       await this.loadState()
+      
+      // Si des transcodages ont été nettoyés, re-scanner pour les remettre en queue
+      if (cleanedCount > 0) {
+        console.log('🔍 Re-scan après nettoyage pour remettre les films en queue...')
+        await this.scanAndQueue()
+      }
       
       // Démarrer l'auto-save
       this.startAutoSave()
@@ -375,10 +381,11 @@ class TranscodingService {
   /**
    * Nettoyer les transcodages en cours (interrompus)
    * Appelé au démarrage pour supprimer les dossiers avec .transcoding
+   * @returns Le nombre de transcodages nettoyés
    */
-  private async cleanupInProgress(): Promise<void> {
+  private async cleanupInProgress(): Promise<number> {
     try {
-      if (!existsSync(TRANSCODED_DIR)) return
+      if (!existsSync(TRANSCODED_DIR)) return 0
       
       const entries = await readdir(TRANSCODED_DIR, { withFileTypes: true })
       let cleanedCount = 0
@@ -400,8 +407,11 @@ class TranscodingService {
       if (cleanedCount > 0) {
         console.log(`✅ ${cleanedCount} transcodage(s) interrompu(s) nettoyé(s)`)
       }
+      
+      return cleanedCount
     } catch (error) {
       console.error('❌ Erreur nettoyage en cours:', error)
+      return 0
     }
   }
   
