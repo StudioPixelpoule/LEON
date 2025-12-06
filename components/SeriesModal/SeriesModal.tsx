@@ -67,26 +67,46 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
     try {
       const progressMap = new Map<string, EpisodeProgress>()
       
-      // Charger la progression pour chaque épisode
-      for (const ep of episodes) {
-        const response = await fetch(`/api/playback-position?mediaId=${ep.id}`)
-        if (response.ok) {
-          const data = await response.json()
-          if (data.position) {
-            progressMap.set(ep.id, {
-              episodeId: ep.id,
-              position: data.position.position || 0,
-              duration: data.position.duration || ep.runtime || 45 * 60,
-              completed: data.position.completed || false
-            })
+      // Charger la progression pour chaque épisode (en parallèle pour plus de rapidité)
+      const progressPromises = episodes.map(async (ep) => {
+        try {
+          const response = await fetch(`/api/playback-position?mediaId=${ep.id}`)
+          if (response.ok) {
+            const data = await response.json()
+            // L'API retourne currentTime, duration, etc.
+            if (data.currentTime && data.currentTime > 0) {
+              const duration = data.duration || (ep.runtime ? ep.runtime * 60 : 45 * 60)
+              const position = data.currentTime
+              const completed = duration > 0 && position >= duration * 0.95
+              
+              return {
+                id: ep.id,
+                progress: {
+                  episodeId: ep.id,
+                  position,
+                  duration,
+                  completed
+                }
+              }
+            }
           }
+        } catch (e) {
+          // Ignorer les erreurs individuelles
         }
-      }
+        return null
+      })
+      
+      const results = await Promise.all(progressPromises)
+      results.forEach(result => {
+        if (result) {
+          progressMap.set(result.id, result.progress)
+        }
+      })
       
       setEpisodeProgress(progressMap)
       
       // Trouver le prochain épisode à regarder
-      const allEpisodes = episodes.sort((a, b) => {
+      const allEpisodes = [...episodes].sort((a, b) => {
         if (a.season_number !== b.season_number) return a.season_number - b.season_number
         return a.episode_number - b.episode_number
       })
@@ -230,6 +250,11 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
         onClose={() => {
           setShowPlayer(false)
           setCurrentEpisode(null)
+          // Recharger la progression après fermeture du lecteur
+          if (seriesDetails) {
+            const allEpisodes = seriesDetails.seasons.flatMap(s => s.episodes)
+            loadProgress(allEpisodes)
+          }
         }}
       />
     )
@@ -379,6 +404,15 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
                         ) : (
                           <div className={styles.episodeNumber}>
                             {episode.episode_number}
+                            {/* Barre de progression pour épisodes sans image */}
+                            {progressPercent > 0 && (
+                              <div className={styles.progressBar}>
+                                <div 
+                                  className={styles.progressFill} 
+                                  style={{ width: `${progressPercent}%` }}
+                                />
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
