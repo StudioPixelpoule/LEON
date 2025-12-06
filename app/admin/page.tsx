@@ -541,6 +541,67 @@ function PostersSection() {
     setSearchQuery('')
   }
 
+  function closeSeriesModal() {
+    setSelectedSeries(null)
+    setSuggestions([])
+    setSearchQuery('')
+  }
+
+  async function searchTMDBSeries() {
+    if (!selectedSeries) return
+    
+    setSearching(true)
+    try {
+      const query = searchQuery || selectedSeries.title
+      const response = await fetch(`/api/admin/search-tmdb?query=${encodeURIComponent(query)}&type=tv`)
+      const data = await response.json()
+      
+      if (data.results) {
+        setSuggestions(data.results.slice(0, 8))
+      }
+    } catch (error) {
+      console.error('Erreur recherche TMDB séries:', error)
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  async function updateSeriesPoster(tmdbId: number) {
+    if (!selectedSeries) return
+    
+    setSaving(true)
+    try {
+      const response = await fetch('/api/admin/update-series-metadata', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          seriesId: selectedSeries.id,
+          tmdbId: tmdbId
+        })
+      })
+      
+      const data = await response.json()
+      
+      if (response.ok) {
+        // Fermer le modal et rafraîchir la liste
+        setSelectedSeries(null)
+        setSuggestions([])
+        setSearchQuery('')
+        await loadAllSeries()
+        
+        // Notification de succès
+        alert('✅ Affiche de la série mise à jour avec succès !')
+      } else {
+        alert(`Erreur: ${data.error || 'Erreur inconnue'}`)
+      }
+    } catch (error) {
+      console.error('Erreur mise à jour série:', error)
+      alert('Erreur lors de la mise à jour de la série')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   if (loading) {
     return (
       <div className={styles.section}>
@@ -859,6 +920,126 @@ function PostersSection() {
                   <div className={styles.emptyState}>
                     <Search size={48} opacity={0.3} />
                     <p>Recherchez le film pour voir les suggestions TMDB</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Indicateur de sauvegarde */}
+            {saving && (
+              <div className={styles.savingOverlay}>
+                <RefreshCw size={32} className={styles.spinning} />
+                <p>Validation en cours...</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal de validation - SÉRIES */}
+      {selectedSeries && (
+        <div className={styles.modal} onClick={closeSeriesModal}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <button className={styles.modalClose} onClick={closeSeriesModal}>
+              <X size={24} />
+            </button>
+
+            <div className={styles.modalLayout}>
+              {/* Colonne gauche : Affiche actuelle */}
+              <div className={styles.currentPoster}>
+                <h3>Affiche actuelle</h3>
+                <div className={styles.posterPreview}>
+                  {selectedSeries.poster_url && !selectedSeries.poster_url.includes('placeholder') ? (
+                    <Image
+                      src={selectedSeries.poster_url}
+                      alt={selectedSeries.title}
+                      width={300}
+                      height={450}
+                      unoptimized
+                      style={{ width: '100%', height: 'auto', borderRadius: '8px' }}
+                    />
+                  ) : (
+                    <div className={styles.noPosterLarge}>
+                      <ImageIcon size={64} />
+                      <p>Aucune affiche</p>
+                    </div>
+                  )}
+                </div>
+                <div className={styles.movieDetails}>
+                  <h4>{selectedSeries.title}</h4>
+                  {selectedSeries.first_air_date && (
+                    <p>{new Date(selectedSeries.first_air_date).getFullYear()}</p>
+                  )}
+                  <p className={styles.filePath}>
+                    {selectedSeries.seasons?.length || 0} saison(s)
+                  </p>
+                </div>
+              </div>
+
+              {/* Colonne droite : Recherche TMDB */}
+              <div className={styles.posterSearch}>
+                <h3>Rechercher sur TMDB</h3>
+                
+                <div className={styles.searchBar}>
+                  <input
+                    type="text"
+                    placeholder="Titre de la série..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && searchTMDBSeries()}
+                    className={styles.searchInput}
+                  />
+                  <button 
+                    onClick={searchTMDBSeries}
+                    disabled={searching || !searchQuery}
+                    className={styles.searchButton}
+                  >
+                    {searching ? <RefreshCw size={16} className={styles.spinning} /> : <Search size={16} />}
+                    Rechercher
+                  </button>
+                </div>
+
+                {/* Suggestions */}
+                {suggestions.length > 0 && (
+                  <div className={styles.suggestionGrid}>
+                    {suggestions.map((series) => (
+                      <div 
+                        key={series.id}
+                        className={styles.suggestionCard}
+                        onClick={() => updateSeriesPoster(series.id)}
+                      >
+                        {series.poster_path ? (
+                          <Image
+                            src={`https://image.tmdb.org/t/p/w300${series.poster_path}`}
+                            alt={series.title || series.name || 'Série'}
+                            width={150}
+                            height={225}
+                            unoptimized
+                            style={{ width: '100%', height: 'auto', borderRadius: '4px' }}
+                          />
+                        ) : (
+                          <div className={styles.noPosterSmall}>
+                            <X size={24} />
+                          </div>
+                        )}
+                        <div className={styles.suggestionInfo}>
+                          <p className={styles.suggestionTitle}>{series.title || series.name}</p>
+                          <p className={styles.suggestionYear}>
+                            {series.first_air_date ? new Date(series.first_air_date).getFullYear() : 'N/A'}
+                          </p>
+                          {series.vote_average > 0 && (
+                            <p className={styles.suggestionRating}>⭐ {series.vote_average.toFixed(1)}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {suggestions.length === 0 && !searching && (
+                  <div className={styles.emptyState}>
+                    <Search size={48} opacity={0.3} />
+                    <p>Recherchez la série pour voir les suggestions TMDB</p>
                   </div>
                 )}
               </div>

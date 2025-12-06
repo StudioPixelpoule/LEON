@@ -26,10 +26,14 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    // Recherche de films sur TMDB
-    const tmdbUrl = `${TMDB_BASE_URL}/search/movie?api_key=${TMDB_API_KEY}&language=fr-FR&query=${encodeURIComponent(query)}&include_adult=false`
+    // Type de recherche (movie ou tv)
+    const type = searchParams.get('type') || 'movie'
+    const searchType = type === 'tv' ? 'tv' : 'movie'
+
+    // Recherche sur TMDB (films ou séries)
+    const tmdbUrl = `${TMDB_BASE_URL}/search/${searchType}?api_key=${TMDB_API_KEY}&language=fr-FR&query=${encodeURIComponent(query)}&include_adult=false`
     
-    console.log(`🔍 Recherche TMDB: "${query}"`)
+    console.log(`🔍 Recherche TMDB (${searchType}): "${query}"`)
     
     const response = await fetch(tmdbUrl)
     
