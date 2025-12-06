@@ -85,7 +85,9 @@ export default function Header({ movies, onMovieClick, series, onSeriesClick, on
             <Link href="/films" className={pathname === '/films' ? styles.navLinkActive : styles.navLink}>
               Films
             </Link>
-            {/* Séries masquées pour le moment */}
+            <Link href="/series" className={pathname === '/series' ? styles.navLinkActive : styles.navLink}>
+              Séries
+            </Link>
           </nav>
         </div>
         
