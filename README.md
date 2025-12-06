@@ -1,210 +1,338 @@
-# LEON - Médiathèque Personnelle / Personal Media Library
+# LEON - Médiathèque Personnelle
+
+Une application de streaming vidéo auto-hébergée, développée par **Pixel Poule**.
+
+---
 
 ## 🇫🇷 Français
 
 ### Vue d'ensemble
 
-**LEON** est une webapp minimaliste de médiathèque personnelle développée par **Pixel Poule**. Elle permet d'indexer, organiser et télécharger des films stockés sur pCloud avec une interface épurée noir/blanc/gris.
+**LEON** est une webapp de médiathèque personnelle qui permet de :
+- Streamer des films et séries depuis un NAS Synology
+- Transcoder à la volée les fichiers MKV/AVI en HLS
+- Pré-transcoder les médias pour un seek instantané
+- Gérer les métadonnées automatiquement via TMDB
+- Suivre sa progression de visionnage
 
 ### Fonctionnalités
 
-**Phase 1 (Actuelle) :**
-- ✅ Indexation automatique des fichiers MP4 depuis pCloud
-- ✅ Récupération automatique des métadonnées via TMDB API (jaquettes, synopsis, casting)
-- ✅ Détection et association des sous-titres (.srt, .vtt)
-- ✅ Interface de navigation avec grille de jaquettes
-- ✅ Recherche instantanée avec debounce (300ms)
-- ✅ Filtres par catégorie
-- ✅ Page détail avec backdrop flou et informations complètes
-- ✅ Système de file de téléchargement avec indicateur visuel (3 points animés)
-- ✅ Design minimaliste radical (Pixel Poule)
+#### Streaming Vidéo
+- ✅ Transcodage HLS temps réel (FFmpeg)
+- ✅ Pré-transcodage pour seek instantané
+- ✅ Support des fichiers MKV, MP4, AVI, MOV
+- ✅ Accélération matérielle Intel Quick Sync (VAAPI)
+- ✅ Buffer adaptatif intelligent
+- ✅ Reprise de lecture automatique
 
-**Phase 2 (À venir) :**
-- 🔜 Authentification multi-utilisateurs (Supabase Auth)
-- 🔜 Profils personnalisés
-- 🔜 Historique de visionnage
-- 🔜 Partage de bibliothèque avec amis
+#### Films
+- ✅ Scan automatique des fichiers
+- ✅ Métadonnées TMDB (affiches, synopsis, casting)
+- ✅ Recherche intelligente (titre, acteur, réalisateur, genre)
+- ✅ Catégorisation par genre automatique
+- ✅ Système de favoris
+
+#### Séries TV
+- ✅ Support complet des séries (saisons, épisodes)
+- ✅ Lecture automatique de l'épisode suivant
+- ✅ Progression par épisode
+- ✅ Affiches par saison
+
+#### Administration
+- ✅ Panneau d'administration complet
+- ✅ Gestion des affiches (films et séries)
+- ✅ Gestion de la queue de transcodage
+- ✅ Statistiques de visionnage
+- ✅ Nettoyage des fichiers manquants
+
+#### Déploiement
+- ✅ CI/CD GitHub Actions
+- ✅ Docker multi-stage optimisé
+- ✅ Auto-update via Watchtower
+- ✅ Healthchecks intégrés
 
 ### Architecture
 
-**Stack Technique :**
-- **Frontend :** Next.js 14 (App Router)
-- **Styling :** CSS pur avec variables (pas de Tailwind utilisé)
-- **Base de données :** Supabase (PostgreSQL)
-- **Stockage :** pCloud API
-- **Métadonnées :** TMDB API
-- **Typographie :** Nunito (Google Fonts - 200, 500, 800)
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         INFRASTRUCTURE                          │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│   ┌─────────────┐     ┌─────────────┐     ┌─────────────┐      │
+│   │   GitHub    │────▶│   GitHub    │────▶│  Watchtower │      │
+│   │    Push     │     │   Actions   │     │  (Auto-Pull)│      │
+│   └─────────────┘     └─────────────┘     └──────┬──────┘      │
+│                              │                    │             │
+│                              ▼                    ▼             │
+│                       ┌─────────────┐     ┌─────────────┐      │
+│                       │    GHCR     │     │  Synology   │      │
+│                       │   (Image)   │────▶│    NAS      │      │
+│                       └─────────────┘     └─────────────┘      │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
 
-**Structure des dossiers :**
+┌─────────────────────────────────────────────────────────────────┐
+│                        APPLICATION                              │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                 │
+│   ┌─────────────────────────────────────────────────────────┐  │
+│   │                    Docker Container                      │  │
+│   │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐  │  │
+│   │  │   Next.js   │  │   FFmpeg    │  │  Intel VAAPI    │  │  │
+│   │  │   (App)     │  │ (Transcode) │  │  (Hardware)     │  │  │
+│   │  └──────┬──────┘  └──────┬──────┘  └────────┬────────┘  │  │
+│   │         │                │                   │           │  │
+│   │         └────────────────┼───────────────────┘           │  │
+│   │                          │                               │  │
+│   │                          ▼                               │  │
+│   │  ┌─────────────────────────────────────────────────┐    │  │
+│   │  │                    Volumes                       │    │  │
+│   │  │  /leon/media/films    - Films (lecture seule)   │    │  │
+│   │  │  /leon/media/series   - Séries (lecture seule)  │    │  │
+│   │  │  /leon/transcoded     - Pré-transcodés          │    │  │
+│   │  │  /tmp/leon-hls        - Cache HLS temporaire    │    │  │
+│   │  └─────────────────────────────────────────────────┘    │  │
+│   └─────────────────────────────────────────────────────────┘  │
+│                              │                                  │
+│                              ▼                                  │
+│   ┌─────────────────────────────────────────────────────────┐  │
+│   │                      Supabase                            │  │
+│   │  - media (films)                                         │  │
+│   │  - series                                                │  │
+│   │  - episodes                                              │  │
+│   │  - playback_positions                                    │  │
+│   │  - favorites                                             │  │
+│   └─────────────────────────────────────────────────────────┘  │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Stack Technique
+
+| Composant | Technologie |
+|-----------|-------------|
+| Frontend | Next.js 14 (App Router) |
+| Styling | CSS Modules (design minimaliste) |
+| Base de données | Supabase (PostgreSQL) |
+| Transcodage | FFmpeg avec VAAPI |
+| Streaming | HLS (HTTP Live Streaming) |
+| Métadonnées | TMDB API |
+| CI/CD | GitHub Actions |
+| Container | Docker |
+| Auto-update | Watchtower |
+
+### Structure des Dossiers
+
 ```
 LEON/
-├── app/                    # Pages Next.js (App Router)
-│   ├── layout.tsx         # Layout global avec Nunito
-│   ├── page.tsx           # Grille de films
-│   ├── movie/[id]/        # Détail film
-│   └── api/               # API Routes
-│       ├── scan/          # Scan pCloud
-│       ├── metadata/      # Refresh TMDB
-│       └── download/      # Génération liens téléchargement
-├── components/            # Composants React
-│   ├── MediaCard.tsx
-│   ├── MediaGrid.tsx
-│   ├── SearchBar.tsx
-│   ├── FilterBar.tsx
-│   └── DownloadQueue.tsx
-├── lib/                   # Wrappers API
-│   ├── supabase.ts
-│   ├── pcloud.ts
-│   └── tmdb.ts
-├── styles/
-│   └── globals.css        # Design system complet
-└── supabase/
-    └── schema.sql         # Schéma base de données
+├── app/                          # Pages Next.js (App Router)
+│   ├── api/                      # API Routes
+│   │   ├── hls/                  # Streaming HLS
+│   │   ├── scan/                 # Scan des films
+│   │   ├── scan-series/          # Scan des séries
+│   │   ├── transcode/            # Gestion transcodage
+│   │   ├── media/                # API médias
+│   │   ├── series/               # API séries
+│   │   ├── playback-position/    # Sauvegarde progression
+│   │   └── admin/                # API administration
+│   ├── films/                    # Page catalogue films
+│   ├── series/                   # Page catalogue séries
+│   └── admin/                    # Panneau d'administration
+├── components/                   # Composants React
+│   ├── SimpleVideoPlayer/        # Lecteur vidéo HLS
+│   ├── MovieModal/               # Modal détail film
+│   ├── SeriesModal/              # Modal détail série
+│   ├── ContinueWatchingRow/      # Carrousel "Continuer"
+│   └── Header/                   # Navigation
+├── lib/                          # Services et utilitaires
+│   ├── transcoding-service.ts    # Service de transcodage
+│   ├── ffmpeg-manager.ts         # Gestion FFmpeg
+│   ├── supabase.ts               # Client Supabase
+│   └── tmdb.ts                   # Client TMDB
+├── supabase/
+│   └── migrations/               # Migrations SQL
+├── .github/
+│   └── workflows/
+│       └── deploy.yml            # CI/CD GitHub Actions
+├── Dockerfile                    # Image Docker multi-stage
+└── docker-compose.nas.yml        # Config pour NAS Synology
 ```
 
 ### Installation
 
-**Prérequis :**
-- Node.js 18.17+
+#### Prérequis
+
+- NAS Synology avec Docker
+- Compte GitHub (pour CI/CD)
 - Compte Supabase
-- Compte pCloud avec Access Token
 - API Key TMDB
 
-**Étapes :**
+#### 1. Configuration Supabase
+
+1. Créer un projet sur [supabase.com](https://supabase.com)
+2. Exécuter les migrations SQL dans `supabase/migrations/`
+3. Noter les clés API
+
+#### 2. Configuration GitHub
+
+1. Fork ou cloner le repository
+2. Ajouter les secrets dans **Settings > Secrets and variables > Actions** :
+
+| Secret | Description |
+|--------|-------------|
+| `NEXT_PUBLIC_SUPABASE_URL` | URL du projet Supabase |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Clé anonyme Supabase |
+
+#### 3. Configuration du NAS
 
 ```bash
-# 1. Cloner le projet
-git clone [url-du-repo]
-cd LEON
+# Créer la structure de dossiers
+mkdir -p /volume1/docker/leon/media/films
+mkdir -p /volume1/docker/leon/media/series
+mkdir -p /volume1/docker/leon/transcoded
+mkdir -p /volume1/docker/leon/cache
 
-# 2. Installer les dépendances
-npm install
+# Copier les fichiers de configuration
+scp docker-compose.nas.yml user@nas:/volume1/docker/leon/docker-compose.yml
+scp .env.example user@nas:/volume1/docker/leon/.env
 
-# 3. Configurer les variables d'environnement
-cp .env.example .env
-# Éditer .env avec vos clés API
-
-# 4. Configurer Supabase
-# - Créer un projet sur supabase.com
-# - Exécuter le script supabase/schema.sql dans SQL Editor
-
-# 5. Lancer en développement
-npm run dev
+# Éditer le fichier .env sur le NAS
+ssh user@nas
+cd /volume1/docker/leon
+vi .env
 ```
 
-L'application sera accessible sur `http://localhost:3000`
-
-### Configuration
-
-**Variables d'environnement nécessaires :**
+#### 4. Variables d'Environnement (.env)
 
 ```env
-# pCloud
-PCLOUD_ACCESS_TOKEN=votre_token_pcloud
-PCLOUD_MEDIA_FOLDER_ID=id_du_dossier
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJxxx
+SUPABASE_SERVICE_ROLE_KEY=eyJxxx
 
 # TMDB
 TMDB_API_KEY=votre_cle_tmdb
 
-# Supabase
-NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJxxx
-SUPABASE_SERVICE_KEY=eyJxxx
+# OpenSubtitles (optionnel)
+OPENSUBTITLES_API_KEY=votre_cle
+OPENSUBTITLES_USERNAME=votre_user
+OPENSUBTITLES_PASSWORD=votre_pass
 
-# App
-NEXT_PUBLIC_APP_URL=http://localhost:3000
+# Sentry (optionnel)
+SENTRY_DSN=https://xxx@sentry.io/xxx
 ```
 
-**Comment obtenir les clés :**
+#### 5. Authentification GitHub Container Registry
 
-1. **pCloud :** Se connecter à pCloud → Paramètres → Security → App Access Token
-2. **TMDB :** Créer un compte sur [themoviedb.org](https://www.themoviedb.org) → Settings → API
-3. **Supabase :** Créer un projet sur [supabase.com](https://supabase.com) → Settings → API
+```bash
+# Sur le NAS, se connecter à ghcr.io
+docker login ghcr.io -u VotreUsername -p ghp_VotreToken
+
+# Le token doit avoir les scopes: read:packages, write:packages
+```
+
+#### 6. Lancement
+
+```bash
+cd /volume1/docker/leon
+sudo docker compose up -d
+```
+
+L'application sera accessible sur `http://NAS_IP:3000`
 
 ### Utilisation
 
-**Premier scan :**
+#### Premier Scan
 
-```bash
-# Déclencher l'indexation initiale
-curl -X POST http://localhost:3000/api/scan
+1. Copier vos films dans `/volume1/docker/leon/media/films/`
+2. Copier vos séries dans `/volume1/docker/leon/media/series/`
+3. Accéder à `http://NAS_IP:3000/admin`
+4. Cliquer sur **"Scanner les films"** et **"Scanner les séries"**
+
+#### Structure des Fichiers
+
+**Films :**
+```
+/media/films/
+├── Avatar (2009).mkv
+├── Inception.2010.1080p.mkv
+└── The Matrix.mkv
 ```
 
-L'API va :
-1. Scanner votre dossier pCloud configuré
-2. Extraire les métadonnées des noms de fichiers
-3. Rechercher les informations sur TMDB
-4. Détecter les sous-titres associés
-5. Tout indexer dans Supabase
-
-**Parcourir la bibliothèque :**
-- Ouvrir `http://localhost:3000`
-- Utiliser la barre de recherche (debounce 300ms)
-- Filtrer par catégorie
-- Cliquer sur une jaquette pour voir les détails
-
-**Télécharger un film :**
-- Ouvrir la fiche détaillée
-- Cliquer sur "Télécharger" ou "Ajouter à la file"
-- Suivre la progression dans la file flottante (en bas à droite)
-
-### Déploiement
-
-**Phase 1 - Local uniquement :**
-Installation sur MacBook Air M1 avec pCloud synchronisé localement.
-
-**Phase 2 - Production (Vercel) :**
-
-```bash
-# 1. Installer Vercel CLI
-npm i -g vercel
-
-# 2. Déployer
-vercel
-
-# 3. Configurer les variables d'environnement sur Vercel
-vercel env add PCLOUD_ACCESS_TOKEN
-vercel env add TMDB_API_KEY
-# ... (toutes les autres variables)
-
-# 4. Redéployer avec les nouvelles variables
-vercel --prod
+**Séries :**
+```
+/media/series/
+└── Breaking Bad/
+    ├── Season 1/
+    │   ├── Breaking Bad S01E01.mkv
+    │   └── Breaking Bad S01E02.mkv
+    └── Season 2/
+        └── Breaking Bad S02E01.mkv
 ```
 
-**Optimisations MacBook Air M1 :**
-- Cache navigateur limité à 500MB
-- Téléchargements par chunks de 50MB
-- Maximum 3 téléchargements simultanés
-- Indexation incrémentale (100 films/batch)
+#### Pré-transcodage
 
-### Design System
+Pour un seek instantané, pré-transcoder les films populaires :
+1. Aller dans **Admin > Pré-transcodage**
+2. **Démarrer** le transcodage automatique
+3. Les films sont transcodés par ordre de date d'ajout
 
-**Palette stricte :**
-- Noir : `#000000`
-- Blanc : `#FFFFFF`
-- Gris (6 nuances) : `#F5F5F5` à `#525252`
-- Rouge : `#DC2626` (uniquement pour suppression)
+### Déploiement CI/CD
 
-**Animations :**
-- Boutons : `translateY(-2px)` au hover
-- Cards : `translateY(-8px)` au hover
-- Durée : 150-200ms max
-- Loader : 3 points animés (pulse)
+Le déploiement est entièrement automatisé :
 
-**Typographie :**
-- Font : Nunito (Google Fonts)
-- Poids : 200 (thin), 500 (regular), 800 (bold)
-- Hiérarchie : 3-4 tailles maximum
+1. **Push sur `main`** → GitHub Actions build l'image Docker
+2. **Image poussée** vers GitHub Container Registry (`ghcr.io`)
+3. **Watchtower** (sur le NAS) détecte la nouvelle image
+4. **Auto-update** du container (< 5 minutes)
 
-### Critères de succès
+#### Forcer une mise à jour manuelle
 
-✅ Interface épurée sans fioriture  
-✅ Chargement instantané des jaquettes (Next/Image)  
-✅ Téléchargement en arrière-plan fluide  
-✅ Respect strict du design system  
-✅ Animations subtiles < 200ms  
-✅ Responsive parfait mobile/desktop  
-✅ Authenticité Pixel Poule
+```bash
+sudo docker compose pull
+sudo docker compose up -d
+```
+
+### API Endpoints
+
+| Endpoint | Méthode | Description |
+|----------|---------|-------------|
+| `/api/health` | GET | Healthcheck |
+| `/api/scan` | POST | Scanner les films |
+| `/api/scan-series` | POST | Scanner les séries |
+| `/api/hls` | GET | Streaming HLS |
+| `/api/transcode` | GET/POST | Gestion transcodage |
+| `/api/playback-position` | GET/POST/DELETE | Position de lecture |
+| `/api/media/grouped` | GET | Liste des médias |
+| `/api/series/list` | GET | Liste des séries |
+
+### Maintenance
+
+#### Logs
+
+```bash
+# Logs du container
+sudo docker logs leon --tail 100
+
+# Logs en temps réel
+sudo docker logs leon -f
+```
+
+#### Nettoyage
+
+```bash
+# Nettoyer le cache HLS
+sudo rm -rf /volume1/docker/leon/cache/*
+
+# Nettoyer les transcodages incomplets
+curl -X POST http://localhost:3000/api/transcode -d '{"action":"cleanup-incomplete"}'
+```
+
+#### Redémarrage
+
+```bash
+sudo docker compose restart leon
+```
 
 ---
 
@@ -212,144 +340,120 @@ vercel --prod
 
 ### Overview
 
-**LEON** is a minimalist personal media library webapp developed by **Pixel Poule**. It indexes, organizes, and downloads movies stored on pCloud with a clean black/white/gray interface.
+**LEON** is a self-hosted personal media library webapp that allows you to:
+- Stream movies and TV series from a Synology NAS
+- Transcode MKV/AVI files to HLS on-the-fly
+- Pre-transcode media for instant seeking
+- Automatically manage metadata via TMDB
+- Track your viewing progress
 
 ### Features
 
-**Phase 1 (Current):**
-- ✅ Automatic MP4 file indexing from pCloud
-- ✅ Automatic metadata fetching via TMDB API (posters, synopsis, cast)
-- ✅ Subtitle detection and association (.srt, .vtt)
-- ✅ Navigation interface with poster grid
-- ✅ Instant search with 300ms debounce
-- ✅ Category filters
-- ✅ Detail page with blurred backdrop and complete information
-- ✅ Download queue system with visual indicator (3 animated dots)
-- ✅ Radical minimalist design (Pixel Poule)
+#### Video Streaming
+- ✅ Real-time HLS transcoding (FFmpeg)
+- ✅ Pre-transcoding for instant seek
+- ✅ MKV, MP4, AVI, MOV file support
+- ✅ Intel Quick Sync hardware acceleration (VAAPI)
+- ✅ Intelligent adaptive buffering
+- ✅ Automatic playback resume
 
-**Phase 2 (Coming):**
-- 🔜 Multi-user authentication (Supabase Auth)
-- 🔜 Personal profiles
-- 🔜 Viewing history
-- 🔜 Library sharing with friends
+#### Movies
+- ✅ Automatic file scanning
+- ✅ TMDB metadata (posters, synopsis, cast)
+- ✅ Smart search (title, actor, director, genre)
+- ✅ Automatic genre categorization
+- ✅ Favorites system
 
-### Architecture
+#### TV Series
+- ✅ Full series support (seasons, episodes)
+- ✅ Auto-play next episode
+- ✅ Per-episode progress tracking
+- ✅ Season posters
 
-**Tech Stack:**
-- **Frontend:** Next.js 14 (App Router)
-- **Styling:** Pure CSS with variables (Tailwind not used)
-- **Database:** Supabase (PostgreSQL)
-- **Storage:** pCloud API
-- **Metadata:** TMDB API
-- **Typography:** Nunito (Google Fonts - 200, 500, 800)
+#### Administration
+- ✅ Complete admin panel
+- ✅ Poster management (movies and series)
+- ✅ Transcoding queue management
+- ✅ Viewing statistics
+- ✅ Missing files cleanup
+
+#### Deployment
+- ✅ GitHub Actions CI/CD
+- ✅ Optimized multi-stage Docker
+- ✅ Auto-update via Watchtower
+- ✅ Built-in healthchecks
+
+### Tech Stack
+
+| Component | Technology |
+|-----------|------------|
+| Frontend | Next.js 14 (App Router) |
+| Styling | CSS Modules (minimalist design) |
+| Database | Supabase (PostgreSQL) |
+| Transcoding | FFmpeg with VAAPI |
+| Streaming | HLS (HTTP Live Streaming) |
+| Metadata | TMDB API |
+| CI/CD | GitHub Actions |
+| Container | Docker |
+| Auto-update | Watchtower |
 
 ### Installation
 
-**Requirements:**
-- Node.js 18.17+
+#### Prerequisites
+
+- Synology NAS with Docker
+- GitHub account (for CI/CD)
 - Supabase account
-- pCloud account with Access Token
 - TMDB API Key
 
-**Steps:**
+#### Quick Start
 
-```bash
-# 1. Clone the project
-git clone [repo-url]
-cd LEON
+1. **Setup Supabase**: Create project, run migrations
+2. **Configure GitHub Secrets**: Add Supabase keys
+3. **Setup NAS**: Create folders, copy docker-compose.yml
+4. **Configure .env**: Add all API keys
+5. **Login to ghcr.io**: `docker login ghcr.io`
+6. **Launch**: `sudo docker compose up -d`
 
-# 2. Install dependencies
-npm install
+### Environment Variables
 
-# 3. Configure environment variables
-cp .env.example .env
-# Edit .env with your API keys
+```env
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJxxx
+SUPABASE_SERVICE_ROLE_KEY=eyJxxx
 
-# 4. Setup Supabase
-# - Create a project on supabase.com
-# - Run supabase/schema.sql in SQL Editor
+# TMDB
+TMDB_API_KEY=your_tmdb_key
 
-# 5. Start development server
-npm run dev
+# OpenSubtitles (optional)
+OPENSUBTITLES_API_KEY=your_key
+OPENSUBTITLES_USERNAME=your_user
+OPENSUBTITLES_PASSWORD=your_pass
 ```
 
-Application will be available at `http://localhost:3000`
+### CI/CD Workflow
 
-### Usage
+1. **Push to `main`** → GitHub Actions builds Docker image
+2. **Image pushed** to GitHub Container Registry (`ghcr.io`)
+3. **Watchtower** (on NAS) detects new image
+4. **Auto-update** container (< 5 minutes)
 
-**Initial scan:**
+### API Reference
 
-```bash
-# Trigger initial indexing
-curl -X POST http://localhost:3000/api/scan
-```
-
-The API will:
-1. Scan your configured pCloud folder
-2. Extract metadata from filenames
-3. Search for information on TMDB
-4. Detect associated subtitles
-5. Index everything in Supabase
-
-**Browse library:**
-- Open `http://localhost:3000`
-- Use search bar (300ms debounce)
-- Filter by category
-- Click on a poster to see details
-
-**Download a movie:**
-- Open detail page
-- Click "Download" or "Add to queue"
-- Track progress in floating queue (bottom right)
-
-### Deployment
-
-**Phase 1 - Local only:**
-Installation on MacBook Air M1 with locally synced pCloud.
-
-**Phase 2 - Production (Vercel):**
-
-```bash
-# 1. Install Vercel CLI
-npm i -g vercel
-
-# 2. Deploy
-vercel
-
-# 3. Configure environment variables on Vercel
-vercel env add PCLOUD_ACCESS_TOKEN
-vercel env add TMDB_API_KEY
-# ... (all other variables)
-
-# 4. Redeploy with new variables
-vercel --prod
-```
-
-### Design System
-
-**Strict Palette:**
-- Black: `#000000`
-- White: `#FFFFFF`
-- Gray (6 shades): `#F5F5F5` to `#525252`
-- Red: `#DC2626` (deletion only)
-
-**Animations:**
-- Buttons: `translateY(-2px)` on hover
-- Cards: `translateY(-8px)` on hover
-- Duration: 150-200ms max
-- Loader: 3 animated dots (pulse)
-
-**Typography:**
-- Font: Nunito (Google Fonts)
-- Weights: 200 (thin), 500 (regular), 800 (bold)
-- Hierarchy: 3-4 sizes maximum
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/health` | GET | Healthcheck |
+| `/api/scan` | POST | Scan movies |
+| `/api/scan-series` | POST | Scan TV series |
+| `/api/hls` | GET | HLS streaming |
+| `/api/transcode` | GET/POST | Transcoding management |
+| `/api/playback-position` | GET/POST/DELETE | Playback position |
+| `/api/media/grouped` | GET | List media |
+| `/api/series/list` | GET | List series |
 
 ---
 
 ## 📄 Licence
 
-© 2025 Pixel Poule - Usage personnel uniquement
-
-
-
-
+© 2025 Pixel Poule - Usage personnel uniquement / Personal use only
