@@ -33,6 +33,64 @@ interface Episode {
 
 const VIDEO_EXTENSIONS = ['.mkv', '.mp4', '.avi', '.mov', '.m4v']
 
+/**
+ * Nettoyer le titre d'un épisode
+ * "Bref - S01E01 - Bref. J'ai dragué cette fille x265-Amen.mkv" 
+ * → "J'ai dragué cette fille"
+ */
+function cleanEpisodeTitle(filename: string, seriesName: string): string {
+  let title = filename
+  
+  // 1. Retirer l'extension
+  title = title.replace(/\.(mkv|mp4|avi|mov|m4v)$/i, '')
+  
+  // 2. Retirer les infos de codec/release (x264, x265, HEVC, etc.)
+  title = title.replace(/[\[\(]?x26[45][\]\)]?/gi, '')
+  title = title.replace(/[\[\(]?HEVC[\]\)]?/gi, '')
+  title = title.replace(/[\[\(]?10bit[\]\)]?/gi, '')
+  title = title.replace(/[\[\(]?HDR[\]\)]?/gi, '')
+  title = title.replace(/[\[\(]?WEB-?DL[\]\)]?/gi, '')
+  title = title.replace(/[\[\(]?BluRay[\]\)]?/gi, '')
+  title = title.replace(/[\[\(]?1080p[\]\)]?/gi, '')
+  title = title.replace(/[\[\(]?720p[\]\)]?/gi, '')
+  title = title.replace(/[\[\(]?2160p[\]\)]?/gi, '')
+  title = title.replace(/[\[\(]?4K[\]\)]?/gi, '')
+  
+  // 3. Retirer les noms de release groups courants
+  title = title.replace(/-[A-Za-z0-9]+$/g, '') // -Amen, -NTb, etc.
+  title = title.replace(/\[.*?\]/g, '') // [YTS.MX], etc.
+  
+  // 4. Retirer le pattern SxxExx
+  title = title.replace(/S\d+E\d+/gi, '')
+  
+  // 5. Retirer le nom de la série (au début ou après un tiret)
+  const seriesNameClean = seriesName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  title = title.replace(new RegExp(`^${seriesNameClean}[\\s.-]*`, 'i'), '')
+  title = title.replace(new RegExp(`[\\s.-]+${seriesNameClean}[\\s.-]*`, 'i'), '')
+  
+  // 6. Retirer le nom de série répété (ex: "Bref. J'ai..." → "J'ai...")
+  // Pattern spécifique pour "Bref." au début
+  title = title.replace(/^Bref\.\s*/i, '')
+  
+  // 7. Nettoyer les tirets/points/underscores en trop
+  title = title.replace(/^[\s._-]+/, '') // Au début
+  title = title.replace(/[\s._-]+$/, '') // À la fin
+  title = title.replace(/\s{2,}/g, ' ')  // Espaces multiples
+  
+  // 8. Si le titre est vide, utiliser un format par défaut
+  if (!title.trim()) {
+    // Essayer d'extraire le numéro d'épisode du filename original
+    const match = filename.match(/S(\d+)E(\d+)/i)
+    if (match) {
+      title = `Épisode ${parseInt(match[2])}`
+    } else {
+      title = filename.replace(/\.(mkv|mp4|avi|mov|m4v)$/i, '')
+    }
+  }
+  
+  return title.trim()
+}
+
 export async function POST() {
   try {
     const seriesBasePath = process.env.PCLOUD_SERIES_PATH || '/leon/media/series'
@@ -137,14 +195,15 @@ export async function POST() {
             .eq('episode_number', ep.episode)
             .single()
 
-          if (!existingEp) {
-            const { error: epError } = await supabase.from('episodes').insert({
-              series_id: seriesId,
-              season_number: ep.season,
-              episode_number: ep.episode,
-              title: ep.filename,
-              filepath: ep.filepath
-            })
+        if (!existingEp) {
+          const cleanTitle = cleanEpisodeTitle(ep.filename, seriesName)
+          const { error: epError } = await supabase.from('episodes').insert({
+            series_id: seriesId,
+            season_number: ep.season,
+            episode_number: ep.episode,
+            title: cleanTitle,
+            filepath: ep.filepath
+          })
             
             if (epError) {
               console.error(`   ❌ Erreur épisode S${ep.season}E${ep.episode}:`, epError.message)
@@ -241,12 +300,13 @@ export async function POST() {
           .single()
 
         if (!existingEp) {
+          const cleanTitle = cleanEpisodeTitle(ep.filename, seriesName)
           const { error: epError } = await supabase.from('episodes').insert({
             series_id: seriesId,
             tmdb_series_id: tmdbData.id,
             season_number: ep.season,
             episode_number: ep.episode,
-            title: ep.filename,
+            title: cleanTitle,
             filepath: ep.filepath
           })
           
