@@ -28,11 +28,26 @@ const HLS_TEMP_DIR = '/tmp/leon-hls'
 
 /**
  * Obtenir le répertoire pré-transcodé pour un fichier
+ * Vérifie à la fois le dossier racine (films) et le sous-dossier series/ (épisodes)
  */
 function getPreTranscodedDir(filepath: string): string {
   const filename = path.basename(filepath, path.extname(filepath))
   const safeName = filename.replace(/[^a-zA-Z0-9àâäéèêëïîôùûüç\s\-_.()[\]]/gi, '_')
-  return path.join(TRANSCODED_DIR, safeName)
+  
+  // Vérifier d'abord dans le dossier racine (films)
+  const mainDir = path.join(TRANSCODED_DIR, safeName)
+  if (existsSync(mainDir)) {
+    return mainDir
+  }
+  
+  // Sinon vérifier dans le sous-dossier series/ (épisodes)
+  const seriesDir = path.join(TRANSCODED_DIR, 'series', safeName)
+  if (existsSync(seriesDir)) {
+    return seriesDir
+  }
+  
+  // Par défaut, retourner le dossier racine
+  return mainDir
 }
 
 /**

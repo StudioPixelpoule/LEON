@@ -21,6 +21,7 @@ const execAsync = promisify(exec)
 // Configuration - Chemins DANS le conteneur Docker
 const TRANSCODED_DIR = process.env.TRANSCODED_DIR || '/leon/transcoded'
 const MEDIA_DIR = process.env.MEDIA_DIR || '/leon/media/films'
+const SERIES_DIR = process.env.PCLOUD_SERIES_PATH || '/leon/media/series'
 const STATE_FILE = path.join(TRANSCODED_DIR, 'queue-state.json')
 const MAX_CONCURRENT_TRANSCODES = 1
 const SEGMENT_DURATION = 2
@@ -285,7 +286,7 @@ class TranscodingService {
   }
 
   /**
-   * Scanner le répertoire media
+   * Scanner le répertoire media (films + séries)
    */
   private async scanMediaDirectory(): Promise<Array<{ filepath: string; filename: string; mtime: Date; size: number }>> {
     const files: Array<{ filepath: string; filename: string; mtime: Date; size: number }> = []
@@ -313,11 +314,24 @@ class TranscodingService {
           }
         }
       } catch (error) {
-        console.error(`❌ Erreur scan ${dir}:`, error)
+        // Silencieux si le dossier n'existe pas
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+          console.error(`❌ Erreur scan ${dir}:`, error)
+        }
       }
     }
 
+    // Scanner les films
     await scanDir(MEDIA_DIR)
+    
+    // Scanner les séries (si le dossier existe)
+    try {
+      await access(SERIES_DIR)
+      await scanDir(SERIES_DIR)
+      console.log(`📺 Dossier séries scanné: ${SERIES_DIR}`)
+    } catch {
+      // Le dossier series n'existe pas encore, c'est normal
+    }
     
     // Trier par date de modification (plus récent en premier)
     files.sort((a, b) => b.mtime.getTime() - a.mtime.getTime())
@@ -327,10 +341,20 @@ class TranscodingService {
 
   /**
    * Obtenir le répertoire de sortie pour un fichier
+   * Organise les séries dans un sous-dossier 'series'
    */
   private getOutputDir(filepath: string): string {
     const filename = path.basename(filepath, path.extname(filepath))
     const safeName = filename.replace(/[^a-zA-Z0-9àâäéèêëïîôùûüç\s\-_.()[\]]/gi, '_')
+    
+    // Vérifier si c'est un épisode de série (contient SxxExx)
+    const isSeriesEpisode = /S\d{1,2}E\d{1,2}/i.test(filename)
+    
+    if (isSeriesEpisode || filepath.includes(SERIES_DIR)) {
+      // Stocker les épisodes dans transcoded/series/
+      return path.join(TRANSCODED_DIR, 'series', safeName)
+    }
+    
     return path.join(TRANSCODED_DIR, safeName)
   }
 
