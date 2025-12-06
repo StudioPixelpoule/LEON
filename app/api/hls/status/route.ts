@@ -24,24 +24,32 @@ const TRANSCODED_DIR = process.env.TRANSCODED_DIR || '/leon/transcoded'
  * Obtenir le répertoire pré-transcodé pour un fichier
  * Vérifie à la fois le dossier racine et le sous-dossier series/
  */
-function getPreTranscodedDir(filepath: string): string {
+function getPreTranscodedDir(filepath: string): { dir: string; found: boolean; location: string } {
   const filename = path.basename(filepath, path.extname(filepath))
   const safeName = filename.replace(/[^a-zA-Z0-9àâäéèêëïîôùûüç\s\-_.()[\]]/gi, '_')
+  
+  // Debug
+  console.log(`[PRE-TRANSCODED] Recherche pour: ${filename}`)
+  console.log(`[PRE-TRANSCODED] SafeName: ${safeName}`)
   
   // Vérifier d'abord dans le dossier racine (films)
   const mainDir = path.join(TRANSCODED_DIR, safeName)
   if (existsSync(mainDir)) {
-    return mainDir
+    console.log(`[PRE-TRANSCODED] ✅ Trouvé dans racine: ${mainDir}`)
+    return { dir: mainDir, found: true, location: 'root' }
   }
   
   // Sinon vérifier dans le sous-dossier series/ (épisodes)
   const seriesDir = path.join(TRANSCODED_DIR, 'series', safeName)
   if (existsSync(seriesDir)) {
-    return seriesDir
+    console.log(`[PRE-TRANSCODED] ✅ Trouvé dans series: ${seriesDir}`)
+    return { dir: seriesDir, found: true, location: 'series' }
   }
   
+  console.log(`[PRE-TRANSCODED] ❌ Non trouvé. Vérifié: ${mainDir} et ${seriesDir}`)
+  
   // Par défaut, retourner le dossier racine (pour les nouveaux fichiers)
-  return mainDir
+  return { dir: mainDir, found: false, location: 'none' }
 }
 
 export async function GET(request: NextRequest) {
@@ -60,11 +68,17 @@ export async function GET(request: NextRequest) {
     const filepath = filepathRaw.normalize('NFD')
     
     // 🆕 VÉRIFIER D'ABORD SI LE FICHIER EST PRÉ-TRANSCODÉ
-    const preTranscodedDir = getPreTranscodedDir(filepath)
+    const preTranscodedResult = getPreTranscodedDir(filepath)
+    const preTranscodedDir = preTranscodedResult.dir
     const preTranscodedDone = path.join(preTranscodedDir, '.done')
     const preTranscodedPlaylist = path.join(preTranscodedDir, 'playlist.m3u8')
     
-    if (existsSync(preTranscodedDone) && existsSync(preTranscodedPlaylist)) {
+    // Debug: afficher l'état des fichiers
+    const doneExists = existsSync(preTranscodedDone)
+    const playlistExists = existsSync(preTranscodedPlaylist)
+    console.log(`[PRE-TRANSCODED] .done existe: ${doneExists}, playlist.m3u8 existe: ${playlistExists}`)
+    
+    if (preTranscodedResult.found && doneExists && playlistExists) {
       // Fichier pré-transcodé trouvé ! Retourner les infos
       try {
         const files = await readdir(preTranscodedDir)
