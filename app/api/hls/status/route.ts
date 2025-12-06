@@ -24,7 +24,7 @@ const TRANSCODED_DIR = process.env.TRANSCODED_DIR || '/leon/transcoded'
  * Obtenir le répertoire pré-transcodé pour un fichier
  * Vérifie à la fois le dossier racine et le sous-dossier series/
  */
-function getPreTranscodedDir(filepath: string): string | null {
+function getPreTranscodedDir(filepath: string): string {
   const filename = path.basename(filepath, path.extname(filepath))
   const safeName = filename.replace(/[^a-zA-Z0-9àâäéèêëïîôùûüç\s\-_.()[\]]/gi, '_')
   
