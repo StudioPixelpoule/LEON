@@ -64,8 +64,8 @@ export async function GET(request: NextRequest) {
   }
   
   try {
-    // Normaliser le chemin (même logique que /api/hls)
-    const filepath = filepathRaw.normalize('NFD')
+    // NE PAS normaliser - utiliser le chemin tel quel
+    const filepath = filepathRaw
     
     // 🆕 VÉRIFIER D'ABORD SI LE FICHIER EST PRÉ-TRANSCODÉ
     const preTranscodedResult = getPreTranscodedDir(filepath)

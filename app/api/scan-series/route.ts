@@ -385,11 +385,9 @@ async function scanSeriesFolder(seriesPath: string, seriesName: string): Promise
             // Extraire S01E01 du nom de fichier
             const episodeMatch = entry.name.match(/S(\d+)E(\d+)/i)
             if (episodeMatch) {
-              // 🔧 FIX: Normaliser le chemin en NFD (même format que l'API HLS)
-              const normalizedPath = fullPath.normalize('NFD')
-              episodes.push({
+                episodes.push({
                 filename: entry.name,
-                filepath: normalizedPath,
+                filepath: fullPath,
                 season: parseInt(episodeMatch[1]),
                 episode: parseInt(episodeMatch[2]),
                 seriesName

@@ -89,9 +89,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Chemin manquant' }, { status: 400 })
   }
   
-  // 🔧 NORMALISER le chemin pour gérer les caractères Unicode (é, à, etc.)
-  // macOS utilise NFD (décomposé), donc on normalise TOUJOURS en NFD
-  const filepath = filepathRaw.normalize('NFD')
+  // 🔧 NE PAS NORMALISER - utiliser le chemin tel quel
+  // La normalisation crée des incompatibilités entre ce qui est stocké en DB et sur disque
+  const filepath = filepathRaw
 
   // 🆕 VÉRIFIER SI UN FICHIER PRÉ-TRANSCODÉ EXISTE
   const usePreTranscoded = await hasPreTranscoded(filepath)
