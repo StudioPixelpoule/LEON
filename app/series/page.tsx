@@ -162,11 +162,27 @@ export default function SeriesPage() {
           <ContinueWatchingRow
             onMovieClick={() => {}}
             onEpisodeClick={(episode) => {
+              console.log('[SERIES] Episode cliqué:', episode.title, 'series_id:', episode.series_id)
               // Trouver la série correspondante via series_id
               if (episode.series_id) {
-                const serie = series.find(s => s.id === episode.series_id)
+                // Comparaison avec String() pour éviter les problèmes de type
+                const serie = series.find(s => String(s.id) === String(episode.series_id))
+                console.log('[SERIES] Série trouvée:', serie?.title || 'NON TROUVÉE')
                 if (serie) {
                   setSelectedSeries(serie)
+                } else {
+                  // Fallback: créer un objet série minimal pour charger les détails
+                  console.log('[SERIES] Fallback: création objet série minimal')
+                  setSelectedSeries({
+                    id: episode.series_id,
+                    title: episode.title || 'Série',
+                    poster_url: episode.poster_url || null,
+                    backdrop_url: episode.backdrop_url || null,
+                    rating: 0,
+                    first_air_date: '',
+                    genres: [],
+                    overview: ''
+                  })
                 }
               }
             }}
