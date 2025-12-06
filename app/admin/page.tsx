@@ -1043,6 +1043,32 @@ function TranscodeSection() {
     }
   }
 
+  async function reTranscode(folder: string, name: string) {
+    if (!confirm(`Re-transcoder "${name}" avec multi-audio et sous-titres ?\n\nLe film sera supprimé puis re-ajouté à la queue de transcodage.`)) {
+      return
+    }
+    
+    try {
+      // 1. Supprimer l'ancien transcodage
+      await fetch(`/api/transcode?folder=${encodeURIComponent(folder)}`, {
+        method: 'DELETE'
+      })
+      
+      // 2. Re-scanner pour ajouter le film à la queue
+      await fetch('/api/transcode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'scan' })
+      })
+      
+      alert(`"${name}" ajouté à la queue de transcodage.\nLe nouveau transcodage inclura toutes les pistes audio et sous-titres.`)
+      await loadStats()
+    } catch (error) {
+      console.error('Erreur re-transcodage:', error)
+      alert('Erreur lors du re-transcodage')
+    }
+  }
+
   function formatTime(seconds: number): string {
     if (!seconds || !isFinite(seconds)) return '--:--'
     const hours = Math.floor(seconds / 3600)
@@ -1356,13 +1382,23 @@ function TranscodeSection() {
                         {film.segmentCount} segments • Transcodé le {formatDate(film.transcodedAt)}
                       </span>
                     </div>
-                    <button
-                      className={styles.deleteButton}
-                      onClick={() => deleteTranscoded(film.folder, film.name)}
-                      title="Supprimer ce film transcodé"
-                    >
-                      <Trash2 size={16} />
-                    </button>
+                    <div className={styles.transcodedActions}>
+                      <button
+                        className={styles.secondaryButton}
+                        onClick={() => reTranscode(film.folder, film.name)}
+                        title="Re-transcoder avec multi-audio et sous-titres"
+                        style={{ padding: '6px 10px', fontSize: '12px' }}
+                      >
+                        <RotateCcw size={14} />
+                      </button>
+                      <button
+                        className={styles.deleteButton}
+                        onClick={() => deleteTranscoded(film.folder, film.name)}
+                        title="Supprimer ce film transcodé"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

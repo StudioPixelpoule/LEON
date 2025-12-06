@@ -1389,6 +1389,12 @@
   color: rgba(255, 255, 255, 0.5);
 }
 
+.transcodedActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .deleteButton {
   background: transparent;
   border: none;
