@@ -88,8 +88,10 @@ export default function AdminPageV2() {
 function ScanSection() {
   const [scanningFilms, setScanningFilms] = useState(false)
   const [scanningSeries, setScanningSeries] = useState(false)
+  const [cleaningUp, setCleaningUp] = useState(false)
   const [filmResult, setFilmResult] = useState<any>(null)
   const [seriesResult, setSeriesResult] = useState<any>(null)
+  const [cleanupResult, setCleanupResult] = useState<any>(null)
 
   async function handleScanFilms() {
     try {
@@ -134,6 +136,33 @@ function ScanSection() {
       alert('Erreur lors du scan des séries')
     } finally {
       setScanningSeries(false)
+    }
+  }
+
+  async function handleCleanup() {
+    if (!confirm('Voulez-vous supprimer les médias dont le fichier n\'existe plus sur le disque ?')) {
+      return
+    }
+    
+    try {
+      setCleaningUp(true)
+      setCleanupResult(null)
+      
+      const response = await fetch('/api/admin/cleanup-missing', {
+        method: 'POST'
+      })
+      
+      if (!response.ok) {
+        throw new Error('Erreur nettoyage')
+      }
+      
+      const data = await response.json()
+      setCleanupResult(data)
+    } catch (error) {
+      console.error('Erreur:', error)
+      alert('Erreur lors du nettoyage')
+    } finally {
+      setCleaningUp(false)
     }
   }
 
@@ -240,6 +269,66 @@ function ScanSection() {
                 <span className={styles.statLabel}>Nouveaux ép.</span>
               </div>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Nettoyage */}
+      <div className={styles.scanBlock}>
+        <div className={styles.scanHeader}>
+          <Trash2 size={20} />
+          <h3>Nettoyage</h3>
+        </div>
+        <p className={styles.scanDesc}>
+          Supprime de la base les médias dont le fichier n&apos;existe plus sur le disque
+        </p>
+        <div className={styles.actions}>
+          <button
+            className={styles.dangerButton}
+            onClick={handleCleanup}
+            disabled={cleaningUp}
+          >
+            {cleaningUp ? (
+              <>
+                <RefreshCw size={16} className={styles.spinning} />
+                Nettoyage...
+              </>
+            ) : (
+              <>
+                <Trash2 size={16} />
+                Nettoyer les fichiers manquants
+              </>
+            )}
+          </button>
+        </div>
+
+        {cleanupResult && (
+          <div className={styles.resultCard}>
+            <h4>Nettoyage terminé</h4>
+            <div className={styles.stats}>
+              <div className={styles.statItem}>
+                <span className={styles.statValue}>{cleanupResult.result?.checked || 0}</span>
+                <span className={styles.statLabel}>Vérifiés</span>
+              </div>
+              <div className={styles.statItem}>
+                <span className={styles.statValue}>{cleanupResult.result?.missing || 0}</span>
+                <span className={styles.statLabel}>Manquants</span>
+              </div>
+              <div className={styles.statItem}>
+                <span className={styles.statValue}>{cleanupResult.result?.deleted || 0}</span>
+                <span className={styles.statLabel}>Supprimés</span>
+              </div>
+            </div>
+            {cleanupResult.result?.details?.length > 0 && (
+              <details className={styles.detailsList}>
+                <summary>Voir les détails ({cleanupResult.result.details.length})</summary>
+                <ul>
+                  {cleanupResult.result.details.map((item: any, i: number) => (
+                    <li key={i}>{item.title}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
           </div>
         )}
       </div>
