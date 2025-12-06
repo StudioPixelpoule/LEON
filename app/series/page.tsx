@@ -30,7 +30,6 @@ export default function SeriesPage() {
   const [loading, setLoading] = useState(true)
   const [selectedSeries, setSelectedSeries] = useState<SeriesData | null>(null)
   const [heroSeries, setHeroSeries] = useState<SeriesData | null>(null)
-  const [refreshKey, setRefreshKey] = useState(0)
   
   useEffect(() => {
     async function loadSeries() {
@@ -63,7 +62,7 @@ export default function SeriesPage() {
     }
     
     loadSeries()
-  }, [refreshKey])
+  }, [])
   
   // Fonction de mélange aléatoire
   function shuffleArray<T>(array: T[]): T[] {
@@ -157,15 +156,6 @@ export default function SeriesPage() {
         )}
         
         <div className={styles.content}>
-          {/* Bouton refresh discret */}
-          <button 
-            onClick={() => setRefreshKey(k => k + 1)}
-            className={styles.refreshButton}
-            title="Recharger et mélanger les séries"
-          >
-            ↻
-          </button>
-        
           <div className={styles.rows}>
             {recentSeries.length > 0 && (
               <>
