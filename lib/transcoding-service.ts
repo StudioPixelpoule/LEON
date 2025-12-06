@@ -500,6 +500,12 @@ class TranscodingService {
     
     // Tuer le processus en cours si existant
     if (this.currentProcess && this.currentJob) {
+      // Nettoyer le fichier verrou avant de tuer le processus
+      const transcodingLockPath = path.join(this.currentJob.outputDir, '.transcoding')
+      try {
+        await rm(transcodingLockPath, { force: true })
+      } catch {}
+      
       this.currentProcess.kill('SIGTERM')
       this.currentJob.status = 'pending'
       this.queue.unshift(this.currentJob)
@@ -531,6 +537,14 @@ class TranscodingService {
   async stop(): Promise<void> {
     this.isRunning = false
     this.isPaused = false
+    
+    // Nettoyer le fichier verrou si un job est en cours
+    if (this.currentJob) {
+      const transcodingLockPath = path.join(this.currentJob.outputDir, '.transcoding')
+      try {
+        await rm(transcodingLockPath, { force: true })
+      } catch {}
+    }
     
     if (this.currentProcess) {
       this.currentProcess.kill('SIGKILL')
@@ -680,12 +694,13 @@ class TranscodingService {
       ffmpeg.on('close', async (code) => {
         this.currentProcess = null
         
+        // Toujours supprimer le verrou .transcoding (succès ou échec)
+        try {
+          await rm(transcodingLockPath, { force: true })
+        } catch {}
+        
         if (code === 0) {
-          // Supprimer le verrou .transcoding
-          try {
-            await rm(transcodingLockPath, { force: true })
-          } catch {}
-          // Créer le fichier .done
+          // Créer le fichier .done seulement en cas de succès
           await writeFile(path.join(job.outputDir, '.done'), new Date().toISOString())
           resolve()
         } else {
@@ -693,8 +708,12 @@ class TranscodingService {
         }
       })
 
-      ffmpeg.on('error', (err) => {
+      ffmpeg.on('error', async (err) => {
         this.currentProcess = null
+        // Supprimer le verrou en cas d'erreur
+        try {
+          await rm(transcodingLockPath, { force: true })
+        } catch {}
         reject(err)
       })
     })
