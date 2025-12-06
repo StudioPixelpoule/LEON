@@ -225,6 +225,8 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
             ? `/api/proxy-image?url=${encodeURIComponent(currentEpisode.still_url || seriesDetails.backdrop_url || '')}`
             : undefined
         }
+        mediaId={currentEpisode.id}
+        mediaType="episode"
         onClose={() => {
           setShowPlayer(false)
           setCurrentEpisode(null)

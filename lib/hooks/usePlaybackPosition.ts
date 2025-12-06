@@ -12,6 +12,7 @@ interface UsePlaybackPositionOptions {
   currentTime: number
   duration: number
   enabled?: boolean // Activer/désactiver la sauvegarde
+  mediaType?: 'movie' | 'episode' // Type de média
 }
 
 const SAVE_INTERVAL = 10000 // Sauvegarder toutes les 10 secondes
@@ -21,7 +22,8 @@ export function usePlaybackPosition({
   mediaId,
   currentTime,
   duration,
-  enabled = true
+  enabled = true,
+  mediaType = 'movie'
 }: UsePlaybackPositionOptions) {
   const lastSavedTimeRef = useRef<number>(0)
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -98,7 +100,7 @@ export function usePlaybackPosition({
             mediaId,
             position: Math.floor(time),
             duration: dur > 0 ? Math.floor(dur) : null,
-            media_type: 'movie'
+            media_type: mediaType
           })
         })
 
@@ -139,7 +141,7 @@ export function usePlaybackPosition({
             mediaId,
             position: Math.floor(time),
             duration: dur > 0 ? Math.floor(dur) : null,
-            media_type: 'movie'
+            media_type: mediaType
           })
         }).catch(() => {
           // Ignorer les erreurs au démontage
@@ -160,14 +162,14 @@ export function usePlaybackPosition({
           mediaId,
           position: 0,
           duration: 0,
-          media_type: 'movie'
+          media_type: mediaType
         })
       })
       console.log(`[PLAYBACK] Marqué comme terminé: ${mediaId}`)
     } catch (error) {
       console.error('[PLAYBACK] Erreur marquage terminé:', error)
     }
-  }, [mediaId, enabled])
+  }, [mediaId, enabled, mediaType])
 
   return { initialPosition, markAsFinished }
 }

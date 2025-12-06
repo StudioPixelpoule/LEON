@@ -16,7 +16,8 @@ interface SimpleVideoPlayerProps {
   subtitle?: string
   onClose: () => void
   poster?: string
-  mediaId?: string // ID du film pour sauvegarder la position
+  mediaId?: string // ID du film/épisode pour sauvegarder la position
+  mediaType?: 'movie' | 'episode' // Type de média
 }
 
 interface AudioTrack {
@@ -61,7 +62,8 @@ export default function SimpleVideoPlayer({
   subtitle, 
   onClose,
   poster,
-  mediaId
+  mediaId,
+  mediaType = 'movie'
 }: SimpleVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const progressRef = useRef<HTMLDivElement>(null)
@@ -162,7 +164,8 @@ export default function SimpleVideoPlayer({
     mediaId: mediaId || null,
     currentTime,
     duration: realDurationRef.current || duration,
-    enabled: !!mediaId // Activer seulement si mediaId est fourni
+    enabled: !!mediaId, // Activer seulement si mediaId est fourni
+    mediaType
   })
 
   // 🔧 PHASE 3: Restaurer la position initiale une fois que la vidéo est prête (UNE SEULE FOIS)

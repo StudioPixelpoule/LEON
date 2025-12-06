@@ -69,10 +69,12 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { mediaId, currentTime, position, duration, userId } = body
+    const { mediaId, currentTime, position, duration, userId, media_type } = body
     
     // Accepter soit currentTime soit position
     const time = currentTime !== undefined ? currentTime : position
+    // Type de média: 'movie' ou 'episode'
+    const mediaType = media_type || 'movie'
 
     if (!mediaId || time === undefined) {
       return NextResponse.json(
@@ -83,7 +85,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = createSupabaseClient()
 
-    // Si le film est terminé (> 95%), enregistrer dans l'historique et supprimer la position
+    // Si le film/épisode est terminé (> 95%), enregistrer dans l'historique et supprimer la position
     if (duration && time >= duration * 0.95) {
       // Enregistrer dans l'historique
       if (userId) {
@@ -92,7 +94,7 @@ export async function POST(request: NextRequest) {
           .insert({
             user_id: userId,
             media_id: mediaId,
-            media_type: 'movie',
+            media_type: mediaType,
             watch_duration: Math.round(time),
             completed: true
           })
@@ -136,7 +138,7 @@ export async function POST(request: NextRequest) {
     // Upsert: créer ou mettre à jour
     const upsertData: Record<string, unknown> = {
       media_id: mediaId,
-      media_type: 'movie',
+      media_type: mediaType,
       position: time,
       duration: duration || null,
       updated_at: new Date().toISOString()

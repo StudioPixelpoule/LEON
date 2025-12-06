@@ -1,7 +1,7 @@
 /**
- * API Route: Films en cours de visionnage
+ * API Route: Médias en cours de visionnage (films + épisodes)
  * GET /api/media/in-progress
- * Retourne les films avec position sauvegardée
+ * Retourne les films ET épisodes avec position sauvegardée
  */
 
 import { NextResponse } from 'next/server'
@@ -14,7 +14,6 @@ export async function GET() {
   try {
     const supabase = createSupabaseClient()
     
-    // Pour l'instant, utiliser une requête séparée car le JOIN Supabase est complexe
     // 1. Récupérer les positions de lecture
     const { data: positions, error: posError } = await supabase
       .from('playback_positions')
@@ -35,39 +34,82 @@ export async function GET() {
       })
     }
 
-    // 2. Récupérer les infos des films correspondants
-    const mediaIds = positions.map(p => p.media_id)
-    const { data: mediaList, error: mediaError } = await supabase
-      .from('media')
-      .select('*')
-      .in('id', mediaIds)
+    // Séparer les IDs par type (movie vs episode)
+    const moviePositions = positions.filter(p => p.media_type === 'movie' || !p.media_type)
+    const episodePositions = positions.filter(p => p.media_type === 'episode')
+    
+    const movieIds = moviePositions.map(p => p.media_id)
+    const episodeIds = episodePositions.map(p => p.media_id)
 
-    if (mediaError) {
-      throw mediaError
+    // 2. Récupérer les films
+    let mediaList: any[] = []
+    if (movieIds.length > 0) {
+      const { data: movies, error: mediaError } = await supabase
+        .from('media')
+        .select('*')
+        .in('id', movieIds)
+
+      if (!mediaError && movies) {
+        mediaList = movies.map(m => ({ ...m, content_type: 'movie' }))
+      }
     }
 
-    // 3. Fusionner les données
+    // 3. Récupérer les épisodes avec infos de la série
+    if (episodeIds.length > 0) {
+      const { data: episodes, error: epError } = await supabase
+        .from('episodes')
+        .select(`
+          id,
+          title,
+          season_number,
+          episode_number,
+          filepath,
+          still_url,
+          series:series_id (
+            id,
+            title,
+            poster_url,
+            backdrop_url
+          )
+        `)
+        .in('id', episodeIds)
+
+      if (!epError && episodes) {
+        const formattedEpisodes = episodes.map(ep => ({
+          id: ep.id,
+          title: (ep.series as any)?.title || 'Série',
+          subtitle: `S${ep.season_number}E${ep.episode_number} · ${ep.title}`,
+          poster_url: (ep.series as any)?.poster_url,
+          backdrop_url: (ep.series as any)?.backdrop_url,
+          filepath: ep.filepath,
+          still_url: ep.still_url,
+          series_id: (ep.series as any)?.id,
+          season_number: ep.season_number,
+          episode_number: ep.episode_number,
+          content_type: 'episode'
+        }))
+        mediaList = [...mediaList, ...formattedEpisodes]
+      }
+    }
+
+    // 4. Fusionner avec les positions
     const formattedData = positions
       .map(pos => {
-        // Convertir m.id en string pour la comparaison (gère UUID vs TEXT)
         const media = mediaList?.find(m => String(m.id) === String(pos.media_id))
         if (!media) {
           console.warn(`[API] Media non trouvé pour position media_id=${pos.media_id}`)
           return null
         }
         
-        // Utiliser la duration du MEDIA (en minutes) OU celle sauvegardée dans playback_positions
-        const mediaDurationSeconds = media.duration 
-          ? media.duration * 60 
-          : (pos.duration || 0)
+        // Utiliser la durée sauvegardée (les épisodes n'ont pas de durée en base)
+        const durationSeconds = pos.duration || 0
         
-        // Calculer le pourcentage (avec fallback si pas de durée)
+        // Calculer le pourcentage
         let progressPercent = 0
-        if (mediaDurationSeconds > 0) {
-          progressPercent = Math.round((pos.position / mediaDurationSeconds) * 100)
+        if (durationSeconds > 0) {
+          progressPercent = Math.round((pos.position / durationSeconds) * 100)
         } else if (pos.position > 0) {
-          // Si pas de durée mais position > 0, afficher quand même (estimé à 10%)
-          progressPercent = 10
+          progressPercent = 10 // Fallback si pas de durée
         }
         
         return {
@@ -75,7 +117,7 @@ export async function GET() {
           position: pos.position,
           saved_duration: pos.duration,
           playback_updated_at: pos.updated_at,
-          progress_percent: Math.min(progressPercent, 99) // Plafonner à 99%
+          progress_percent: Math.min(progressPercent, 99)
         }
       })
       .filter(item => item !== null && item.progress_percent > 0 && item.progress_percent < 95)
@@ -86,7 +128,7 @@ export async function GET() {
       count: formattedData.length
     })
   } catch (error: any) {
-    console.error('[API] Erreur récupération films en cours:', error)
+    console.error('[API] Erreur récupération médias en cours:', error)
     return NextResponse.json(
       { 
         success: false,
