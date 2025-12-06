@@ -8,11 +8,11 @@
 import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import Header from '@/components/Header/Header'
-import { FolderSearch, Image as ImageIcon, HardDrive, BarChart3, Search, RefreshCw, Trash2, Check, X, ChevronLeft, ChevronRight, RotateCcw, Edit3, Filter, Film, Play, Pause, Square, Eye } from 'lucide-react'
+import { FolderSearch, Image as ImageIcon, HardDrive, BarChart3, Search, RefreshCw, Trash2, Check, X, ChevronLeft, ChevronRight, RotateCcw, Edit3, Filter, Film, Play, Pause, Square, Eye, Users, Clock, Activity } from 'lucide-react'
 import styles from './admin.module.css'
 
 // Sections de la page admin
-type AdminSection = 'scan' | 'cache' | 'posters' | 'transcode' | 'stats'
+type AdminSection = 'scan' | 'posters' | 'transcode' | 'stats' | 'watching'
 
 export default function AdminPageV2() {
   const [activeSection, setActiveSection] = useState<AdminSection>('scan')
@@ -44,14 +44,6 @@ export default function AdminPageV2() {
             </button>
             
             <button
-              className={`${styles.navItem} ${activeSection === 'cache' ? styles.active : ''}`}
-              onClick={() => setActiveSection('cache')}
-            >
-              <HardDrive className={styles.icon} size={20} strokeWidth={1.5} />
-              Gestion du cache
-            </button>
-            
-            <button
               className={`${styles.navItem} ${activeSection === 'transcode' ? styles.active : ''}`}
               onClick={() => setActiveSection('transcode')}
             >
@@ -66,6 +58,14 @@ export default function AdminPageV2() {
               <BarChart3 className={styles.icon} size={20} strokeWidth={1.5} />
               Statistiques
             </button>
+            
+            <button
+              className={`${styles.navItem} ${activeSection === 'watching' ? styles.active : ''}`}
+              onClick={() => setActiveSection('watching')}
+            >
+              <Users className={styles.icon} size={20} strokeWidth={1.5} />
+              Qui regarde ?
+            </button>
           </div>
         </nav>
 
@@ -73,9 +73,9 @@ export default function AdminPageV2() {
         <main className={styles.main}>
           {activeSection === 'scan' && <ScanSection />}
           {activeSection === 'posters' && <PostersSection />}
-          {activeSection === 'cache' && <CacheSection />}
           {activeSection === 'transcode' && <TranscodeSection />}
           {activeSection === 'stats' && <StatsSection />}
+          {activeSection === 'watching' && <WatchingSection />}
         </main>
       </div>
     </div>
@@ -160,122 +160,6 @@ function ScanSection() {
               <span className={styles.statLabel}>Ignorés</span>
             </div>
           </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-/**
- * Section: Gestion du cache
- */
-function CacheSection() {
-  const [stats, setStats] = useState<any>(null)
-  const [loading, setLoading] = useState(false)
-  const [clearing, setClearing] = useState(false)
-
-  async function loadStats() {
-    try {
-      setLoading(true)
-      const response = await fetch('/api/cache/stats')
-      const data = await response.json()
-      setStats(data.stats)
-    } catch (error) {
-      console.error('Erreur chargement stats:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function clearCache() {
-    if (!confirm('Vider le cache ? Cette action est irréversible.')) {
-      return
-    }
-
-    try {
-      setClearing(true)
-      const response = await fetch('/api/cache/clear', {
-        method: 'POST'
-      })
-      const data = await response.json()
-      
-      if (data.success) {
-        alert(`✅ Cache vidé : ${data.deleted.files} segments supprimés (${data.deleted.sizeGB}GB)`)
-        loadStats() // Recharger les stats
-      }
-    } catch (error) {
-      console.error('Erreur vidage cache:', error)
-      alert('❌ Erreur lors du vidage du cache')
-    } finally {
-      setClearing(false)
-    }
-  }
-
-  return (
-    <div className={styles.section}>
-      <h2 className={styles.sectionTitle}>Gestion du cache HLS</h2>
-      <p className={styles.sectionDesc}>
-        Cache des segments vidéo transcodés pour un démarrage plus rapide
-      </p>
-
-      <div className={styles.actions}>
-        <button
-          className={styles.secondaryButton}
-          onClick={loadStats}
-          disabled={loading}
-        >
-          {loading ? (
-            <>
-              <RefreshCw size={16} className={styles.spinning} />
-              Chargement...
-            </>
-          ) : (
-            <>
-              <RefreshCw size={16} />
-              Rafraîchir
-            </>
-          )}
-        </button>
-        
-        <button
-          className={styles.dangerButton}
-          onClick={clearCache}
-          disabled={clearing}
-        >
-          {clearing ? (
-            <>
-              <RefreshCw size={16} className={styles.spinning} />
-              Suppression...
-            </>
-          ) : (
-            <>
-              <Trash2 size={16} />
-              Vider le cache
-            </>
-          )}
-        </button>
-      </div>
-
-      {stats && (
-        <div className={styles.resultCard}>
-          <h3>Statistiques du cache</h3>
-          <div className={styles.stats}>
-            <div className={styles.statItem}>
-              <span className={styles.statValue}>{stats.totalSizeGB}</span>
-              <span className={styles.statLabel}>GB utilisés</span>
-            </div>
-            <div className={styles.statItem}>
-              <span className={styles.statValue}>{stats.totalFiles}</span>
-              <span className={styles.statLabel}>Segments en cache</span>
-            </div>
-          </div>
-
-          {stats.oldestFile && (
-            <div className={styles.cacheInfo}>
-              <p><strong>Segment le plus ancien :</strong> {new Date(stats.oldestFile).toLocaleDateString('fr-FR')}</p>
-              <p><strong>Segment le plus récent :</strong> {new Date(stats.newestFile).toLocaleDateString('fr-FR')}</p>
-            </div>
-          )}
         </div>
       )}
     </div>
@@ -711,18 +595,29 @@ interface TranscodedFile {
   segmentCount: number
 }
 
+// Type pour les stats du cache HLS
+interface CacheStats {
+  totalSizeGB: string
+  totalFiles: number
+  oldestFile?: string
+  newestFile?: string
+}
+
 function TranscodeSection() {
   const [stats, setStats] = useState<TranscodeStats | null>(null)
   const [queue, setQueue] = useState<TranscodeJob[]>([])
   const [transcoded, setTranscoded] = useState<TranscodedFile[]>([])
   const [watcher, setWatcher] = useState<{ isWatching: boolean; watchedDirs: number; knownFiles: number } | null>(null)
+  const [cacheStats, setCacheStats] = useState<CacheStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [showTranscoded, setShowTranscoded] = useState(false)
+  const [clearingCache, setClearingCache] = useState(false)
 
   // Charger les stats au montage et toutes les 3 secondes
   useEffect(() => {
     loadStats()
+    loadCacheStats()
     const interval = setInterval(loadStats, 3000)
     return () => clearInterval(interval)
   }, [])
@@ -739,6 +634,40 @@ function TranscodeSection() {
       console.error('Erreur chargement stats transcodage:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function loadCacheStats() {
+    try {
+      const response = await fetch('/api/cache/stats')
+      const data = await response.json()
+      if (data.success) {
+        setCacheStats(data.stats)
+      }
+    } catch (error) {
+      console.error('Erreur chargement stats cache:', error)
+    }
+  }
+
+  async function clearCache() {
+    if (!confirm('Vider le cache HLS temporaire ?\n\nCela supprime les segments transcodés à la volée (pas les films pré-transcodés).')) {
+      return
+    }
+
+    try {
+      setClearingCache(true)
+      const response = await fetch('/api/cache/clear', { method: 'POST' })
+      const data = await response.json()
+      
+      if (data.success) {
+        alert(`✅ Cache vidé : ${data.deleted.files} segments supprimés (${data.deleted.sizeGB}GB)`)
+        loadCacheStats()
+      }
+    } catch (error) {
+      console.error('Erreur vidage cache:', error)
+      alert('❌ Erreur lors du vidage du cache')
+    } finally {
+      setClearingCache(false)
     }
   }
 
@@ -1115,6 +1044,42 @@ function TranscodeSection() {
         )}
       </div>
 
+      {/* Cache HLS temporaire (pour films non pré-transcodés) */}
+      <div className={styles.resultCard}>
+        <div className={styles.transcodedHeader}>
+          <h3>Cache HLS temporaire</h3>
+          <button
+            className={styles.dangerButton}
+            onClick={clearCache}
+            disabled={clearingCache || !cacheStats || cacheStats.totalFiles === 0}
+            style={{ padding: '8px 16px', fontSize: '13px' }}
+          >
+            {clearingCache ? (
+              <><RefreshCw size={14} className={styles.spinning} /> Vidage...</>
+            ) : (
+              <><Trash2 size={14} /> Vider le cache</>
+            )}
+          </button>
+        </div>
+        <p className={styles.sectionDesc} style={{ marginBottom: '16px' }}>
+          Segments transcodés à la volée pour les films non pré-transcodés
+        </p>
+        {cacheStats ? (
+          <div className={styles.stats} style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+            <div className={styles.statItem}>
+              <span className={styles.statValue}>{cacheStats.totalSizeGB} GB</span>
+              <span className={styles.statLabel}>Espace utilisé</span>
+            </div>
+            <div className={styles.statItem}>
+              <span className={styles.statValue}>{cacheStats.totalFiles}</span>
+              <span className={styles.statLabel}>Segments en cache</span>
+            </div>
+          </div>
+        ) : (
+          <p className={styles.emptyState}>Cache vide ou non disponible</p>
+        )}
+      </div>
+
       {/* Info */}
       <div className={styles.infoBox}>
         <h4>💡 Comment ça fonctionne ?</h4>
@@ -1123,8 +1088,9 @@ function TranscodeSection() {
           <li><strong>Persistance</strong> : La queue est sauvegardée automatiquement et reprend après un redémarrage</li>
           <li><strong>Watcher</strong> : Détecte automatiquement les nouveaux films ajoutés au dossier</li>
           <li><strong>Auto-reprise</strong> : Le transcodage reprend automatiquement au démarrage du conteneur</li>
-          <li>Les films transcodés ont un <strong>seek instantané</strong> sur toute la timeline</li>
-          <li>Les films non transcodés fonctionnent normalement (transcodage temps réel)</li>
+          <li>Les films <strong>pré-transcodés</strong> ont un seek instantané sur toute la timeline</li>
+          <li>Les films <strong>non transcodés</strong> utilisent le cache temporaire (transcodage temps réel)</li>
+          <li>Vider le cache libère de l&apos;espace mais peut ralentir les films non pré-transcodés</li>
         </ul>
       </div>
     </div>
@@ -1548,6 +1514,380 @@ function StatsSection() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * Section: Qui regarde ? (Suivi multi-utilisateurs)
+ */
+interface ActiveSession {
+  id: string
+  userId: string | null
+  userName: string
+  mediaId: string
+  title: string
+  posterUrl: string | null
+  year: number | null
+  position: number
+  duration: number | null
+  progress: number
+  updatedAt: string
+  isActive: boolean
+}
+
+interface WatchHistoryEntry {
+  id: string
+  userId: string | null
+  userName: string
+  mediaId: string
+  title: string
+  posterUrl: string | null
+  year: number | null
+  watchedAt: string
+  watchDuration: number | null
+  completed: boolean
+}
+
+interface WatchingStats {
+  activeSessions: ActiveSession[]
+  recentHistory: WatchHistoryEntry[]
+  stats: {
+    totalWatches: number
+    uniqueViewers: number
+    totalWatchTimeMinutes: number
+    mostWatchedToday: Array<{
+      mediaId: string
+      title: string
+      posterUrl: string | null
+      watchCount: number
+    }>
+  }
+}
+
+function WatchingSection() {
+  const [data, setData] = useState<WatchingStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    loadData()
+    // Rafraîchir toutes les 10 secondes
+    const interval = setInterval(loadData, 10000)
+    return () => clearInterval(interval)
+  }, [])
+
+  async function loadData() {
+    try {
+      setError(null)
+      const response = await fetch('/api/stats/watching')
+      
+      if (!response.ok) {
+        throw new Error('Erreur chargement données')
+      }
+      
+      const result = await response.json()
+      setData(result)
+    } catch (err) {
+      console.error('Erreur chargement watching stats:', err)
+      setError('Impossible de charger les données de visionnage')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function formatDuration(seconds: number | null): string {
+    if (!seconds) return '--'
+    const hours = Math.floor(seconds / 3600)
+    const minutes = Math.floor((seconds % 3600) / 60)
+    if (hours > 0) return `${hours}h ${minutes}min`
+    return `${minutes}min`
+  }
+
+  function formatTime(isoString: string): string {
+    const date = new Date(isoString)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffMin = Math.floor(diffMs / 60000)
+    
+    if (diffMin < 1) return 'À l\'instant'
+    if (diffMin < 60) return `Il y a ${diffMin}min`
+    
+    const diffHours = Math.floor(diffMin / 60)
+    if (diffHours < 24) return `Il y a ${diffHours}h`
+    
+    return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+  }
+
+  if (loading) {
+    return (
+      <div className={styles.section}>
+        <div className={styles.loadingState}>
+          <RefreshCw size={32} className={styles.spinning} />
+          <p>Chargement...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className={styles.section}>
+        <h2 className={styles.sectionTitle}>Qui regarde ?</h2>
+        <div className={styles.errorState}>
+          <p>{error}</p>
+          <button className={styles.secondaryButton} onClick={loadData}>
+            <RefreshCw size={16} />
+            Réessayer
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  const activeSessions = data?.activeSessions.filter(s => s.isActive) || []
+  const recentSessions = data?.activeSessions.filter(s => !s.isActive) || []
+
+  return (
+    <div className={styles.section}>
+      <div className={styles.statsHeader}>
+        <div>
+          <h2 className={styles.sectionTitle}>Qui regarde ?</h2>
+          <p className={styles.sectionDesc}>
+            Suivi en temps réel des visionnages
+          </p>
+        </div>
+        <button className={styles.refreshButton} onClick={loadData} title="Actualiser">
+          <RefreshCw size={18} />
+        </button>
+      </div>
+
+      {/* KPIs */}
+      <div className={styles.kpiGrid}>
+        <div className={styles.kpiCard}>
+          <div className={styles.kpiIcon} style={{ background: 'rgba(34, 197, 94, 0.15)', color: '#22c55e' }}>
+            <Activity size={24} />
+          </div>
+          <div className={styles.kpiContent}>
+            <span className={styles.kpiValue}>{activeSessions.length}</span>
+            <span className={styles.kpiLabel}>En train de regarder</span>
+          </div>
+        </div>
+
+        <div className={styles.kpiCard}>
+          <div className={styles.kpiIcon} style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6' }}>
+            <Users size={24} />
+          </div>
+          <div className={styles.kpiContent}>
+            <span className={styles.kpiValue}>{data?.stats.uniqueViewers || 0}</span>
+            <span className={styles.kpiLabel}>Spectateurs (24h)</span>
+          </div>
+        </div>
+
+        <div className={styles.kpiCard}>
+          <div className={styles.kpiIcon} style={{ background: 'rgba(168, 85, 247, 0.15)', color: '#a855f7' }}>
+            <Eye size={24} />
+          </div>
+          <div className={styles.kpiContent}>
+            <span className={styles.kpiValue}>{data?.stats.totalWatches || 0}</span>
+            <span className={styles.kpiLabel}>Visionnages (24h)</span>
+          </div>
+        </div>
+
+        <div className={styles.kpiCard}>
+          <div className={styles.kpiIcon} style={{ background: 'rgba(249, 115, 22, 0.15)', color: '#f97316' }}>
+            <Clock size={24} />
+          </div>
+          <div className={styles.kpiContent}>
+            <span className={styles.kpiValue}>{formatDuration((data?.stats.totalWatchTimeMinutes || 0) * 60)}</span>
+            <span className={styles.kpiLabel}>Temps total (24h)</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Sessions actives */}
+      <div className={styles.resultCard}>
+        <h3>
+          <span className={styles.statusDot + ' ' + styles.active} style={{ marginRight: '8px' }} />
+          En train de regarder ({activeSessions.length})
+        </h3>
+        
+        {activeSessions.length === 0 ? (
+          <p className={styles.emptyState}>Personne ne regarde en ce moment</p>
+        ) : (
+          <div className={styles.watchingList}>
+            {activeSessions.map((session) => (
+              <div key={session.id} className={styles.watchingItem}>
+                <div className={styles.watchingPoster}>
+                  {session.posterUrl && !session.posterUrl.includes('placeholder') ? (
+                    <Image
+                      src={session.posterUrl}
+                      alt={session.title}
+                      fill
+                      sizes="60px"
+                      style={{ objectFit: 'cover' }}
+                      unoptimized
+                    />
+                  ) : (
+                    <div className={styles.noPoster}>
+                      <Film size={20} />
+                    </div>
+                  )}
+                </div>
+                <div className={styles.watchingInfo}>
+                  <div className={styles.watchingHeader}>
+                    <span className={styles.watchingUser}>{session.userName}</span>
+                    <span className={styles.watchingTime}>{formatTime(session.updatedAt)}</span>
+                  </div>
+                  <span className={styles.watchingTitle}>
+                    {session.title} {session.year && `(${session.year})`}
+                  </span>
+                  <div className={styles.watchingProgress}>
+                    <div className={styles.progressBarContainer}>
+                      <div 
+                        className={styles.progressBarFill}
+                        style={{ width: `${session.progress}%` }}
+                      />
+                    </div>
+                    <span className={styles.watchingPercent}>{session.progress}%</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Sessions récentes (pas actives mais dans les 10 dernières minutes) */}
+      {recentSessions.length > 0 && (
+        <div className={styles.resultCard}>
+          <h3>Récemment en pause ({recentSessions.length})</h3>
+          <div className={styles.watchingList}>
+            {recentSessions.slice(0, 5).map((session) => (
+              <div key={session.id} className={styles.watchingItem} style={{ opacity: 0.7 }}>
+                <div className={styles.watchingPoster}>
+                  {session.posterUrl && !session.posterUrl.includes('placeholder') ? (
+                    <Image
+                      src={session.posterUrl}
+                      alt={session.title}
+                      fill
+                      sizes="60px"
+                      style={{ objectFit: 'cover' }}
+                      unoptimized
+                    />
+                  ) : (
+                    <div className={styles.noPoster}>
+                      <Film size={20} />
+                    </div>
+                  )}
+                </div>
+                <div className={styles.watchingInfo}>
+                  <div className={styles.watchingHeader}>
+                    <span className={styles.watchingUser}>{session.userName}</span>
+                    <span className={styles.watchingTime}>{formatTime(session.updatedAt)}</span>
+                  </div>
+                  <span className={styles.watchingTitle}>
+                    {session.title} {session.year && `(${session.year})`}
+                  </span>
+                  <div className={styles.watchingProgress}>
+                    <div className={styles.progressBarContainer}>
+                      <div 
+                        className={styles.progressBarFill}
+                        style={{ width: `${session.progress}%`, background: 'rgba(255,255,255,0.3)' }}
+                      />
+                    </div>
+                    <span className={styles.watchingPercent}>{session.progress}%</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Historique récent */}
+      {data?.recentHistory && data.recentHistory.length > 0 && (
+        <div className={styles.resultCard}>
+          <h3>Historique des dernières 24h</h3>
+          <div className={styles.historyList}>
+            {data.recentHistory.map((entry) => (
+              <div key={entry.id} className={styles.historyItem}>
+                <div className={styles.historyPoster}>
+                  {entry.posterUrl && !entry.posterUrl.includes('placeholder') ? (
+                    <Image
+                      src={entry.posterUrl}
+                      alt={entry.title}
+                      fill
+                      sizes="40px"
+                      style={{ objectFit: 'cover' }}
+                      unoptimized
+                    />
+                  ) : (
+                    <div className={styles.noPoster}>
+                      <Film size={16} />
+                    </div>
+                  )}
+                </div>
+                <div className={styles.historyInfo}>
+                  <span className={styles.historyUser}>{entry.userName}</span>
+                  <span className={styles.historyTitle}>{entry.title}</span>
+                </div>
+                <div className={styles.historyMeta}>
+                  <span className={styles.historyTime}>{formatTime(entry.watchedAt)}</span>
+                  {entry.completed && (
+                    <span className={styles.historyCompleted}>
+                      <Check size={14} /> Terminé
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Films populaires aujourd'hui */}
+      {data?.stats.mostWatchedToday && data.stats.mostWatchedToday.length > 0 && (
+        <div className={styles.resultCard}>
+          <h3>Top films du jour</h3>
+          <div className={styles.topFilmsList}>
+            {data.stats.mostWatchedToday.map((film, index) => (
+              <div key={film.mediaId} className={styles.topFilmItem}>
+                <span className={styles.topFilmRank}>{index + 1}</span>
+                <div className={styles.topFilmPoster}>
+                  {film.posterUrl && !film.posterUrl.includes('placeholder') ? (
+                    <Image
+                      src={film.posterUrl}
+                      alt={film.title}
+                      fill
+                      sizes="40px"
+                      style={{ objectFit: 'cover' }}
+                      unoptimized
+                    />
+                  ) : (
+                    <div className={styles.noPoster}>
+                      <Film size={16} />
+                    </div>
+                  )}
+                </div>
+                <span className={styles.topFilmTitle}>{film.title}</span>
+                <span className={styles.topFilmCount}>{film.watchCount} visionnage{film.watchCount > 1 ? 's' : ''}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Info */}
+      <div className={styles.infoBox}>
+        <h4>💡 À propos du suivi</h4>
+        <ul>
+          <li><strong>En train de regarder</strong> : Mis à jour dans les 5 dernières minutes</li>
+          <li><strong>Historique</strong> : Enregistré quand un film est terminé (&gt;90%)</li>
+          <li><strong>Anonyme</strong> : Si pas d&apos;utilisateur connecté</li>
+          <li>Les données se rafraîchissent automatiquement toutes les 10 secondes</li>
+        </ul>
+      </div>
     </div>
   )
 }

@@ -2,11 +2,13 @@
  * API Route: Gestion des positions de lecture
  * POST - Sauvegarder la position
  * GET - Récupérer la position d'un film
+ * DELETE - Supprimer la position (film terminé)
+ * 
+ * Supporte le tracking multi-utilisateurs via user_id
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 
-// Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
 import { createSupabaseClient } from '@/lib/supabase'
 
@@ -16,6 +18,7 @@ import { createSupabaseClient } from '@/lib/supabase'
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const mediaId = searchParams.get('mediaId')
+  const userId = searchParams.get('userId')
 
   if (!mediaId) {
     return NextResponse.json({ error: 'mediaId requis' }, { status: 400 })
@@ -24,29 +27,37 @@ export async function GET(request: NextRequest) {
   try {
     const supabase = createSupabaseClient()
     
-    const { data, error } = await supabase
+    let query = supabase
       .from('playback_positions')
-      .select('position, duration, updated_at')
+      .select('position, duration, updated_at, user_id')
       .eq('media_id', mediaId)
-      .single()
+    
+    // Filtrer par utilisateur si fourni
+    if (userId) {
+      query = query.eq('user_id', userId)
+    }
+    
+    const { data, error } = await query.maybeSingle()
 
     if (error) {
-      // Pas de position sauvegardée = pas une erreur
-      if (error.code === 'PGRST116') {
-        return NextResponse.json({ currentTime: null })
-      }
       throw error
+    }
+
+    if (!data) {
+      return NextResponse.json({ currentTime: null })
     }
 
     return NextResponse.json({
       currentTime: data.position,
       duration: data.duration,
-      lastWatched: data.updated_at
+      lastWatched: data.updated_at,
+      userId: data.user_id
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue'
     console.error('[API] Erreur récupération position:', error)
     return NextResponse.json(
-      { error: 'Erreur serveur', details: error.message },
+      { error: 'Erreur serveur', details: errorMessage },
       { status: 500 }
     )
   }
@@ -58,7 +69,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { mediaId, currentTime, position, duration } = body
+    const { mediaId, currentTime, position, duration, userId } = body
     
     // Accepter soit currentTime soit position
     const time = currentTime !== undefined ? currentTime : position
@@ -72,12 +83,48 @@ export async function POST(request: NextRequest) {
 
     const supabase = createSupabaseClient()
 
-    // Si time est 0, supprimer l'entrée (film terminé)
-    if (time === 0) {
-      const { error: deleteError } = await supabase
+    // Si le film est terminé (> 95%), enregistrer dans l'historique et supprimer la position
+    if (duration && time >= duration * 0.95) {
+      // Enregistrer dans l'historique
+      if (userId) {
+        await supabase
+          .from('watch_history')
+          .insert({
+            user_id: userId,
+            media_id: mediaId,
+            media_type: 'movie',
+            watch_duration: Math.round(time),
+            completed: true
+          })
+      }
+      
+      // Supprimer la position de lecture
+      let deleteQuery = supabase
         .from('playback_positions')
         .delete()
         .eq('media_id', mediaId)
+      
+      if (userId) {
+        deleteQuery = deleteQuery.eq('user_id', userId)
+      }
+      
+      await deleteQuery
+      
+      return NextResponse.json({ success: true, action: 'completed', recorded: !!userId })
+    }
+
+    // Si time est 0, supprimer l'entrée
+    if (time === 0) {
+      let deleteQuery = supabase
+        .from('playback_positions')
+        .delete()
+        .eq('media_id', mediaId)
+      
+      if (userId) {
+        deleteQuery = deleteQuery.eq('user_id', userId)
+      }
+      
+      const { error: deleteError } = await deleteQuery
       
       if (deleteError && deleteError.code !== 'PGRST116') {
         throw deleteError
@@ -87,16 +134,23 @@ export async function POST(request: NextRequest) {
     }
 
     // Upsert: créer ou mettre à jour
+    const upsertData: Record<string, unknown> = {
+      media_id: mediaId,
+      media_type: 'movie',
+      position: time,
+      duration: duration || null,
+      updated_at: new Date().toISOString()
+    }
+    
+    // Ajouter user_id si fourni
+    if (userId) {
+      upsertData.user_id = userId
+    }
+
     const { data, error } = await supabase
       .from('playback_positions')
-      .upsert({
-        media_id: mediaId,
-        media_type: 'movie',
-        position: time,
-        duration: duration || null,
-        updated_at: new Date().toISOString()
-      }, {
-        onConflict: 'media_id' // Contrainte unique sur media_id uniquement
+      .upsert(upsertData, {
+        onConflict: userId ? 'media_id,user_id' : 'media_id'
       })
       .select()
 
@@ -108,10 +162,11 @@ export async function POST(request: NextRequest) {
       success: true,
       data
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue'
     console.error('[API] Erreur sauvegarde position:', error)
     return NextResponse.json(
-      { error: 'Erreur serveur', details: error.message },
+      { error: 'Erreur serveur', details: errorMessage },
       { status: 500 }
     )
   }
@@ -123,6 +178,8 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const mediaId = searchParams.get('mediaId')
+  const userId = searchParams.get('userId')
+  const recordHistory = searchParams.get('recordHistory') === 'true'
 
   if (!mediaId) {
     return NextResponse.json({ error: 'mediaId requis' }, { status: 400 })
@@ -131,22 +188,54 @@ export async function DELETE(request: NextRequest) {
   try {
     const supabase = createSupabaseClient()
     
-    const { error } = await supabase
+    // Enregistrer dans l'historique si demandé
+    if (recordHistory && userId) {
+      // Récupérer la position actuelle pour la durée regardée
+      let posQuery = supabase
+        .from('playback_positions')
+        .select('position, duration')
+        .eq('media_id', mediaId)
+      
+      if (userId) {
+        posQuery = posQuery.eq('user_id', userId)
+      }
+      
+      const { data: posData } = await posQuery.maybeSingle()
+      
+      await supabase
+        .from('watch_history')
+        .insert({
+          user_id: userId,
+          media_id: mediaId,
+          media_type: 'movie',
+          watch_duration: posData?.position ? Math.round(posData.position) : null,
+          completed: posData?.duration ? posData.position >= posData.duration * 0.9 : false
+        })
+    }
+    
+    // Supprimer la position
+    let deleteQuery = supabase
       .from('playback_positions')
       .delete()
       .eq('media_id', mediaId)
+    
+    if (userId) {
+      deleteQuery = deleteQuery.eq('user_id', userId)
+    }
+    
+    const { error } = await deleteQuery
 
     if (error) {
       throw error
     }
 
     return NextResponse.json({ success: true })
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue'
     console.error('[API] Erreur suppression position:', error)
     return NextResponse.json(
-      { error: 'Erreur serveur', details: error.message },
+      { error: 'Erreur serveur', details: errorMessage },
       { status: 500 }
     )
   }
 }
-
