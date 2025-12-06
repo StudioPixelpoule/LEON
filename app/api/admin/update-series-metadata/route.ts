@@ -12,11 +12,17 @@ export const dynamic = 'force-dynamic'
 const TMDB_API_KEY = process.env.TMDB_API_KEY
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3'
 
-// Utiliser le service role pour bypass RLS
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+// Créer le client Supabase admin de façon lazy (au runtime, pas au build)
+function getSupabaseAdmin() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
+  
+  if (!url || !key) {
+    throw new Error('SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY manquant')
+  }
+  
+  return createClient(url, key)
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -67,6 +73,7 @@ export async function POST(request: NextRequest) {
       updated_at: new Date().toISOString()
     }
 
+    const supabaseAdmin = getSupabaseAdmin()
     const { error: updateError } = await supabaseAdmin
       .from('series')
       .update(updateData)
