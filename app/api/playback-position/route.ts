@@ -136,7 +136,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Upsert: créer ou mettre à jour
-    const upsertData: Record<string, unknown> = {
+    // Note: On utilise une approche différente pour gérer le cas sans userId
+    // car la contrainte unique est sur (media_id, user_id) avec COALESCE
+    
+    const supabaseData: Record<string, unknown> = {
       media_id: mediaId,
       media_type: mediaType,
       position: time,
@@ -146,15 +149,55 @@ export async function POST(request: NextRequest) {
     
     // Ajouter user_id si fourni
     if (userId) {
-      upsertData.user_id = userId
+      supabaseData.user_id = userId
     }
 
-    const { data, error } = await supabase
+    // Vérifier si une entrée existe déjà
+    let existingQuery = supabase
       .from('playback_positions')
-      .upsert(upsertData, {
-        onConflict: userId ? 'media_id,user_id' : 'media_id'
-      })
-      .select()
+      .select('id')
+      .eq('media_id', mediaId)
+    
+    if (userId) {
+      existingQuery = existingQuery.eq('user_id', userId)
+    } else {
+      existingQuery = existingQuery.is('user_id', null)
+    }
+    
+    const { data: existing } = await existingQuery.maybeSingle()
+    
+    let data, error
+    
+    if (existing) {
+      // Update
+      let updateQuery = supabase
+        .from('playback_positions')
+        .update({
+          position: time,
+          duration: duration || null,
+          media_type: mediaType,
+          updated_at: new Date().toISOString()
+        })
+        .eq('media_id', mediaId)
+      
+      if (userId) {
+        updateQuery = updateQuery.eq('user_id', userId)
+      } else {
+        updateQuery = updateQuery.is('user_id', null)
+      }
+      
+      const result = await updateQuery.select()
+      data = result.data
+      error = result.error
+    } else {
+      // Insert
+      const result = await supabase
+        .from('playback_positions')
+        .insert(supabaseData)
+        .select()
+      data = result.data
+      error = result.error
+    }
 
     if (error) {
       throw error
