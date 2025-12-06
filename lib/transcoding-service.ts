@@ -645,6 +645,89 @@ class TranscodingService {
   }
 
   /**
+   * Analyser un fichier pour obtenir les infos sur les pistes audio et sous-titres
+   */
+  private async probeStreams(filepath: string): Promise<{
+    audioCount: number
+    subtitleCount: number
+    audios: Array<{ index: number; language: string; title?: string }>
+    subtitles: Array<{ index: number; language: string; title?: string; codec: string }>
+  }> {
+    try {
+      const { stdout } = await execAsync(
+        `ffprobe -v quiet -print_format json -show_streams "${filepath}"`
+      )
+      const data = JSON.parse(stdout)
+      const streams = data.streams || []
+      
+      const audios = streams
+        .filter((s: any) => s.codec_type === 'audio')
+        .map((s: any, idx: number) => ({
+          index: idx,
+          language: s.tags?.language || 'und',
+          title: s.tags?.title
+        }))
+      
+      const subtitles = streams
+        .filter((s: any) => s.codec_type === 'subtitle')
+        .map((s: any, idx: number) => ({
+          index: idx,
+          language: s.tags?.language || 'und',
+          title: s.tags?.title,
+          codec: s.codec_name
+        }))
+      
+      return {
+        audioCount: audios.length,
+        subtitleCount: subtitles.length,
+        audios,
+        subtitles
+      }
+    } catch (error) {
+      console.error('[TRANSCODE] Erreur probe streams:', error)
+      return { audioCount: 0, subtitleCount: 0, audios: [], subtitles: [] }
+    }
+  }
+
+  /**
+   * Extraire les sous-titres en fichiers WebVTT
+   */
+  private async extractSubtitles(
+    filepath: string,
+    outputDir: string,
+    subtitles: Array<{ index: number; language: string; title?: string; codec: string }>
+  ): Promise<void> {
+    console.log(`[TRANSCODE] Extraction de ${subtitles.length} sous-titres...`)
+    
+    for (const sub of subtitles) {
+      const outputFile = path.join(outputDir, `sub_${sub.language}_${sub.index}.vtt`)
+      
+      try {
+        // Convertir en WebVTT
+        await execAsync(
+          `ffmpeg -y -i "${filepath}" -map 0:s:${sub.index} -c:s webvtt "${outputFile}"`
+        )
+        console.log(`[TRANSCODE] ✅ Sous-titre extrait: ${sub.language}`)
+      } catch (error) {
+        // Certains codecs (PGS, DVB) ne peuvent pas être convertis en WebVTT
+        console.warn(`[TRANSCODE] ⚠️ Impossible d'extraire sous-titre ${sub.language} (${sub.codec}):`, error)
+      }
+    }
+    
+    // Créer un fichier JSON avec la liste des sous-titres disponibles
+    const subsInfo = subtitles.map(sub => ({
+      language: sub.language,
+      title: sub.title,
+      file: `sub_${sub.language}_${sub.index}.vtt`
+    }))
+    
+    await writeFile(
+      path.join(outputDir, 'subtitles.json'),
+      JSON.stringify(subsInfo, null, 2)
+    )
+  }
+
+  /**
    * Transcoder un fichier
    */
   private async transcodeFile(job: TranscodeJob): Promise<void> {
@@ -667,11 +750,36 @@ class TranscodingService {
     const hardware = await detectHardwareCapabilities()
     const playlistPath = path.join(job.outputDir, 'playlist.m3u8')
     
+    // 🔊 Étape 1: Analyser le fichier pour les pistes audio et sous-titres
+    const streamInfo = await this.probeStreams(job.filepath)
+    console.log(`[TRANSCODE] Pistes détectées: ${streamInfo.audioCount} audio, ${streamInfo.subtitleCount} sous-titres`)
+    
+    // 🔊 Étape 2: Extraire les sous-titres en WebVTT (si présents)
+    if (streamInfo.subtitleCount > 0) {
+      await this.extractSubtitles(job.filepath, job.outputDir, streamInfo.subtitles)
+    }
+    
+    // 🔊 Étape 3: Construire les arguments FFmpeg avec toutes les pistes audio
+    const audioMappings: string[] = []
+    const audioCodecs: string[] = []
+    
+    // Mapper toutes les pistes audio
+    for (let i = 0; i < streamInfo.audioCount; i++) {
+      audioMappings.push('-map', `0:a:${i}`)
+      audioCodecs.push('-c:a:' + i, 'aac', '-b:a:' + i, '192k', '-ac:' + i, '2')
+    }
+    
+    // Si pas de piste audio, mapper optionnellement
+    if (streamInfo.audioCount === 0) {
+      audioMappings.push('-map', '0:a?')
+      audioCodecs.push('-c:a', 'aac', '-b:a', '192k', '-ac', '2')
+    }
+    
     const ffmpegArgs = [
       ...hardware.decoderArgs,
       '-i', job.filepath,
       '-map', '0:v:0',
-      '-map', '0:a?',
+      ...audioMappings,
       ...(hardware.acceleration === 'vaapi' 
         ? [] 
         : ['-vf', 'format=yuv420p']),
@@ -680,9 +788,7 @@ class TranscodingService {
       '-keyint_min', '24',
       '-sc_threshold', '0',
       '-force_key_frames', `expr:gte(t,n_forced*${SEGMENT_DURATION})`,
-      '-c:a', 'aac',
-      '-b:a', '192k',
-      '-ac', '2',
+      ...audioCodecs,
       '-ar', '48000',
       '-f', 'hls',
       '-hls_time', String(SEGMENT_DURATION),
