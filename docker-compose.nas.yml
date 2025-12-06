@@ -22,6 +22,8 @@ services:
     volumes:
       # Médias en lecture seule
       - /volume1/docker/leon/media/films:/leon/media/films:ro
+      # Séries TV en lecture seule
+      - /volume1/docker/leon/media/series:/leon/media/series:ro
       # Cache de transcodage HLS
       - /volume1/docker/leon/cache:/tmp/leon-hls
       # Pré-transcodage persistant
@@ -32,6 +34,7 @@ services:
     environment:
       - NODE_ENV=production
       - PCLOUD_LOCAL_PATH=/leon/media/films
+      - PCLOUD_SERIES_PATH=/leon/media/series
       - HLS_TEMP_DIR=/tmp/leon-hls
       - TRANSCODED_DIR=/leon/transcoded
       - MAX_OLD_SPACE_SIZE=4096

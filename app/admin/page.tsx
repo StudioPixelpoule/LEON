@@ -83,92 +83,173 @@ export default function AdminPageV2() {
 }
 
 /**
- * Section: Scanner les films
+ * Section: Scanner les médias (Films + Séries)
  */
 function ScanSection() {
-  const [scanning, setScanning] = useState(false)
-  const [result, setResult] = useState<any>(null)
+  const [scanningFilms, setScanningFilms] = useState(false)
+  const [scanningSeries, setScanningSeries] = useState(false)
+  const [filmResult, setFilmResult] = useState<any>(null)
+  const [seriesResult, setSeriesResult] = useState<any>(null)
 
-  async function handleScan() {
+  async function handleScanFilms() {
     try {
-      setScanning(true)
-      setResult(null)
+      setScanningFilms(true)
+      setFilmResult(null)
       
       const response = await fetch('/api/scan', {
         method: 'POST'
       })
       
       if (!response.ok) {
-        throw new Error('Erreur scan')
+        throw new Error('Erreur scan films')
       }
       
       const data = await response.json()
-      setResult(data)
+      setFilmResult(data)
     } catch (error) {
       console.error('Erreur:', error)
-      alert('Erreur lors du scan')
+      alert('Erreur lors du scan des films')
     } finally {
-      setScanning(false)
+      setScanningFilms(false)
+    }
+  }
+
+  async function handleScanSeries() {
+    try {
+      setScanningSeries(true)
+      setSeriesResult(null)
+      
+      const response = await fetch('/api/scan-series', {
+        method: 'POST'
+      })
+      
+      if (!response.ok) {
+        throw new Error('Erreur scan séries')
+      }
+      
+      const data = await response.json()
+      setSeriesResult(data)
+    } catch (error) {
+      console.error('Erreur:', error)
+      alert('Erreur lors du scan des séries')
+    } finally {
+      setScanningSeries(false)
     }
   }
 
   return (
     <div className={styles.section}>
-      <h2 className={styles.sectionTitle}>Scanner les films</h2>
+      <h2 className={styles.sectionTitle}>Scanner les médias</h2>
       <p className={styles.sectionDesc}>
-        Analyse le dossier <code>/films</code> pour détecter les nouveaux films
+        Analyse les dossiers pour détecter les nouveaux films et séries
       </p>
 
-      <div className={styles.actions}>
-        <button
-          className={styles.primaryButton}
-          onClick={handleScan}
-          disabled={scanning}
-        >
-          {scanning ? (
-            <>
-              <RefreshCw size={16} className={styles.spinning} />
-              Scan en cours...
-            </>
-          ) : (
-            <>
-              <Search size={16} />
-              Lancer le scan
-            </>
-          )}
-        </button>
-      </div>
+      {/* Films */}
+      <div className={styles.scanBlock}>
+        <div className={styles.scanHeader}>
+          <Film size={20} />
+          <h3>Films</h3>
+          <code>/media/films</code>
+        </div>
+        <div className={styles.actions}>
+          <button
+            className={styles.primaryButton}
+            onClick={handleScanFilms}
+            disabled={scanningFilms}
+          >
+            {scanningFilms ? (
+              <>
+                <RefreshCw size={16} className={styles.spinning} />
+                Scan en cours...
+              </>
+            ) : (
+              <>
+                <Search size={16} />
+                Scanner les films
+              </>
+            )}
+          </button>
+        </div>
 
-      {result && (
-        <div className={styles.resultCard}>
-          <h3>Scan terminé</h3>
-          <div className={styles.stats}>
-            <div className={styles.statItem}>
-              <span className={styles.statValue}>{result.stats?.total || 0}</span>
-              <span className={styles.statLabel}>Fichiers analysés</span>
-            </div>
-            <div className={styles.statItem}>
-              <span className={styles.statValue}>{result.stats?.new || 0}</span>
-              <span className={styles.statLabel}>Nouveaux films</span>
-            </div>
-            <div className={styles.statItem}>
-              <span className={styles.statValue}>{result.stats?.updated || 0}</span>
-              <span className={styles.statLabel}>Mis à jour</span>
-            </div>
-            <div className={styles.statItem}>
-              <span className={styles.statValue}>{result.stats?.skipped || 0}</span>
-              <span className={styles.statLabel}>Ignorés</span>
+        {filmResult && (
+          <div className={styles.resultCard}>
+            <h4>Scan films terminé</h4>
+            <div className={styles.stats}>
+              <div className={styles.statItem}>
+                <span className={styles.statValue}>{filmResult.stats?.total || 0}</span>
+                <span className={styles.statLabel}>Analysés</span>
+              </div>
+              <div className={styles.statItem}>
+                <span className={styles.statValue}>{filmResult.stats?.new || 0}</span>
+                <span className={styles.statLabel}>Nouveaux</span>
+              </div>
+              <div className={styles.statItem}>
+                <span className={styles.statValue}>{filmResult.stats?.updated || 0}</span>
+                <span className={styles.statLabel}>Mis à jour</span>
+              </div>
             </div>
           </div>
+        )}
+      </div>
+
+      {/* Séries */}
+      <div className={styles.scanBlock}>
+        <div className={styles.scanHeader}>
+          <Eye size={20} />
+          <h3>Séries TV</h3>
+          <code>/media/series</code>
         </div>
-      )}
+        <div className={styles.actions}>
+          <button
+            className={styles.primaryButton}
+            onClick={handleScanSeries}
+            disabled={scanningSeries}
+          >
+            {scanningSeries ? (
+              <>
+                <RefreshCw size={16} className={styles.spinning} />
+                Scan en cours...
+              </>
+            ) : (
+              <>
+                <Search size={16} />
+                Scanner les séries
+              </>
+            )}
+          </button>
+        </div>
+
+        {seriesResult && (
+          <div className={styles.resultCard}>
+            <h4>Scan séries terminé</h4>
+            <div className={styles.stats}>
+              <div className={styles.statItem}>
+                <span className={styles.statValue}>{seriesResult.stats?.totalSeries || 0}</span>
+                <span className={styles.statLabel}>Séries</span>
+              </div>
+              <div className={styles.statItem}>
+                <span className={styles.statValue}>{seriesResult.stats?.newSeries || 0}</span>
+                <span className={styles.statLabel}>Nouvelles</span>
+              </div>
+              <div className={styles.statItem}>
+                <span className={styles.statValue}>{seriesResult.stats?.totalEpisodes || 0}</span>
+                <span className={styles.statLabel}>Épisodes</span>
+              </div>
+              <div className={styles.statItem}>
+                <span className={styles.statValue}>{seriesResult.stats?.newEpisodes || 0}</span>
+                <span className={styles.statLabel}>Nouveaux ép.</span>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
 
 /**
  * Section: Gestion des affiches
- * Version unifiée avec filtre pour tous les films ou seulement ceux à valider
+ * Version unifiée avec onglets Films / Séries
  */
 interface MediaToValidate {
   id: string
@@ -179,35 +260,60 @@ interface MediaToValidate {
   file_path: string
 }
 
+interface SeriesData {
+  id: string
+  title: string
+  poster_url?: string
+  tmdb_id?: number
+  first_air_date?: string
+  seasons?: { season: number; episodeCount: number }[]
+}
+
 interface TMDBResult {
   id: number
   title: string
+  name?: string // Pour les séries TV
   release_date: string
+  first_air_date?: string // Pour les séries TV
   poster_path: string
   overview: string
   vote_average: number
 }
 
 type PosterFilter = 'all' | 'to-validate'
+type MediaTab = 'films' | 'series'
 
 function PostersSection() {
+  // Onglet actif (Films / Séries)
+  const [mediaTab, setMediaTab] = useState<MediaTab>('films')
+  
+  // Films
   const [allMovies, setAllMovies] = useState<MediaToValidate[]>([])
   const [filteredMovies, setFilteredMovies] = useState<MediaToValidate[]>([])
+  
+  // Séries
+  const [allSeries, setAllSeries] = useState<SeriesData[]>([])
+  const [filteredSeries, setFilteredSeries] = useState<SeriesData[]>([])
+  
+  // États partagés
   const [loading, setLoading] = useState(true)
   const [posterFilter, setPosterFilter] = useState<PosterFilter>('to-validate')
   const [searchFilter, setSearchFilter] = useState('')
   const [selectedMovie, setSelectedMovie] = useState<MediaToValidate | null>(null)
+  const [selectedSeries, setSelectedSeries] = useState<SeriesData | null>(null)
   const [searching, setSearching] = useState(false)
   const [suggestions, setSuggestions] = useState<TMDBResult[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [saving, setSaving] = useState(false)
 
+  // Charger au montage
   useEffect(() => {
     loadAllMovies()
+    loadAllSeries()
   }, [])
 
+  // Filtrage films
   useEffect(() => {
-    // Filtrer en fonction du filtre poster (tous ou à valider)
     let movies = allMovies
     
     if (posterFilter === 'to-validate') {
@@ -218,7 +324,6 @@ function PostersSection() {
       )
     }
     
-    // Puis filtrer par recherche
     if (searchFilter.trim() === '') {
       setFilteredMovies(movies)
     } else {
@@ -228,6 +333,28 @@ function PostersSection() {
       setFilteredMovies(filtered)
     }
   }, [searchFilter, allMovies, posterFilter])
+
+  // Filtrage séries
+  useEffect(() => {
+    let series = allSeries
+    
+    if (posterFilter === 'to-validate') {
+      series = allSeries.filter((s: SeriesData) => 
+        !s.poster_url || 
+        s.poster_url.includes('placeholder') ||
+        !s.tmdb_id
+      )
+    }
+    
+    if (searchFilter.trim() === '') {
+      setFilteredSeries(series)
+    } else {
+      const filtered = series.filter(s => 
+        s.title.toLowerCase().includes(searchFilter.toLowerCase())
+      )
+      setFilteredSeries(filtered)
+    }
+  }, [searchFilter, allSeries, posterFilter])
 
   async function loadAllMovies() {
     try {
@@ -245,6 +372,22 @@ function PostersSection() {
       console.error('Erreur chargement films:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function loadAllSeries() {
+    try {
+      const response = await fetch('/api/series/list')
+      const data = await response.json()
+      
+      if (data.success) {
+        const sorted = (data.series || []).sort((a: SeriesData, b: SeriesData) => 
+          a.title.localeCompare(b.title)
+        )
+        setAllSeries(sorted)
+      }
+    } catch (error) {
+      console.error('Erreur chargement séries:', error)
     }
   }
 
@@ -320,16 +463,44 @@ function PostersSection() {
     )
   }
 
-  const toValidateCount = allMovies.filter(m => 
+  const toValidateMoviesCount = allMovies.filter(m => 
     !m.poster_url || m.poster_url.includes('placeholder') || !m.tmdb_id
+  ).length
+
+  const toValidateSeriesCount = allSeries.filter(s => 
+    !s.poster_url || s.poster_url.includes('placeholder') || !s.tmdb_id
   ).length
 
   return (
     <div className={styles.section}>
       <h2 className={styles.sectionTitle}>Gestion des affiches</h2>
       <p className={styles.sectionDesc}>
-        Valider ou modifier les affiches de vos films
+        Valider ou modifier les affiches de vos médias
       </p>
+
+      {/* Onglets Films / Séries */}
+      <div className={styles.mediaTabs}>
+        <button
+          className={`${styles.mediaTab} ${mediaTab === 'films' ? styles.active : ''}`}
+          onClick={() => setMediaTab('films')}
+        >
+          <Film size={18} />
+          Films ({allMovies.length})
+          {toValidateMoviesCount > 0 && (
+            <span className={styles.tabBadge}>{toValidateMoviesCount}</span>
+          )}
+        </button>
+        <button
+          className={`${styles.mediaTab} ${mediaTab === 'series' ? styles.active : ''}`}
+          onClick={() => setMediaTab('series')}
+        >
+          <Eye size={18} />
+          Séries ({allSeries.length})
+          {toValidateSeriesCount > 0 && (
+            <span className={styles.tabBadge}>{toValidateSeriesCount}</span>
+          )}
+        </button>
+      </div>
 
       {/* Filtres et barre de recherche */}
       <div className={styles.filterBar}>
@@ -339,14 +510,14 @@ function PostersSection() {
             onClick={() => setPosterFilter('to-validate')}
           >
             <X size={16} />
-            À valider ({toValidateCount})
+            À valider ({mediaTab === 'films' ? toValidateMoviesCount : toValidateSeriesCount})
           </button>
           <button
             className={`${styles.filterButton} ${posterFilter === 'all' ? styles.active : ''}`}
             onClick={() => setPosterFilter('all')}
           >
             <Filter size={16} />
-            Tous les films ({allMovies.length})
+            {mediaTab === 'films' ? `Tous les films (${allMovies.length})` : `Toutes les séries (${allSeries.length})`}
           </button>
         </div>
         
@@ -354,7 +525,7 @@ function PostersSection() {
           <Search size={18} className={styles.searchIcon} />
           <input
             type="text"
-            placeholder="Rechercher un film..."
+            placeholder={mediaTab === 'films' ? "Rechercher un film..." : "Rechercher une série..."}
             value={searchFilter}
             onChange={(e) => setSearchFilter(e.target.value)}
             className={styles.searchInput}
@@ -370,21 +541,27 @@ function PostersSection() {
         </div>
         
         <div className={styles.resultCount}>
-          {filteredMovies.length} film{filteredMovies.length > 1 ? 's' : ''}
+          {mediaTab === 'films' 
+            ? `${filteredMovies.length} film${filteredMovies.length > 1 ? 's' : ''}`
+            : `${filteredSeries.length} série${filteredSeries.length > 1 ? 's' : ''}`
+          }
         </div>
       </div>
 
-      {/* Message si aucun film à valider */}
-      {posterFilter === 'to-validate' && filteredMovies.length === 0 && (
+      {/* Message si aucun élément à valider */}
+      {posterFilter === 'to-validate' && (
+        (mediaTab === 'films' && filteredMovies.length === 0) ||
+        (mediaTab === 'series' && filteredSeries.length === 0)
+      ) && (
         <div className={styles.successState}>
           <Check size={64} style={{ color: '#10b981' }} />
-          <h3>Tous les films sont validés ! 🎉</h3>
-          <p>Aucun film n&apos;a besoin de validation de poster.</p>
+          <h3>{mediaTab === 'films' ? 'Tous les films sont validés ! 🎉' : 'Toutes les séries sont validées ! 🎉'}</h3>
+          <p>Aucun {mediaTab === 'films' ? 'film' : 'série'} n&apos;a besoin de validation de poster.</p>
         </div>
       )}
 
       {/* Grille de films */}
-      {filteredMovies.length > 0 && (
+      {mediaTab === 'films' && filteredMovies.length > 0 && (
         <div className={styles.moviesGrid}>
           {filteredMovies.map((movie) => {
             const needsValidation = !movie.poster_url || movie.poster_url.includes('placeholder') || !movie.tmdb_id
@@ -423,6 +600,67 @@ function PostersSection() {
                 <div className={styles.movieCardInfo}>
                   <h4 className={styles.movieCardTitle}>{movie.title}</h4>
                   {movie.year && <p className={styles.movieCardYear}>{movie.year}</p>}
+                </div>
+                <div className={styles.editOverlay}>
+                  <Edit3 size={24} />
+                  <span>{needsValidation ? 'Valider l\'affiche' : 'Modifier l\'affiche'}</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Grille de séries */}
+      {mediaTab === 'series' && filteredSeries.length > 0 && (
+        <div className={styles.moviesGrid}>
+          {filteredSeries.map((series) => {
+            const needsValidation = !series.poster_url || series.poster_url.includes('placeholder') || !series.tmdb_id
+            const seasonCount = series.seasons?.length || 0
+            
+            return (
+              <div 
+                key={series.id}
+                className={styles.movieCard}
+                onClick={() => {
+                  setSelectedSeries(series)
+                  setSearchQuery(series.title)
+                }}
+              >
+                <div className={styles.movieCardPoster}>
+                  {series.poster_url && !series.poster_url.includes('placeholder') ? (
+                    <Image
+                      src={series.poster_url}
+                      alt={series.title}
+                      fill
+                      sizes="200px"
+                      style={{ objectFit: 'cover' }}
+                      unoptimized
+                    />
+                  ) : (
+                    <div className={styles.noPoster}>
+                      <ImageIcon size={32} />
+                    </div>
+                  )}
+                  {needsValidation && (
+                    <div className={styles.validationBadge}>
+                      <X size={16} />
+                      À valider
+                    </div>
+                  )}
+                  {seasonCount > 0 && (
+                    <div className={styles.seasonBadge}>
+                      {seasonCount} saison{seasonCount > 1 ? 's' : ''}
+                    </div>
+                  )}
+                </div>
+                <div className={styles.movieCardInfo}>
+                  <h4 className={styles.movieCardTitle}>{series.title}</h4>
+                  {series.first_air_date && (
+                    <p className={styles.movieCardYear}>
+                      {new Date(series.first_air_date).getFullYear()}
+                    </p>
+                  )}
                 </div>
                 <div className={styles.editOverlay}>
                   <Edit3 size={24} />
