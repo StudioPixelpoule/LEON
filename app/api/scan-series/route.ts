@@ -3,7 +3,7 @@
  * POST /api/scan-series
  * 
  * Structure attendue:
- * /Users/lionelvernay/pCloud Drive/Series/
+ * /leon/media/series/
  *   ├── Breaking Bad/
  *   │   ├── Season 1/
  *   │   │   ├── Breaking Bad S01E01.mkv
@@ -13,10 +13,10 @@
  *   └── Game of Thrones/
  *       └── Season 1/
  *           └── GOT S01E01.mkv
+ */
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
- */
 
 import { NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
