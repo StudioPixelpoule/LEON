@@ -1134,18 +1134,420 @@ function TranscodeSection() {
 /**
  * Section: Statistiques globales
  */
+interface DashboardStats {
+  library: {
+    totalMovies: number
+    totalSeries: number
+    totalEpisodes: number
+    totalDurationMinutes: number
+    averageDurationMinutes: number
+  }
+  posters: {
+    withPosters: number
+    withoutPosters: number
+    validationRate: number
+  }
+  storage: {
+    mediaFiles: number
+    mediaSizeGB: number
+    transcodedFiles: number
+    transcodedSizeGB: number
+    cacheFiles: number
+    cacheSizeGB: number
+  }
+  transcoding: {
+    completed: number
+    pending: number
+    inProgress: boolean
+  }
+  activity: {
+    recentlyAdded: Array<{
+      id: string
+      title: string
+      poster_url: string | null
+      created_at: string
+    }>
+    inProgress: Array<{
+      id: string
+      title: string
+      poster_url: string | null
+      progress: number
+    }>
+    mostWatched: Array<{
+      id: string
+      title: string
+      poster_url: string | null
+      watchCount: number
+    }>
+  }
+  genres: Array<{
+    name: string
+    count: number
+  }>
+  years: Array<{
+    year: number
+    count: number
+  }>
+}
+
 function StatsSection() {
+  const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    loadStats()
+  }, [])
+
+  async function loadStats() {
+    try {
+      setLoading(true)
+      setError(null)
+      const response = await fetch('/api/stats/dashboard')
+      
+      if (!response.ok) {
+        throw new Error('Erreur chargement stats')
+      }
+      
+      const data = await response.json()
+      setStats(data)
+    } catch (err) {
+      console.error('Erreur chargement stats:', err)
+      setError('Impossible de charger les statistiques')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function formatDuration(minutes: number): string {
+    if (minutes < 60) return `${minutes} min`
+    const hours = Math.floor(minutes / 60)
+    const mins = minutes % 60
+    if (hours < 24) return `${hours}h ${mins}min`
+    const days = Math.floor(hours / 24)
+    const remainingHours = hours % 24
+    return `${days}j ${remainingHours}h`
+  }
+
+  function formatDate(isoString: string): string {
+    return new Date(isoString).toLocaleDateString('fr-FR', {
+      day: 'numeric',
+      month: 'short'
+    })
+  }
+
+  if (loading) {
+    return (
+      <div className={styles.section}>
+        <div className={styles.loadingState}>
+          <RefreshCw size={32} className={styles.spinning} />
+          <p>Chargement des statistiques...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (error || !stats) {
+    return (
+      <div className={styles.section}>
+        <h2 className={styles.sectionTitle}>Statistiques</h2>
+        <div className={styles.errorState}>
+          <p>{error || 'Aucune donnée disponible'}</p>
+          <button className={styles.secondaryButton} onClick={loadStats}>
+            <RefreshCw size={16} />
+            Réessayer
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className={styles.section}>
-      <h2 className={styles.sectionTitle}>Statistiques globales</h2>
-      <p className={styles.sectionDesc}>
-        Vue d&apos;ensemble de la bibliothèque LEON
-      </p>
-      
-      <div className={styles.placeholder}>
-        <p>Section à venir...</p>
-        <p>Films totaux, espace disque, films les plus regardés, etc.</p>
+      <div className={styles.statsHeader}>
+        <div>
+          <h2 className={styles.sectionTitle}>Statistiques</h2>
+          <p className={styles.sectionDesc}>
+            Vue d&apos;ensemble de votre bibliothèque LEON
+          </p>
+        </div>
+        <button className={styles.refreshButton} onClick={loadStats} title="Actualiser">
+          <RefreshCw size={18} />
+        </button>
       </div>
+
+      {/* KPIs principaux */}
+      <div className={styles.kpiGrid}>
+        <div className={styles.kpiCard}>
+          <div className={styles.kpiIcon}>
+            <Film size={24} />
+          </div>
+          <div className={styles.kpiContent}>
+            <span className={styles.kpiValue}>{stats.library.totalMovies}</span>
+            <span className={styles.kpiLabel}>Films</span>
+          </div>
+        </div>
+
+        <div className={styles.kpiCard}>
+          <div className={styles.kpiIcon}>
+            <Play size={24} />
+          </div>
+          <div className={styles.kpiContent}>
+            <span className={styles.kpiValue}>{formatDuration(stats.library.totalDurationMinutes)}</span>
+            <span className={styles.kpiLabel}>Durée totale</span>
+          </div>
+        </div>
+
+        <div className={styles.kpiCard}>
+          <div className={styles.kpiIcon}>
+            <HardDrive size={24} />
+          </div>
+          <div className={styles.kpiContent}>
+            <span className={styles.kpiValue}>{stats.storage.mediaSizeGB} GB</span>
+            <span className={styles.kpiLabel}>Espace média</span>
+          </div>
+        </div>
+
+        <div className={styles.kpiCard}>
+          <div className={styles.kpiIcon}>
+            <Check size={24} />
+          </div>
+          <div className={styles.kpiContent}>
+            <span className={styles.kpiValue}>{stats.posters.validationRate}%</span>
+            <span className={styles.kpiLabel}>Affiches validées</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Graphiques */}
+      <div className={styles.chartsRow}>
+        {/* Répartition par genres */}
+        <div className={styles.chartCard}>
+          <h3>Top Genres</h3>
+          <div className={styles.barChart}>
+            {stats.genres.slice(0, 8).map((genre, index) => {
+              const maxCount = stats.genres[0]?.count || 1
+              const percentage = (genre.count / maxCount) * 100
+              return (
+                <div key={genre.name} className={styles.barItem}>
+                  <span className={styles.barLabel}>{genre.name}</span>
+                  <div className={styles.barTrack}>
+                    <div 
+                      className={styles.barFill}
+                      style={{ 
+                        width: `${percentage}%`,
+                        animationDelay: `${index * 0.05}s`
+                      }}
+                    />
+                  </div>
+                  <span className={styles.barValue}>{genre.count}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Distribution par années */}
+        <div className={styles.chartCard}>
+          <h3>Films par année</h3>
+          <div className={styles.yearChart}>
+            {stats.years.slice(0, 12).map((item) => {
+              const maxCount = Math.max(...stats.years.slice(0, 12).map(y => y.count)) || 1
+              const height = (item.count / maxCount) * 100
+              return (
+                <div key={item.year} className={styles.yearBar}>
+                  <div 
+                    className={styles.yearBarFill}
+                    style={{ height: `${height}%` }}
+                    title={`${item.year}: ${item.count} films`}
+                  />
+                  <span className={styles.yearLabel}>{String(item.year).slice(-2)}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      {/* Détails */}
+      <div className={styles.statsDetailsRow}>
+        {/* Validation des affiches */}
+        <div className={styles.detailCard}>
+          <h3>
+            <ImageIcon size={18} />
+            État des affiches
+          </h3>
+          <div className={styles.progressRing}>
+            <svg viewBox="0 0 100 100">
+              <circle
+                cx="50"
+                cy="50"
+                r="40"
+                fill="none"
+                stroke="rgba(255,255,255,0.1)"
+                strokeWidth="8"
+              />
+              <circle
+                cx="50"
+                cy="50"
+                r="40"
+                fill="none"
+                stroke="#10b981"
+                strokeWidth="8"
+                strokeDasharray={`${stats.posters.validationRate * 2.51} 251`}
+                strokeLinecap="round"
+                transform="rotate(-90 50 50)"
+              />
+            </svg>
+            <div className={styles.progressRingCenter}>
+              <span className={styles.progressRingValue}>{stats.posters.validationRate}%</span>
+              <span className={styles.progressRingLabel}>validées</span>
+            </div>
+          </div>
+          <div className={styles.detailStats}>
+            <div className={styles.detailStatItem}>
+              <span className={styles.detailStatValue}>{stats.posters.withPosters}</span>
+              <span className={styles.detailStatLabel}>Avec affiche</span>
+            </div>
+            <div className={styles.detailStatItem}>
+              <span className={styles.detailStatValue}>{stats.posters.withoutPosters}</span>
+              <span className={styles.detailStatLabel}>À valider</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Transcodage */}
+        <div className={styles.detailCard}>
+          <h3>
+            <Film size={18} />
+            Pré-transcodage
+          </h3>
+          <div className={styles.transcodingStats}>
+            <div className={styles.transcodingMain}>
+              <span className={styles.transcodingValue}>{stats.transcoding.completed}</span>
+              <span className={styles.transcodingLabel}>films prêts</span>
+            </div>
+            <div className={styles.transcodingProgress}>
+              <div className={styles.progressBarContainer}>
+                <div 
+                  className={styles.progressBarFill}
+                  style={{ 
+                    width: `${stats.library.totalMovies > 0 
+                      ? (stats.transcoding.completed / stats.library.totalMovies) * 100 
+                      : 0}%` 
+                  }}
+                />
+              </div>
+              <span className={styles.transcodingPercent}>
+                {stats.library.totalMovies > 0 
+                  ? Math.round((stats.transcoding.completed / stats.library.totalMovies) * 100) 
+                  : 0}%
+              </span>
+            </div>
+          </div>
+          <p className={styles.detailNote}>
+            Films avec seek instantané sur toute la timeline
+          </p>
+        </div>
+
+        {/* Statistiques films */}
+        <div className={styles.detailCard}>
+          <h3>
+            <BarChart3 size={18} />
+            Métriques
+          </h3>
+          <div className={styles.metricsList}>
+            <div className={styles.metricItem}>
+              <span className={styles.metricLabel}>Durée moyenne</span>
+              <span className={styles.metricValue}>{stats.library.averageDurationMinutes} min</span>
+            </div>
+            <div className={styles.metricItem}>
+              <span className={styles.metricLabel}>Fichiers média</span>
+              <span className={styles.metricValue}>{stats.storage.mediaFiles}</span>
+            </div>
+            <div className={styles.metricItem}>
+              <span className={styles.metricLabel}>Films transcodés</span>
+              <span className={styles.metricValue}>{stats.storage.transcodedFiles}</span>
+            </div>
+            <div className={styles.metricItem}>
+              <span className={styles.metricLabel}>En cours de visionnage</span>
+              <span className={styles.metricValue}>{stats.activity.inProgress.length}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Activité récente */}
+      <div className={styles.activitySection}>
+        <h3>Récemment ajoutés</h3>
+        <div className={styles.recentGrid}>
+          {stats.activity.recentlyAdded.slice(0, 8).map((movie) => (
+            <div key={movie.id} className={styles.recentCard}>
+              <div className={styles.recentPoster}>
+                {movie.poster_url && !movie.poster_url.includes('placeholder') ? (
+                  <Image
+                    src={movie.poster_url}
+                    alt={movie.title}
+                    fill
+                    sizes="120px"
+                    style={{ objectFit: 'cover' }}
+                    unoptimized
+                  />
+                ) : (
+                  <div className={styles.noPoster}>
+                    <Film size={24} />
+                  </div>
+                )}
+              </div>
+              <div className={styles.recentInfo}>
+                <span className={styles.recentTitle}>{movie.title}</span>
+                <span className={styles.recentDate}>{formatDate(movie.created_at)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* En cours de visionnage */}
+      {stats.activity.inProgress.length > 0 && (
+        <div className={styles.activitySection}>
+          <h3>En cours de visionnage</h3>
+          <div className={styles.inProgressList}>
+            {stats.activity.inProgress.map((movie) => (
+              <div key={movie.id} className={styles.inProgressItem}>
+                <div className={styles.inProgressPoster}>
+                  {movie.poster_url && !movie.poster_url.includes('placeholder') ? (
+                    <Image
+                      src={movie.poster_url}
+                      alt={movie.title}
+                      fill
+                      sizes="60px"
+                      style={{ objectFit: 'cover' }}
+                      unoptimized
+                    />
+                  ) : (
+                    <div className={styles.noPoster}>
+                      <Film size={16} />
+                    </div>
+                  )}
+                </div>
+                <div className={styles.inProgressInfo}>
+                  <span className={styles.inProgressTitle}>{movie.title}</span>
+                  <div className={styles.inProgressBar}>
+                    <div className={styles.progressBarContainer}>
+                      <div 
+                        className={styles.progressBarFill}
+                        style={{ width: `${movie.progress}%` }}
+                      />
+                    </div>
+                    <span className={styles.inProgressPercent}>{movie.progress}%</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

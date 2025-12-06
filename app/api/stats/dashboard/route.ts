@@ -1,168 +1,301 @@
+/**
+ * API Route: Dashboard Statistiques Complet
+ * GET /api/stats/dashboard - Retourne toutes les stats de la bibliothèque
+ */
+
 import { NextResponse } from 'next/server'
-import { createSupabaseClient } from '@/lib/supabase'
-import { promises as fs } from 'fs'
+import { supabase } from '@/lib/supabase'
+import { readdir, stat } from 'fs/promises'
+import { existsSync } from 'fs'
 import path from 'path'
 
-// Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
+
+const MEDIA_DIR = process.env.MEDIA_DIR || '/leon/media/films'
+const TRANSCODED_DIR = process.env.TRANSCODED_DIR || '/leon/transcoded'
+
+interface DashboardStats {
+  library: {
+    totalMovies: number
+    totalSeries: number
+    totalEpisodes: number
+    totalDurationMinutes: number
+    averageDurationMinutes: number
+  }
+  posters: {
+    withPosters: number
+    withoutPosters: number
+    validationRate: number
+  }
+  storage: {
+    mediaFiles: number
+    mediaSizeGB: number
+    transcodedFiles: number
+    transcodedSizeGB: number
+    cacheFiles: number
+    cacheSizeGB: number
+  }
+  transcoding: {
+    completed: number
+    pending: number
+    inProgress: boolean
+  }
+  activity: {
+    recentlyAdded: Array<{
+      id: string
+      title: string
+      poster_url: string | null
+      created_at: string
+    }>
+    inProgress: Array<{
+      id: string
+      title: string
+      poster_url: string | null
+      progress: number
+    }>
+    mostWatched: Array<{
+      id: string
+      title: string
+      poster_url: string | null
+      watchCount: number
+    }>
+  }
+  genres: Array<{
+    name: string
+    count: number
+  }>
+  years: Array<{
+    year: number
+    count: number
+  }>
+}
+
+async function getDirectorySize(dirPath: string): Promise<{ files: number; sizeBytes: number }> {
+  let totalSize = 0
+  let totalFiles = 0
+
+  if (!existsSync(dirPath)) {
+    return { files: 0, sizeBytes: 0 }
+  }
+
+  const scanDir = async (dir: string) => {
+    try {
+      const entries = await readdir(dir, { withFileTypes: true })
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name)
+        if (entry.isDirectory()) {
+          await scanDir(fullPath)
+        } else {
+          try {
+            const stats = await stat(fullPath)
+            totalSize += stats.size
+            totalFiles++
+          } catch {}
+        }
+      }
+    } catch {}
+  }
+
+  await scanDir(dirPath)
+  return { files: totalFiles, sizeBytes: totalSize }
+}
+
+async function getTranscodedStats(): Promise<{ completed: number; folders: string[] }> {
+  const folders: string[] = []
+  let completed = 0
+
+  if (!existsSync(TRANSCODED_DIR)) {
+    return { completed: 0, folders: [] }
+  }
+
+  try {
+    const entries = await readdir(TRANSCODED_DIR, { withFileTypes: true })
+    for (const entry of entries) {
+      if (entry.isDirectory() && !entry.name.startsWith('.')) {
+        const donePath = path.join(TRANSCODED_DIR, entry.name, '.done')
+        if (existsSync(donePath)) {
+          completed++
+          folders.push(entry.name)
+        }
+      }
+    }
+  } catch {}
+
+  return { completed, folders }
+}
 
 export async function GET() {
   try {
-    const supabase = createSupabaseClient()
-    
-    // 1. Statistiques des films
-    const { data: movies, error: moviesError } = await supabase
-      .from('media')
-      .select('id, title, year, vote_average, runtime, file_size, created_at')
-      .eq('media_type', 'movie')
-    
-    if (moviesError) throw moviesError
+    // Requêtes Supabase en parallèle
+    const [
+      moviesResult,
+      seriesResult,
+      playbackResult,
+      favoritesResult
+    ] = await Promise.all([
+      supabase
+        .from('media')
+        .select('id, title, poster_url, tmdb_id, year, duration, genres, created_at, media_type')
+        .eq('media_type', 'movie'),
+      supabase
+        .from('media')
+        .select('id, title, poster_url, created_at, media_type')
+        .eq('media_type', 'tv'),
+      supabase
+        .from('playback_positions')
+        .select('media_id, position, duration, updated_at'),
+      supabase
+        .from('favorites')
+        .select('media_id')
+    ])
 
-    // 2. Statistiques de visionnage
-    const { data: playbackData, error: playbackError } = await supabase
-      .from('playback_positions')
-      .select('media_id, position, duration, updated_at')
-    
-    if (playbackError) throw playbackError
+    const movies = moviesResult.data || []
+    const series = seriesResult.data || []
+    const playbacks = playbackResult.data || []
+    const favorites = favoritesResult.data || []
 
-    // 3. Calculs des statistiques
-    const totalMovies = movies?.length || 0
-    const totalSizeBytes = movies?.reduce((acc, m) => acc + (m.file_size || 0), 0) || 0
-    const totalSizeGB = (totalSizeBytes / (1024 ** 3)).toFixed(2)
-    const averageRating = movies && movies.length > 0
-      ? (movies.reduce((acc, m) => acc + (m.vote_average || 0), 0) / movies.length).toFixed(1)
+    // Stats bibliothèque
+    const totalDuration = movies.reduce((acc, m) => acc + (m.duration || 0), 0)
+    const moviesWithDuration = movies.filter(m => m.duration && m.duration > 0)
+    const avgDuration = moviesWithDuration.length > 0 
+      ? Math.round(totalDuration / moviesWithDuration.length)
       : 0
-    
-    // Films les plus récents
-    const recentMovies = movies
-      ?.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-      .slice(0, 5)
-      .map(m => ({
-        title: m.title,
-        year: m.year,
-        addedAt: m.created_at
-      })) || []
 
-    // Films les mieux notés
-    const topRatedMovies = movies
-      ?.filter(m => m.vote_average && m.vote_average > 0)
-      .sort((a, b) => (b.vote_average || 0) - (a.vote_average || 0))
-      .slice(0, 5)
-      .map(m => ({
-        title: m.title,
-        year: m.year,
-        rating: m.vote_average
-      })) || []
+    // Stats posters
+    const withPosters = movies.filter(m => 
+      m.poster_url && 
+      !m.poster_url.includes('placeholder')
+    ).length
+    const withoutPosters = movies.length - withPosters
 
-    // Films les plus regardés (basé sur les positions de lecture)
-    const watchCounts = new Map<string, number>()
-    playbackData?.forEach(p => {
-      const count = watchCounts.get(p.media_id) || 0
-      watchCounts.set(p.media_id, count + 1)
-    })
-    
-    const mostWatched = Array.from(watchCounts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 5)
-      .map(([mediaId, count]) => {
-        const movie = movies?.find(m => m.id === mediaId)
-        return movie ? {
-          title: movie.title,
-          year: movie.year,
-          views: count
-        } : null
-      })
-      .filter(Boolean)
+    // Stats stockage (en parallèle)
+    const [mediaStats, transcodedStats] = await Promise.all([
+      getDirectorySize(MEDIA_DIR),
+      getTranscodedStats()
+    ])
 
-    // Distribution par année
-    const yearDistribution = new Map<number, number>()
-    movies?.forEach(m => {
-      if (m.year) {
-        const count = yearDistribution.get(m.year) || 0
-        yearDistribution.set(m.year, count + 1)
-      }
-    })
-    
-    const yearStats = Array.from(yearDistribution.entries())
-      .sort((a, b) => b[0] - a[0])
+    // Films récemment ajoutés
+    const recentlyAdded = [...movies]
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
       .slice(0, 10)
-      .map(([year, count]) => ({ year, count }))
-
-    // Statistiques du cache
-    let cacheStats = {
-      sizeGB: 0,
-      segments: 0,
-      hitRate: 0
-    }
-
-    try {
-      const cacheDir = path.join(process.cwd(), '.cache', 'hls')
-      const files = await fs.readdir(cacheDir)
-      const stats = await Promise.all(
-        files.map(async (file) => {
-          const stat = await fs.stat(path.join(cacheDir, file))
-          return stat.size
-        })
-      )
-      
-      const totalCacheSize = stats.reduce((acc, size) => acc + size, 0)
-      cacheStats = {
-        sizeGB: parseFloat((totalCacheSize / (1024 ** 3)).toFixed(2)),
-        segments: files.length,
-        hitRate: 0 // À calculer basé sur les logs si nécessaire
-      }
-    } catch (error) {
-      // Cache non disponible
-    }
-
-    // Activité récente (films ajoutés dans les 7 derniers jours)
-    const sevenDaysAgo = new Date()
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7)
-    const recentActivity = movies
-      ?.filter(m => new Date(m.created_at) > sevenDaysAgo)
-      .length || 0
+      .map(m => ({
+        id: m.id,
+        title: m.title,
+        poster_url: m.poster_url,
+        created_at: m.created_at
+      }))
 
     // Films en cours de visionnage
-    const inProgress = playbackData
-      ?.filter(p => p.position > 0 && p.duration && p.position < p.duration * 0.95)
-      .length || 0
-
-    return NextResponse.json({
-      success: true,
-      stats: {
-        // Vue d'ensemble
-        overview: {
-          totalMovies,
-          totalSizeGB,
-          averageRating,
-          recentActivity,
-          inProgress
-        },
-        
-        // Films récents
-        recentMovies,
-        
-        // Films populaires
-        topRatedMovies,
-        mostWatched,
-        
-        // Distribution
-        yearStats,
-        
-        // Cache
-        cache: cacheStats,
-        
-        // Timestamp
-        generatedAt: new Date().toISOString()
+    const inProgressMap = new Map<string, { position: number; duration: number }>()
+    playbacks.forEach(p => {
+      if (p.duration && p.position && p.position > 60 && p.position < p.duration * 0.95) {
+        const existing = inProgressMap.get(p.media_id)
+        if (!existing || p.position > existing.position) {
+          inProgressMap.set(p.media_id, { position: p.position, duration: p.duration })
+        }
       }
     })
-  } catch (error: any) {
-    console.error('[API] Erreur stats dashboard:', error)
+
+    const inProgress: DashboardStats['activity']['inProgress'] = []
+    for (const [mediaId, data] of inProgressMap) {
+      const movie = movies.find(m => m.id === mediaId)
+      if (movie) {
+        inProgress.push({
+          id: movie.id,
+          title: movie.title,
+          poster_url: movie.poster_url,
+          progress: Math.round((data.position / data.duration) * 100)
+        })
+      }
+    }
+
+    // Comptage des genres
+    const genreCount = new Map<string, number>()
+    movies.forEach(m => {
+      if (m.genres && Array.isArray(m.genres)) {
+        m.genres.forEach((g: string) => {
+          genreCount.set(g, (genreCount.get(g) || 0) + 1)
+        })
+      }
+    })
+    const genres = Array.from(genreCount.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10)
+
+    // Distribution par années
+    const yearCount = new Map<number, number>()
+    movies.forEach(m => {
+      if (m.year) {
+        yearCount.set(m.year, (yearCount.get(m.year) || 0) + 1)
+      }
+    })
+    const years = Array.from(yearCount.entries())
+      .map(([year, count]) => ({ year, count }))
+      .sort((a, b) => b.year - a.year)
+      .slice(0, 20)
+
+    // Films les plus favoris (approximation)
+    const favoriteCount = new Map<string, number>()
+    favorites.forEach(f => {
+      favoriteCount.set(f.media_id, (favoriteCount.get(f.media_id) || 0) + 1)
+    })
+    const mostWatched = Array.from(favoriteCount.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([mediaId, count]) => {
+        const movie = movies.find(m => m.id === mediaId)
+        return movie ? {
+          id: movie.id,
+          title: movie.title,
+          poster_url: movie.poster_url,
+          watchCount: count
+        } : null
+      })
+      .filter((m): m is NonNullable<typeof m> => m !== null)
+
+    const stats: DashboardStats = {
+      library: {
+        totalMovies: movies.length,
+        totalSeries: series.length,
+        totalEpisodes: 0, // À implémenter si nécessaire
+        totalDurationMinutes: Math.round(totalDuration / 60),
+        averageDurationMinutes: Math.round(avgDuration / 60)
+      },
+      posters: {
+        withPosters,
+        withoutPosters,
+        validationRate: movies.length > 0 ? Math.round((withPosters / movies.length) * 100) : 100
+      },
+      storage: {
+        mediaFiles: mediaStats.files,
+        mediaSizeGB: Math.round(mediaStats.sizeBytes / (1024 * 1024 * 1024) * 10) / 10,
+        transcodedFiles: transcodedStats.completed,
+        transcodedSizeGB: 0, // Calculé dynamiquement si nécessaire
+        cacheFiles: 0,
+        cacheSizeGB: 0
+      },
+      transcoding: {
+        completed: transcodedStats.completed,
+        pending: 0, // Sera mis à jour par le service
+        inProgress: false
+      },
+      activity: {
+        recentlyAdded,
+        inProgress: inProgress.slice(0, 5),
+        mostWatched
+      },
+      genres,
+      years
+    }
+
+    return NextResponse.json(stats)
+
+  } catch (error) {
+    console.error('Erreur stats dashboard:', error)
     return NextResponse.json(
-      { error: 'Erreur serveur', details: error.message },
+      { error: 'Erreur récupération statistiques' },
       { status: 500 }
     )
   }
 }
-
-
