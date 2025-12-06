@@ -842,6 +842,7 @@ class TranscodingService {
     
     try {
       await rm(outputDir, { recursive: true, force: true })
+      this.invalidateTranscodedCache()
       console.log(`🗑️ Nettoyé: ${outputDir}`)
       return true
     } catch (error) {
@@ -858,6 +859,7 @@ class TranscodingService {
     
     try {
       await rm(outputDir, { recursive: true, force: true })
+      this.invalidateTranscodedCache()
       console.log(`🗑️ Supprimé: ${outputDir}`)
       return true
     } catch (error) {
@@ -867,22 +869,36 @@ class TranscodingService {
   }
 
   /**
-   * Lister tous les films transcodés
+   * Lister tous les films transcodés (avec cache)
    */
+  private transcodedCache: Array<{
+    name: string
+    folder: string
+    transcodedAt: string
+    segmentCount: number
+    isComplete: boolean
+  }> | null = null
+  private transcodedCacheTime: number = 0
+  private readonly CACHE_TTL = 30000 // 30 secondes
+
   async listTranscoded(): Promise<Array<{
     name: string
     folder: string
     transcodedAt: string
     segmentCount: number
-    totalSize: number
     isComplete: boolean
   }>> {
+    // Utiliser le cache si frais
+    const now = Date.now()
+    if (this.transcodedCache && (now - this.transcodedCacheTime) < this.CACHE_TTL) {
+      return this.transcodedCache
+    }
+
     const transcoded: Array<{
       name: string
       folder: string
       transcodedAt: string
       segmentCount: number
-      totalSize: number
       isComplete: boolean
     }> = []
 
@@ -891,13 +907,13 @@ class TranscodingService {
       
       for (const entry of entries) {
         if (!entry.isDirectory()) continue
-        if (entry.name.startsWith('.')) continue // Ignorer les fichiers cachés
+        if (entry.name.startsWith('.')) continue
         
         const folderPath = path.join(TRANSCODED_DIR, entry.name)
         const donePath = path.join(folderPath, '.done')
         const transcodingPath = path.join(folderPath, '.transcoding')
         
-        // Si .transcoding existe, ignorer (transcodage en cours ou interrompu)
+        // Si .transcoding existe, ignorer
         if (existsSync(transcodingPath)) continue
         
         // Vérifier si le transcodage est complet
@@ -908,28 +924,19 @@ class TranscodingService {
           const doneContent = await readFile(donePath, 'utf-8')
           const transcodedAt = doneContent.trim()
           
-          // Compter les segments et calculer la taille
+          // Compter les segments (sans calculer la taille - trop lent)
           const files = await readdir(folderPath)
-          const segments = files.filter(f => f.endsWith('.ts'))
-          
-          let totalSize = 0
-          for (const file of files) {
-            try {
-              const fileStat = await stat(path.join(folderPath, file))
-              totalSize += fileStat.size
-            } catch {}
-          }
+          const segmentCount = files.filter(f => f.endsWith('.ts')).length
           
           transcoded.push({
-            name: entry.name.replace(/_/g, ' '), // Restaurer les espaces
+            name: entry.name.replace(/_/g, ' '),
             folder: entry.name,
             transcodedAt,
-            segmentCount: segments.length,
-            totalSize,
+            segmentCount,
             isComplete: true
           })
         } catch (error) {
-          console.error(`Erreur lecture ${folderPath}:`, error)
+          // Ignorer silencieusement
         }
       }
       
@@ -944,7 +951,18 @@ class TranscodingService {
       console.error('Erreur listage transcodés:', error)
     }
     
+    // Mettre en cache
+    this.transcodedCache = transcoded
+    this.transcodedCacheTime = now
+    
     return transcoded
+  }
+  
+  /**
+   * Invalider le cache des transcodés
+   */
+  invalidateTranscodedCache(): void {
+    this.transcodedCache = null
   }
 
   /**

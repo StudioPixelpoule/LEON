@@ -80,3 +80,5 @@ COMMENT ON COLUMN favorites.media_type IS 'Type de média: movie ou series';
 
 
 
+
+

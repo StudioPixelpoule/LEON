@@ -709,7 +709,6 @@ interface TranscodedFile {
   folder: string
   transcodedAt: string
   segmentCount: number
-  totalSize: number
 }
 
 function TranscodeSection() {
@@ -1091,10 +1090,6 @@ function TranscodeSection() {
           <p className={styles.emptyState}>Aucun film transcodé pour le moment</p>
         ) : (
           <>
-            <p className={styles.transcodedSummary}>
-              Espace total : {formatSize(transcoded.reduce((acc, t) => acc + t.totalSize, 0))}
-            </p>
-            
             {showTranscoded && (
               <div className={styles.transcodedList}>
                 {transcoded.map((film) => (
@@ -1102,7 +1097,7 @@ function TranscodeSection() {
                     <div className={styles.transcodedInfo}>
                       <span className={styles.transcodedName}>{film.name}</span>
                       <span className={styles.transcodedMeta}>
-                        {formatSize(film.totalSize)} • {film.segmentCount} segments • Transcodé le {formatDate(film.transcodedAt)}
+                        {film.segmentCount} segments • Transcodé le {formatDate(film.transcodedAt)}
                       </span>
                     </div>
                     <button
