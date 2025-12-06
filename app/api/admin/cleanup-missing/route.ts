@@ -26,7 +26,7 @@ interface CleanupResult {
   errors: number
   details: {
     title: string
-    file_path: string
+    filepath: string
     status: 'deleted' | 'error'
     error?: string
   }[]
@@ -49,10 +49,11 @@ export async function POST(request: Request) {
     
     console.log(`🧹 Début du nettoyage des médias manquants ${dryRun ? '(simulation)' : ''}`)
     
-    // Récupérer tous les médias (films et séries/épisodes)
+    // Récupérer tous les médias (films)
+    // Note: pcloud_fileid contient le chemin du fichier (héritage de l'ancien système pCloud)
     const { data: allMedia, error: fetchError } = await supabaseAdmin
       .from('media')
-      .select('id, title, file_path, media_type')
+      .select('id, title, pcloud_fileid')
       .order('title')
     
     if (fetchError) {
@@ -80,13 +81,13 @@ export async function POST(request: Request) {
     
     // Vérifier chaque fichier
     for (const media of allMedia) {
-      if (!media.file_path) continue
+      if (!media.pcloud_fileid) continue
       
-      const exists = await fileExists(media.file_path)
+      const exists = await fileExists(media.pcloud_fileid)
       
       if (!exists) {
         result.missing++
-        console.log(`❌ Fichier manquant: ${media.title} (${media.file_path})`)
+        console.log(`❌ Fichier manquant: ${media.title} (${media.pcloud_fileid})`)
         
         if (!dryRun) {
           // Supprimer de la base de données
@@ -99,7 +100,7 @@ export async function POST(request: Request) {
             result.errors++
             result.details.push({
               title: media.title,
-              file_path: media.file_path,
+              filepath: media.pcloud_fileid,
               status: 'error',
               error: deleteError.message
             })
@@ -108,7 +109,7 @@ export async function POST(request: Request) {
             result.deleted++
             result.details.push({
               title: media.title,
-              file_path: media.file_path,
+              filepath: media.pcloud_fileid,
               status: 'deleted'
             })
             console.log(`🗑️ Supprimé: ${media.title}`)
@@ -117,7 +118,7 @@ export async function POST(request: Request) {
           // Mode simulation
           result.details.push({
             title: media.title,
-            file_path: media.file_path,
+            filepath: media.pcloud_fileid,
             status: 'deleted'
           })
         }
