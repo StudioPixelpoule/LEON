@@ -1,5 +1,5 @@
 /**
- * API Route: Scan du dossier local (pCloud Drive) avec reconnaissance intelligente
+ * API Route: Scan du dossier films sur le NAS avec reconnaissance intelligente
  * Détecte les nouveaux fichiers vidéo et les indexe dans Supabase
  * Utilise le système de reconnaissance intelligente pour améliorer la précision
  */
@@ -40,19 +40,19 @@ export interface ProcessedFile {
 
 export async function POST() {
   try {
-    // 1. Vérifier que le dossier pCloud Drive est accessible
-    const pCloudPath = process.env.PCLOUD_LOCAL_PATH || '/Users/lionelvernay/pCloud Drive/films'
+    // 1. Vérifier que le dossier films est accessible
+    const filmsPath = process.env.PCLOUD_LOCAL_PATH || '/leon/media/films'
     
-    const isAccessible = await checkPathAccess(pCloudPath)
+    const isAccessible = await checkPathAccess(filmsPath)
     if (!isAccessible) {
       return NextResponse.json(
-        { error: `Dossier pCloud Drive non accessible: ${pCloudPath}. Vérifiez que pCloud Drive est monté.` },
+        { error: `Dossier films non accessible: ${filmsPath}. Vérifiez que le volume est monté.` },
         { status: 500 }
       )
     }
     
     // 2. Scanner le dossier local
-    const videoFiles = await scanLocalFolder(pCloudPath)
+    const videoFiles = await scanLocalFolder(filmsPath)
     
     if (videoFiles.length === 0) {
       return NextResponse.json({ 

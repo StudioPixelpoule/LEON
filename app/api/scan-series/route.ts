@@ -1,5 +1,5 @@
 /**
- * API: Scanner les séries locales (pCloud Drive)
+ * API: Scanner les séries TV sur le NAS
  * POST /api/scan-series
  * 
  * Structure attendue:
@@ -45,7 +45,7 @@ export async function POST() {
       await fs.access(seriesBasePath)
     } catch {
       return NextResponse.json(
-        { error: `Dossier introuvable: ${seriesBasePath}. Vérifiez que pCloud Drive est monté.` },
+        { error: `Dossier introuvable: ${seriesBasePath}. Vérifiez que le volume est monté.` },
         { status: 404 }
       )
     }
