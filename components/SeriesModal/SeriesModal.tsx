@@ -256,6 +256,7 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
     
     return (
       <SimpleVideoPlayer
+        key={currentEpisode.id} // 🔧 FIX: Forcer re-mount complet quand l'épisode change
         src={videoUrl}
         title={seriesDetails.title}
         subtitle={`S${currentEpisode.season_number}E${currentEpisode.episode_number} · ${currentEpisode.title}`}
@@ -277,6 +278,7 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
         } : undefined}
         onNextEpisode={nextEp ? () => {
           // Passer à l'épisode suivant
+          console.log('[SERIES] ➡️ Passage à l\'épisode suivant:', nextEp.title)
           handlePlayEpisode(nextEp)
         } : undefined}
         onClose={() => {
