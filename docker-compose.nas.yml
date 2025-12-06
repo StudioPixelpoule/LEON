@@ -61,6 +61,8 @@ services:
     restart: unless-stopped
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # Config Docker pour l'authentification ghcr.io
+      - /root/.docker/config.json:/config.json:ro
     environment:
       # Check toutes les 5 minutes
       - WATCHTOWER_POLL_INTERVAL=300
@@ -68,6 +70,8 @@ services:
       - WATCHTOWER_CLEANUP=true
       # Surveiller uniquement le container leon
       - WATCHTOWER_SCOPE=leon
+      # Utiliser le fichier de config Docker pour l'auth
+      - DOCKER_CONFIG=/
       # Notifications (optionnel - décommenter si tu veux des notifs)
       # - WATCHTOWER_NOTIFICATIONS=slack
       # - WATCHTOWER_NOTIFICATION_SLACK_HOOK_URL=https://hooks.slack.com/...
