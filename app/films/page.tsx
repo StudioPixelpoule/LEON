@@ -251,7 +251,7 @@ export default function FilmsPage() {
             )}
             
             <div className={styles.content}>
-              {/* Carrousel: Continuer le visionnage */}
+              {/* Carrousel: Continuer le visionnage (FILMS uniquement) */}
               <ContinueWatchingRow 
                 onMovieClick={setSelectedMovie}
                 onMoviePlay={(movie) => {
@@ -260,6 +260,7 @@ export default function FilmsPage() {
                 }}
                 onRefresh={() => setRefreshKey(k => k + 1)}
                 refreshKey={refreshKey}
+                filter="movies"
               />
               
               {/* Carrousel: Ma liste (favoris) */}

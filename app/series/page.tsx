@@ -10,6 +10,7 @@ import Header from '@/components/Header/Header'
 import HeroSection from '@/components/HeroSection/HeroSection'
 import MovieRow from '@/components/MovieRow/MovieRow'
 import SeriesModal from '@/components/SeriesModal/SeriesModal'
+import ContinueWatchingRow from '@/components/ContinueWatchingRow/ContinueWatchingRow'
 import styles from './series.module.css'
 
 interface SeriesData {
@@ -30,6 +31,7 @@ export default function SeriesPage() {
   const [loading, setLoading] = useState(true)
   const [selectedSeries, setSelectedSeries] = useState<SeriesData | null>(null)
   const [heroSeries, setHeroSeries] = useState<SeriesData | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
   
   useEffect(() => {
     async function loadSeries() {
@@ -156,6 +158,23 @@ export default function SeriesPage() {
         )}
         
         <div className={styles.content}>
+          {/* Carrousel: Continuer le visionnage (EPISODES uniquement) */}
+          <ContinueWatchingRow
+            onMovieClick={() => {}}
+            onEpisodeClick={(episode) => {
+              // Trouver la série correspondante via series_id
+              if (episode.series_id) {
+                const serie = series.find(s => s.id === episode.series_id)
+                if (serie) {
+                  setSelectedSeries(serie)
+                }
+              }
+            }}
+            onRefresh={() => setRefreshKey(k => k + 1)}
+            refreshKey={refreshKey}
+            filter="episodes"
+          />
+
           <div className={styles.rows}>
             {recentSeries.length > 0 && (
               <>
@@ -248,7 +267,10 @@ export default function SeriesPage() {
         {selectedSeries && (
           <SeriesModal
             series={selectedSeries}
-            onClose={() => setSelectedSeries(null)}
+            onClose={() => {
+              setSelectedSeries(null)
+              setRefreshKey(k => k + 1) // Rafraîchir le carrousel
+            }}
           />
         )}
       </main>
