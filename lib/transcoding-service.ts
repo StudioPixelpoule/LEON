@@ -1062,42 +1062,57 @@ class TranscodingService {
     }> = []
 
     try {
-      const entries = await readdir(TRANSCODED_DIR, { withFileTypes: true })
-      
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue
-        if (entry.name.startsWith('.')) continue
+      // Fonction helper pour scanner un répertoire
+      const scanDirectory = async (baseDir: string, prefix: string = '') => {
+        if (!existsSync(baseDir)) return
         
-        const folderPath = path.join(TRANSCODED_DIR, entry.name)
-        const donePath = path.join(folderPath, '.done')
-        const transcodingPath = path.join(folderPath, '.transcoding')
+        const entries = await readdir(baseDir, { withFileTypes: true })
         
-        // Si .transcoding existe, ignorer
-        if (existsSync(transcodingPath)) continue
-        
-        // Vérifier si le transcodage est complet
-        if (!existsSync(donePath)) continue
-        
-        try {
-          // Lire la date de completion
-          const doneContent = await readFile(donePath, 'utf-8')
-          const transcodedAt = doneContent.trim()
+        for (const entry of entries) {
+          if (!entry.isDirectory()) continue
+          if (entry.name.startsWith('.')) continue
           
-          // Compter les segments (sans calculer la taille - trop lent)
-          const files = await readdir(folderPath)
-          const segmentCount = files.filter(f => f.endsWith('.ts')).length
+          // Ne pas descendre dans "series" ici, on le fera séparément
+          if (entry.name === 'series' && prefix === '') continue
           
-          transcoded.push({
-            name: entry.name.replace(/_/g, ' '),
-            folder: entry.name,
-            transcodedAt,
-            segmentCount,
-            isComplete: true
-          })
-        } catch (error) {
-          // Ignorer silencieusement
+          const folderPath = path.join(baseDir, entry.name)
+          const donePath = path.join(folderPath, '.done')
+          const transcodingPath = path.join(folderPath, '.transcoding')
+          
+          // Si .transcoding existe, ignorer
+          if (existsSync(transcodingPath)) continue
+          
+          // Vérifier si le transcodage est complet
+          if (!existsSync(donePath)) continue
+          
+          try {
+            // Lire la date de completion
+            const doneContent = await readFile(donePath, 'utf-8')
+            const transcodedAt = doneContent.trim()
+            
+            // Compter les segments (sans calculer la taille - trop lent)
+            const files = await readdir(folderPath)
+            const segmentCount = files.filter(f => f.endsWith('.ts')).length
+            
+            transcoded.push({
+              name: prefix + entry.name.replace(/_/g, ' '),
+              folder: prefix ? `series/${entry.name}` : entry.name,
+              transcodedAt,
+              segmentCount,
+              isComplete: true
+            })
+          } catch (error) {
+            // Ignorer silencieusement
+          }
         }
       }
+      
+      // Scanner le répertoire racine (films)
+      await scanDirectory(TRANSCODED_DIR)
+      
+      // Scanner le sous-répertoire séries
+      const seriesDir = path.join(TRANSCODED_DIR, 'series')
+      await scanDirectory(seriesDir, '📺 ')
       
       // Trier par date de transcodage (plus récent en premier)
       transcoded.sort((a, b) => {
