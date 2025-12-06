@@ -387,7 +387,8 @@ class TranscodingService {
           // Compter les segments déclarés dans le playlist
           const segmentCount = (playlistContent.match(/segment\d+\.ts/g) || []).length
           
-          if (segmentCount > 100) {
+          // 🔧 FIX: Seuil réduit à 10 segments (les épisodes courts ont ~50 segments)
+          if (segmentCount >= 10) {
             // Créer le fichier .done pour les prochaines fois
             console.log(`📝 Création .done pour ${outputDir} (${segmentCount} segments détectés)`)
             await writeFile(donePath, new Date().toISOString())
@@ -447,27 +448,33 @@ class TranscodingService {
     const cleaned: string[] = []
     const kept: string[] = []
     
-    try {
-      const entries = await readdir(TRANSCODED_DIR, { withFileTypes: true })
+    // Helper pour scanner un répertoire
+    const scanDir = async (baseDir: string, prefix: string = '') => {
+      if (!existsSync(baseDir)) return
+      
+      const entries = await readdir(baseDir, { withFileTypes: true })
       
       for (const entry of entries) {
         if (!entry.isDirectory()) continue
+        // Ne pas traiter le dossier "series" ici, on le fait séparément
+        if (entry.name === 'series' && prefix === '') continue
         
-        const dirPath = path.join(TRANSCODED_DIR, entry.name)
+        const dirPath = path.join(baseDir, entry.name)
         const donePath = path.join(dirPath, '.done')
         const transcodingPath = path.join(dirPath, '.transcoding')
+        const playlistPath = path.join(dirPath, 'playlist.m3u8')
         
         // Si .transcoding existe, c'est un transcodage interrompu - supprimer
         if (existsSync(transcodingPath)) {
-          console.log(`🗑️ Suppression transcodage interrompu: ${entry.name}`)
+          console.log(`🗑️ Suppression transcodage interrompu: ${prefix}${entry.name}`)
           await rm(dirPath, { recursive: true, force: true })
-          cleaned.push(entry.name)
+          cleaned.push(prefix + entry.name)
           continue
         }
         
         // Si .done existe, garder
         if (existsSync(donePath)) {
-          kept.push(entry.name)
+          kept.push(prefix + entry.name)
           continue
         }
         
@@ -475,18 +482,37 @@ class TranscodingService {
         const files = await readdir(dirPath)
         const segmentCount = files.filter(f => f.match(/^segment\d+\.ts$/)).length
         
-        if (segmentCount < 100) {
+        // Vérifier si le playlist est complet
+        let playlistComplete = false
+        if (existsSync(playlistPath)) {
+          try {
+            const content = await readFile(playlistPath, 'utf-8')
+            playlistComplete = content.includes('#EXT-X-ENDLIST')
+          } catch {}
+        }
+        
+        // 🔧 FIX: Seuil réduit à 10 segments + playlist complet
+        if (segmentCount < 10 || !playlistComplete) {
           // Transcodage incomplet - supprimer
-          console.log(`🗑️ Suppression transcodage incomplet: ${entry.name} (${segmentCount} segments)`)
+          console.log(`🗑️ Suppression transcodage incomplet: ${prefix}${entry.name} (${segmentCount} segments, playlist: ${playlistComplete})`)
           await rm(dirPath, { recursive: true, force: true })
-          cleaned.push(entry.name)
+          cleaned.push(prefix + entry.name)
         } else {
           // Assez de segments - créer .done
-          console.log(`📝 Création .done pour: ${entry.name} (${segmentCount} segments)`)
+          console.log(`📝 Création .done pour: ${prefix}${entry.name} (${segmentCount} segments)`)
           await writeFile(donePath, new Date().toISOString())
-          kept.push(entry.name)
+          kept.push(prefix + entry.name)
         }
       }
+    }
+    
+    try {
+      // Scanner le dossier racine (films)
+      await scanDir(TRANSCODED_DIR)
+      
+      // Scanner le sous-dossier series/ (épisodes)
+      const seriesDir = path.join(TRANSCODED_DIR, 'series')
+      await scanDir(seriesDir, 'series/')
     } catch (error) {
       console.error('❌ Erreur cleanup incomplets:', error)
     }

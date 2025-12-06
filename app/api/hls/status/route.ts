@@ -78,7 +78,29 @@ export async function GET(request: NextRequest) {
     const playlistExists = existsSync(preTranscodedPlaylist)
     console.log(`[PRE-TRANSCODED] .done existe: ${doneExists}, playlist.m3u8 existe: ${playlistExists}`)
     
-    if (preTranscodedResult.found && doneExists && playlistExists) {
+    // 🔧 FIX: Vérifier aussi si le playlist est complet même sans .done
+    let isPreTranscodedComplete = false
+    if (preTranscodedResult.found && playlistExists) {
+      if (doneExists) {
+        isPreTranscodedComplete = true
+      } else {
+        // Vérifier si le playlist contient #EXT-X-ENDLIST
+        try {
+          const playlistContent = await readFile(preTranscodedPlaylist, 'utf-8')
+          if (playlistContent.includes('#EXT-X-ENDLIST')) {
+            // Créer automatiquement le fichier .done
+            const { writeFile } = await import('fs/promises')
+            await writeFile(preTranscodedDone, new Date().toISOString())
+            console.log(`[PRE-TRANSCODED] 📝 .done créé automatiquement pour: ${preTranscodedDir}`)
+            isPreTranscodedComplete = true
+          }
+        } catch (err) {
+          console.warn(`[PRE-TRANSCODED] ⚠️ Erreur lecture playlist:`, err)
+        }
+      }
+    }
+    
+    if (isPreTranscodedComplete) {
       // Fichier pré-transcodé trouvé ! Retourner les infos
       try {
         const files = await readdir(preTranscodedDir)
