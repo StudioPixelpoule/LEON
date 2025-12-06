@@ -227,6 +227,7 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
 
   // Trouver l'épisode suivant
   function getNextEpisode(current: Episode): Episode | null {
+    if (!seriesDetails) return null
     const allEpisodes = seriesDetails.seasons.flatMap(s => s.episodes)
     const sorted = allEpisodes.sort((a, b) => {
       if (a.season_number !== b.season_number) return a.season_number - b.season_number
