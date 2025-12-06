@@ -52,6 +52,19 @@ export function usePlaybackPosition({
 
         const data = await response.json()
         if (data.currentTime && data.currentTime > 0) {
+          // 🔧 FIX: Ne pas restaurer si position >= 95% de la durée (film terminé)
+          const savedDuration = data.duration || 0
+          if (savedDuration > 0 && data.currentTime >= savedDuration * 0.95) {
+            console.log(`[PLAYBACK] 🏁 Position ignorée (fin de lecture): ${Math.floor(data.currentTime)}s / ${Math.floor(savedDuration)}s`)
+            // Supprimer cette position car le film est terminé
+            fetch('/api/playback-position', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ mediaId })
+            }).catch(() => {})
+            return
+          }
+          
           setInitialPosition(data.currentTime)
           lastSavedTimeRef.current = data.currentTime
           console.log(`[PLAYBACK] Position chargée: ${Math.floor(data.currentTime)}s`)
@@ -132,6 +145,13 @@ export function usePlaybackPosition({
       const dur = durationRef.current
       
       if (enabled && mediaId && time > MIN_TIME_TO_SAVE) {
+        // 🔧 FIX: Ne pas sauvegarder si on est à la fin (>= 95%)
+        // Car ça empêche l'auto-play de l'épisode suivant
+        if (dur > 0 && time >= dur * 0.95) {
+          console.log(`[PLAYBACK] 🏁 Fin de lecture détectée, pas de sauvegarde (${Math.floor(time)}s / ${Math.floor(dur)}s)`)
+          return
+        }
+        
         // Sauvegarde finale (fire and forget)
         console.log(`[PLAYBACK] 💾 Sauvegarde finale au démontage: ${Math.floor(time)}s`)
         fetch('/api/playback-position', {

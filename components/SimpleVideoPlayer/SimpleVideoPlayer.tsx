@@ -454,6 +454,35 @@ export default function SimpleVideoPlayer({
     }
   }, [isPlaying])
 
+  // 🎬 FIX: Gestion de la fin de vidéo - auto-play épisode suivant
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    const handleVideoEnded = () => {
+      console.log('[PLAYER] 🏁 Vidéo terminée')
+      
+      // Marquer comme terminé (supprimer la position)
+      if (mediaId) {
+        markAsFinished()
+      }
+      
+      // Si épisode suivant disponible, le lancer
+      if (nextEpisode && onNextEpisode) {
+        console.log('[PLAYER] ➡️ Passage automatique à l\'épisode suivant:', nextEpisode.title)
+        // Nettoyer le timer du countdown s'il existe
+        if (nextEpisodeTimerRef.current) {
+          clearInterval(nextEpisodeTimerRef.current)
+          nextEpisodeTimerRef.current = null
+        }
+        onNextEpisode()
+      }
+    }
+
+    video.addEventListener('ended', handleVideoEnded)
+    return () => video.removeEventListener('ended', handleVideoEnded)
+  }, [mediaId, nextEpisode, onNextEpisode, markAsFinished])
+
   // 🔧 FIX #3: Gérer spécifiquement le fullscreen
   useEffect(() => {
     const handleFullscreenChange = () => {
