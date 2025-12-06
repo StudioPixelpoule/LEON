@@ -35,7 +35,7 @@ const VIDEO_EXTENSIONS = ['.mkv', '.mp4', '.avi', '.mov', '.m4v']
 
 export async function POST() {
   try {
-    const seriesBasePath = process.env.PCLOUD_SERIES_PATH || '/Users/lionelvernay/pCloud Drive/Series'
+    const seriesBasePath = process.env.PCLOUD_SERIES_PATH || '/leon/media/series'
     
     console.log('🎬 Démarrage du scan des séries...')
     console.log(`📁 Dossier: ${seriesBasePath}`)
