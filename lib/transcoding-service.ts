@@ -815,37 +815,22 @@ class TranscodingService {
       await this.extractSubtitles(job.filepath, job.outputDir, streamInfo.subtitles)
     }
     
-    // 🔊 Étape 3: Construire les arguments FFmpeg - FORMAT SIMPLE (tous audios muxés)
-    // Stratégie: Un seul playlist avec vidéo + TOUS les audios muxés
-    // HLS.js gère le changement de piste via son API audioTracks
+    // 🔊 Étape 3: DEMUXED HLS - Standard Netflix/YouTube
+    // Stratégie: Vidéo séparée + chaque audio séparé + master playlist
+    // C'est LA méthode correcte pour multi-audio HLS compatible partout
     
-    const audioMappings: string[] = []
-    const audioCodecs: string[] = []
-    
-    // Mapper toutes les pistes audio (toutes muxées dans le même flux)
-    for (let i = 0; i < streamInfo.audioCount; i++) {
-      audioMappings.push('-map', `0:a:${i}`)
-    }
-    
-    // Si pas de piste audio, mapper optionnellement
-    if (streamInfo.audioCount === 0) {
-      audioMappings.push('-map', '0:a?')
-    }
-    
-    // Un seul codec audio pour toutes les pistes
-    audioCodecs.push('-c:a', 'aac', '-b:a', '192k', '-ac', '2')
-    
-    console.log(`[TRANSCODE] 🔊 Format simple: ${streamInfo.audioCount} audio muxés dans un seul flux`)
+    console.log(`[TRANSCODE] 🔊 Mode DEMUXED: vidéo séparée + ${streamInfo.audioCount} audio séparés`)
     
     // 🔊 Sauvegarder les infos audio
+    const audioInfo = streamInfo.audios.map((audio, idx) => ({
+      index: idx,
+      language: audio.language || 'und',
+      title: audio.title || `Audio ${idx + 1}`,
+      playlist: `audio_${idx}.m3u8`,
+      isDefault: idx === 0
+    }))
+    
     if (streamInfo.audioCount > 0) {
-      const audioInfo = streamInfo.audios.map((audio, idx) => ({
-        index: idx,
-        language: audio.language || 'und',
-        title: audio.title || `Audio ${idx + 1}`,
-        isDefault: idx === 0
-      }))
-      
       await writeFile(
         path.join(job.outputDir, 'audio_info.json'),
         JSON.stringify(audioInfo, null, 2)
@@ -853,13 +838,14 @@ class TranscodingService {
       console.log(`[TRANSCODE] 🔊 audio_info.json créé avec ${audioInfo.length} pistes`)
     }
     
-    const playlistPath = path.join(job.outputDir, 'playlist.m3u8')
+    // 📺 PASS 1: Encoder la VIDÉO (sans audio)
+    console.log(`[TRANSCODE] 📺 Pass 1: Encodage vidéo...`)
     
-    const ffmpegArgs = [
+    const videoArgs = [
       ...hardware.decoderArgs,
       '-i', job.filepath,
       '-map', '0:v:0',
-      ...audioMappings,
+      '-an', // PAS D'AUDIO dans le flux vidéo
       ...(hardware.acceleration === 'vaapi' 
         ? [] 
         : ['-vf', 'format=yuv420p']),
@@ -868,77 +854,169 @@ class TranscodingService {
       '-keyint_min', '24',
       '-sc_threshold', '0',
       '-force_key_frames', `expr:gte(t,n_forced*${SEGMENT_DURATION})`,
-      ...audioCodecs,
-      '-ar', '48000',
       '-f', 'hls',
       '-hls_time', String(SEGMENT_DURATION),
       '-hls_list_size', '0',
       '-hls_segment_type', 'mpegts',
       '-hls_flags', 'independent_segments',
-      '-hls_segment_filename', path.join(job.outputDir, 'segment%d.ts'),
+      '-hls_segment_filename', path.join(job.outputDir, 'video_segment%d.ts'),
       '-hls_playlist_type', 'vod',
       '-start_number', '0',
-      playlistPath
+      path.join(job.outputDir, 'video.m3u8')
     ]
     
-    console.log(`[TRANSCODE] 🎬 Démarrage FFmpeg (${streamInfo.audioCount} audio, ${streamInfo.subtitleCount} sous-titres)`)
+    // 🔊 PASS 2+: Encoder chaque piste AUDIO séparément
+    const audioArgsList: string[][] = []
+    
+    for (let i = 0; i < streamInfo.audioCount; i++) {
+      const audioArgs = [
+        '-i', job.filepath,
+        '-map', `0:a:${i}`,
+        '-vn', // PAS DE VIDÉO
+        '-c:a', 'aac',
+        '-b:a', '192k',
+        '-ac', '2',
+        '-ar', '48000',
+        '-f', 'hls',
+        '-hls_time', String(SEGMENT_DURATION),
+        '-hls_list_size', '0',
+        '-hls_segment_type', 'mpegts',
+        '-hls_flags', 'independent_segments',
+        '-hls_segment_filename', path.join(job.outputDir, `audio_${i}_segment%d.ts`),
+        '-hls_playlist_type', 'vod',
+        '-start_number', '0',
+        path.join(job.outputDir, `audio_${i}.m3u8`)
+      ]
+      audioArgsList.push(audioArgs)
+    }
+    
+    // Si pas d'audio, créer un flux vidéo+audio simple
+    if (streamInfo.audioCount === 0) {
+      // Fallback: vidéo avec audio optionnel
+      videoArgs.splice(videoArgs.indexOf('-an'), 1) // Retirer -an
+      videoArgs.splice(videoArgs.indexOf('-map'), 0, '-map', '0:a?')
+    }
+    
+    console.log(`[TRANSCODE] 🎬 Démarrage FFmpeg vidéo...`)
 
-    return new Promise((resolve, reject) => {
-      const ffmpeg = spawn('ffmpeg', ffmpegArgs, {
-        stdio: ['ignore', 'pipe', 'pipe']
-      })
+    // Helper pour exécuter FFmpeg et suivre la progression
+    const runFFmpeg = (args: string[], label: string, progressWeight: number, progressOffset: number): Promise<void> => {
+      return new Promise((resolve, reject) => {
+        const ffmpeg = spawn('ffmpeg', args, {
+          stdio: ['ignore', 'pipe', 'pipe']
+        })
 
-      this.currentProcess = ffmpeg
-      job.pid = ffmpeg.pid
+        this.currentProcess = ffmpeg
+        job.pid = ffmpeg.pid
 
-      ffmpeg.stderr?.on('data', (data) => {
-        const message = data.toString()
-        
-        const timeMatch = message.match(/time=(\d+):(\d+):(\d+)\.(\d+)/)
-        const speedMatch = message.match(/speed=\s*([\d.]+)x/)
-        
-        if (timeMatch) {
-          const hours = parseInt(timeMatch[1])
-          const minutes = parseInt(timeMatch[2])
-          const seconds = parseInt(timeMatch[3])
-          job.currentTime = hours * 3600 + minutes * 60 + seconds
+        ffmpeg.stderr?.on('data', (data) => {
+          const message = data.toString()
           
-          if (job.estimatedDuration && job.estimatedDuration > 0) {
-            job.progress = Math.min(99, (job.currentTime / job.estimatedDuration) * 100)
+          const timeMatch = message.match(/time=(\d+):(\d+):(\d+)\.(\d+)/)
+          const speedMatch = message.match(/speed=\s*([\d.]+)x/)
+          
+          if (timeMatch) {
+            const hours = parseInt(timeMatch[1])
+            const minutes = parseInt(timeMatch[2])
+            const seconds = parseInt(timeMatch[3])
+            job.currentTime = hours * 3600 + minutes * 60 + seconds
+            
+            if (job.estimatedDuration && job.estimatedDuration > 0) {
+              const passProgress = (job.currentTime / job.estimatedDuration) * 100
+              job.progress = Math.min(99, progressOffset + (passProgress * progressWeight / 100))
+            }
           }
-        }
-        
-        if (speedMatch) {
-          job.speed = parseFloat(speedMatch[1])
-        }
-      })
+          
+          if (speedMatch) {
+            job.speed = parseFloat(speedMatch[1])
+          }
+        })
 
-      ffmpeg.on('close', async (code) => {
-        this.currentProcess = null
-        
-        // Toujours supprimer le verrou .transcoding (succès ou échec)
-        try {
-          await rm(transcodingLockPath, { force: true })
-        } catch {}
-        
-        if (code === 0) {
-          // Créer le fichier .done seulement en cas de succès
-          await writeFile(path.join(job.outputDir, '.done'), new Date().toISOString())
-          resolve()
-        } else {
-          reject(new Error(`FFmpeg exit code: ${code}`))
-        }
-      })
+        ffmpeg.on('close', (code) => {
+          this.currentProcess = null
+          if (code === 0) {
+            console.log(`[TRANSCODE] ✅ ${label} terminé`)
+            resolve()
+          } else {
+            reject(new Error(`FFmpeg ${label} exit code: ${code}`))
+          }
+        })
 
-      ffmpeg.on('error', async (err) => {
-        this.currentProcess = null
-        // Supprimer le verrou en cas d'erreur
-        try {
-          await rm(transcodingLockPath, { force: true })
-        } catch {}
-        reject(err)
+        ffmpeg.on('error', (err) => {
+          this.currentProcess = null
+          reject(err)
+        })
       })
-    })
+    }
+
+    try {
+      // Calculer les poids de progression
+      const videoWeight = streamInfo.audioCount > 0 ? 70 : 100 // Vidéo = 70% si audio présent
+      const audioWeight = streamInfo.audioCount > 0 ? 30 / streamInfo.audioCount : 0
+      
+      // PASS 1: Vidéo
+      await runFFmpeg(videoArgs, 'Vidéo', videoWeight, 0)
+      
+      // PASS 2+: Audio(s)
+      for (let i = 0; i < audioArgsList.length; i++) {
+        const audioOffset = videoWeight + (i * audioWeight)
+        await runFFmpeg(audioArgsList[i], `Audio ${i + 1}/${audioArgsList.length}`, audioWeight, audioOffset)
+      }
+      
+      // PASS FINAL: Créer le master playlist
+      console.log(`[TRANSCODE] 📝 Création du master playlist...`)
+      
+      const masterPlaylist = this.createMasterPlaylist(streamInfo, audioInfo)
+      await writeFile(path.join(job.outputDir, 'playlist.m3u8'), masterPlaylist)
+      console.log(`[TRANSCODE] ✅ Master playlist créé`)
+      
+      // Supprimer le verrou et créer .done
+      await rm(transcodingLockPath, { force: true })
+      await writeFile(path.join(job.outputDir, '.done'), new Date().toISOString())
+      
+    } catch (error) {
+      // Supprimer le verrou en cas d'erreur
+      try {
+        await rm(transcodingLockPath, { force: true })
+      } catch {}
+      throw error
+    }
+  }
+
+  /**
+   * Créer le master playlist HLS avec EXT-X-MEDIA pour chaque piste audio
+   */
+  private createMasterPlaylist(
+    streamInfo: { audioCount: number; audios: Array<{ index: number; language: string; title?: string }> },
+    audioInfo: Array<{ index: number; language: string; title: string; playlist: string; isDefault: boolean }>
+  ): string {
+    const lines: string[] = [
+      '#EXTM3U',
+      '#EXT-X-VERSION:6'
+    ]
+    
+    // Ajouter les pistes audio avec EXT-X-MEDIA
+    if (audioInfo.length > 0) {
+      for (const audio of audioInfo) {
+        const defaultAttr = audio.isDefault ? 'YES' : 'NO'
+        const name = audio.title || `Audio ${audio.index + 1}`
+        const lang = audio.language || 'und'
+        
+        lines.push(
+          `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="${name}",LANGUAGE="${lang}",DEFAULT=${defaultAttr},AUTOSELECT=YES,URI="${audio.playlist}"`
+        )
+      }
+      
+      // Stream principal avec référence au groupe audio
+      lines.push('#EXT-X-STREAM-INF:BANDWIDTH=5000000,CODECS="avc1.640028,mp4a.40.2",AUDIO="audio"')
+      lines.push('video.m3u8')
+    } else {
+      // Pas d'audio séparé, juste la vidéo
+      lines.push('#EXT-X-STREAM-INF:BANDWIDTH=5000000,CODECS="avc1.640028"')
+      lines.push('video.m3u8')
+    }
+    
+    return lines.join('\n')
   }
 
   /**
