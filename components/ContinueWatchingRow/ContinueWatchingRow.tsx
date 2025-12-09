@@ -78,23 +78,28 @@ export default function ContinueWatchingRow({
 
   async function handleRemove(mediaId: string, mediaType: string | undefined, event: React.MouseEvent) {
     event.stopPropagation()
+    event.preventDefault()
+    
+    console.log(`[REMOVE] Suppression de ${mediaId} (type: ${mediaType})`)
     
     try {
-      await fetch('/api/playback-position', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          mediaId, 
-          position: 0, 
-          duration: 0,
-          media_type: mediaType || 'movie'
-        })
+      // Utiliser DELETE qui est plus fiable que POST avec position=0
+      const response = await fetch(`/api/playback-position?mediaId=${encodeURIComponent(mediaId)}`, {
+        method: 'DELETE',
       })
       
-      setMedia(media.filter(m => m.id !== mediaId))
-      onRefresh()
+      const result = await response.json()
+      console.log(`[REMOVE] Résultat:`, result)
+      
+      if (response.ok) {
+        // Mettre à jour l'état local
+        setMedia(prev => prev.filter(m => m.id !== mediaId))
+        onRefresh()
+      } else {
+        console.error('[REMOVE] Erreur API:', result)
+      }
     } catch (error) {
-      console.error('Erreur suppression position:', error)
+      console.error('[REMOVE] Erreur suppression position:', error)
     }
   }
 
