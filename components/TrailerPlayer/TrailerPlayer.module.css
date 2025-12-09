@@ -88,11 +88,11 @@
   );
 }
 
-/* 🔊 Bouton mute/unmute - Style Netflix sobre - EN HAUT À DROITE */
+/* 🔊 Bouton mute/unmute - Style Netflix sobre - EN HAUT À GAUCHE */
 .muteButton {
   position: absolute;
   top: 16px;
-  right: 60px; /* À gauche de la croix de fermeture */
+  left: 16px; /* En haut à gauche */
   z-index: 20; /* Au-dessus du masque YouTube (z-index: 5) */
   width: 36px;
   height: 36px;

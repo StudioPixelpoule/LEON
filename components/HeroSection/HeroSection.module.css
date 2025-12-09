@@ -31,6 +31,12 @@
   z-index: 1;
 }
 
+/* 🔊 Repositionner le bouton son SOUS le header (52px + marge) */
+.trailerContainer :global(.muteButton),
+.trailerContainer button[aria-label*="son"] {
+  top: 70px !important; /* 52px header + 18px marge */
+}
+
 .overlay {
   position: absolute;
   inset: 0;

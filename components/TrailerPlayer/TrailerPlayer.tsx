@@ -16,6 +16,7 @@ interface TrailerPlayerProps {
   onReady?: () => void
   onEnded?: () => void
   className?: string
+  buttonTopOffset?: number // Décalage du bouton son depuis le haut (pour éviter le header)
 }
 
 export default function TrailerPlayer({ 
