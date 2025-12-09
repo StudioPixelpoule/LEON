@@ -287,11 +287,13 @@ class TranscodingService {
 
   /**
    * Scanner le répertoire media (films + séries)
+   * 🔀 MÉLANGE: Alterne films et séries pour une queue équilibrée
    */
   private async scanMediaDirectory(): Promise<Array<{ filepath: string; filename: string; mtime: Date; size: number }>> {
-    const files: Array<{ filepath: string; filename: string; mtime: Date; size: number }> = []
+    const films: Array<{ filepath: string; filename: string; mtime: Date; size: number }> = []
+    const series: Array<{ filepath: string; filename: string; mtime: Date; size: number }> = []
 
-    const scanDir = async (dir: string) => {
+    const scanDir = async (dir: string, targetArray: typeof films) => {
       try {
         const entries = await readdir(dir, { withFileTypes: true })
         
@@ -299,12 +301,12 @@ class TranscodingService {
           const fullPath = path.join(dir, entry.name)
           
           if (entry.isDirectory()) {
-            await scanDir(fullPath)
+            await scanDir(fullPath, targetArray)
           } else if (entry.isFile()) {
             const ext = path.extname(entry.name).toLowerCase()
             if (VIDEO_EXTENSIONS.includes(ext)) {
               const stats = await stat(fullPath)
-              files.push({
+              targetArray.push({
                 filepath: fullPath,
                 filename: entry.name,
                 mtime: stats.mtime,
@@ -322,21 +324,34 @@ class TranscodingService {
     }
 
     // Scanner les films
-    await scanDir(MEDIA_DIR)
+    await scanDir(MEDIA_DIR, films)
+    console.log(`🎬 ${films.length} films trouvés`)
     
     // Scanner les séries (si le dossier existe)
     try {
       await access(SERIES_DIR)
-      await scanDir(SERIES_DIR)
-      console.log(`📺 Dossier séries scanné: ${SERIES_DIR}`)
+      await scanDir(SERIES_DIR, series)
+      console.log(`📺 ${series.length} épisodes de séries trouvés`)
     } catch {
       // Le dossier series n'existe pas encore, c'est normal
     }
     
-    // Trier par date de modification (plus récent en premier)
-    files.sort((a, b) => b.mtime.getTime() - a.mtime.getTime())
+    // Trier chaque catégorie par date (plus récent en premier)
+    films.sort((a, b) => b.mtime.getTime() - a.mtime.getTime())
+    series.sort((a, b) => b.mtime.getTime() - a.mtime.getTime())
     
-    return files
+    // 🔀 MÉLANGER: Alterner films et séries
+    const mixed: typeof films = []
+    const maxLength = Math.max(films.length, series.length)
+    
+    for (let i = 0; i < maxLength; i++) {
+      if (i < films.length) mixed.push(films[i])
+      if (i < series.length) mixed.push(series[i])
+    }
+    
+    console.log(`🔀 Queue mélangée: ${mixed.length} fichiers (alternance films/séries)`)
+    
+    return mixed
   }
 
   /**
