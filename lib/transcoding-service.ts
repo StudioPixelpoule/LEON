@@ -381,13 +381,12 @@ class TranscodingService {
 
   /**
    * Vérifier si un fichier est déjà transcodé
-   * Vérifie .done OU (playlist.m3u8 + assez de segments)
+   * Supporte l'ancien format (playlist.m3u8) et le nouveau format (stream_0.m3u8 + master.m3u8)
    * Retourne false si .transcoding existe (transcodage interrompu)
    */
   async isAlreadyTranscoded(outputDir: string): Promise<boolean> {
     const donePath = path.join(outputDir, '.done')
     const transcodingPath = path.join(outputDir, '.transcoding')
-    const playlistPath = path.join(outputDir, 'playlist.m3u8')
     
     // 0. Si .transcoding existe, c'est un transcodage interrompu
     if (existsSync(transcodingPath)) {
@@ -399,26 +398,37 @@ class TranscodingService {
       return true
     }
     
-    // 2. Vérification approfondie : playlist + segments suffisants
-    if (existsSync(playlistPath)) {
-      try {
-        const playlistContent = await readFile(playlistPath, 'utf-8')
-        // Vérifier que le playlist est complet (contient #EXT-X-ENDLIST)
-        if (playlistContent.includes('#EXT-X-ENDLIST')) {
-          // Compter les segments déclarés dans le playlist
-          const segmentCount = (playlistContent.match(/segment\d+\.ts/g) || []).length
-          
-          // 🔧 FIX: Seuil réduit à 10 segments (les épisodes courts ont ~50 segments)
-          if (segmentCount >= 10) {
-            // Créer le fichier .done pour les prochaines fois
-            console.log(`📝 Création .done pour ${outputDir} (${segmentCount} segments détectés)`)
-            await writeFile(donePath, new Date().toISOString())
-            return true
-          }
+    // 2. Trouver une playlist (ancien ou nouveau format)
+    const oldPlaylistPath = path.join(outputDir, 'playlist.m3u8')
+    const newPlaylistPath = path.join(outputDir, 'stream_0.m3u8')
+    
+    const playlistPath = existsSync(newPlaylistPath) ? newPlaylistPath : 
+                         existsSync(oldPlaylistPath) ? oldPlaylistPath : null
+    
+    if (!playlistPath) {
+      return false
+    }
+    
+    // 3. Vérification approfondie : playlist + segments suffisants
+    try {
+      const playlistContent = await readFile(playlistPath, 'utf-8')
+      // Vérifier que le playlist est complet (contient #EXT-X-ENDLIST)
+      if (playlistContent.includes('#EXT-X-ENDLIST')) {
+        // Compter les segments déclarés dans le playlist (nouveau format: stream_X_segmentY.ts)
+        const oldSegments = (playlistContent.match(/segment\d+\.ts/g) || []).length
+        const newSegments = (playlistContent.match(/stream_\d+_segment\d+\.ts/g) || []).length
+        const segmentCount = oldSegments + newSegments
+        
+        // 🔧 Seuil réduit à 10 segments (les épisodes courts ont ~50 segments)
+        if (segmentCount >= 10) {
+          // Créer le fichier .done pour les prochaines fois
+          console.log(`📝 Création .done pour ${outputDir} (${segmentCount} segments détectés)`)
+          await writeFile(donePath, new Date().toISOString())
+          return true
         }
-      } catch (error) {
-        console.error(`⚠️ Erreur lecture playlist ${playlistPath}:`, error)
       }
+    } catch (error) {
+      console.error(`⚠️ Erreur lecture playlist ${playlistPath}:`, error)
     }
     
     return false
@@ -795,7 +805,6 @@ class TranscodingService {
     }
 
     const hardware = await detectHardwareCapabilities()
-    const playlistPath = path.join(job.outputDir, 'playlist.m3u8')
     
     // 🔊 Étape 1: Analyser le fichier pour les pistes audio et sous-titres
     const streamInfo = await this.probeStreams(job.filepath)
@@ -806,23 +815,7 @@ class TranscodingService {
       await this.extractSubtitles(job.filepath, job.outputDir, streamInfo.subtitles)
     }
     
-    // 🔊 Étape 2b: Sauvegarder les infos audio dans audio_info.json
-    if (streamInfo.audioCount > 0) {
-      const audioInfo = streamInfo.audios.map((audio, idx) => ({
-        index: idx,
-        language: audio.language,
-        title: audio.title || `Audio ${idx + 1}`,
-        file: `playlist.m3u8` // Pour l'instant, même playlist (multi-audio dans HLS)
-      }))
-      
-      await writeFile(
-        path.join(job.outputDir, 'audio_info.json'),
-        JSON.stringify(audioInfo, null, 2)
-      )
-      console.log(`[TRANSCODE] 🔊 ${audioInfo.length} pistes audio sauvegardées dans audio_info.json`)
-    }
-    
-    // 🔊 Étape 3: Construire les arguments FFmpeg avec toutes les pistes audio
+    // 🔊 Étape 3: Construire les arguments FFmpeg
     const audioMappings: string[] = []
     const audioCodecs: string[] = []
     
@@ -836,6 +829,43 @@ class TranscodingService {
     if (streamInfo.audioCount === 0) {
       audioMappings.push('-map', '0:a?')
       audioCodecs.push('-c:a', 'aac', '-b:a', '192k', '-ac', '2')
+    }
+    
+    // 🔊 Construire le var_stream_map avec des noms NUMÉRIQUES simples (évite les problèmes de caractères)
+    // Format: "v:0,a:0,name:0 v:0,a:1,name:1" → créera stream_0.m3u8, stream_1.m3u8
+    let varStreamMap = ''
+    let useVariantStreams = false
+    
+    if (streamInfo.audioCount > 1) {
+      // Multi-audio: créer une variante par piste audio (toutes partagent la vidéo)
+      const variants = streamInfo.audios.map((_, idx) => `v:0,a:${idx},name:${idx}`)
+      varStreamMap = variants.join(' ')
+      useVariantStreams = true
+      console.log(`[TRANSCODE] 🔊 Multi-audio activé: ${streamInfo.audioCount} pistes → ${varStreamMap}`)
+    } else if (streamInfo.audioCount === 1) {
+      // Single audio: une seule variante
+      varStreamMap = 'v:0,a:0,name:0'
+      useVariantStreams = true
+    } else {
+      // Pas d'audio: vidéo seule
+      varStreamMap = 'v:0,name:0'
+      useVariantStreams = true
+    }
+    
+    // 🔊 Sauvegarder les infos audio APRÈS avoir déterminé les noms de fichiers
+    if (streamInfo.audioCount > 0) {
+      const audioInfo = streamInfo.audios.map((audio, idx) => ({
+        index: idx,
+        language: audio.language,
+        title: audio.title || `Audio ${idx + 1}`,
+        file: `stream_${idx}.m3u8` // Noms numériques garantis
+      }))
+      
+      await writeFile(
+        path.join(job.outputDir, 'audio_info.json'),
+        JSON.stringify(audioInfo, null, 2)
+      )
+      console.log(`[TRANSCODE] 🔊 audio_info.json créé avec ${audioInfo.length} pistes`)
     }
     
     const ffmpegArgs = [
@@ -858,11 +888,14 @@ class TranscodingService {
       '-hls_list_size', '0',
       '-hls_segment_type', 'mpegts',
       '-hls_flags', 'independent_segments',
-      '-hls_segment_filename', path.join(job.outputDir, 'segment%d.ts'),
+      '-hls_segment_filename', path.join(job.outputDir, 'stream_%v_segment%d.ts'),
       '-hls_playlist_type', 'vod',
       '-start_number', '0',
-      playlistPath
+      ...(useVariantStreams ? ['-var_stream_map', varStreamMap, '-master_pl_name', 'master.m3u8'] : []),
+      path.join(job.outputDir, 'stream_%v.m3u8')
     ]
+    
+    console.log(`[TRANSCODE] 🎬 FFmpeg args: ${ffmpegArgs.filter(a => !a.startsWith('/')).join(' ')}`)
 
     return new Promise((resolve, reject) => {
       const ffmpeg = spawn('ffmpeg', ffmpegArgs, {

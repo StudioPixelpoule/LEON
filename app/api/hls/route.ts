@@ -52,25 +52,36 @@ function getPreTranscodedDir(filepath: string): string {
 
 /**
  * Vérifier si un fichier pré-transcodé est disponible
+ * Supporte l'ancien format (playlist.m3u8) et le nouveau format (master.m3u8 + stream_X.m3u8)
  */
 async function hasPreTranscoded(filepath: string): Promise<boolean> {
   const preTranscodedDir = getPreTranscodedDir(filepath)
   const donePath = path.join(preTranscodedDir, '.done')
-  const playlistPath = path.join(preTranscodedDir, 'playlist.m3u8')
   
+  // Vérifier le marker .done
   const doneExists = existsSync(donePath)
-  const playlistExists = existsSync(playlistPath)
+  if (!doneExists) return false
   
-  // 🔍 DEBUG: Logger la vérification pré-transcodage
+  // Vérifier si une playlist existe (ancien ou nouveau format)
+  const oldPlaylistPath = path.join(preTranscodedDir, 'playlist.m3u8')
+  const newMasterPath = path.join(preTranscodedDir, 'master.m3u8')
+  const newStreamPath = path.join(preTranscodedDir, 'stream_0.m3u8')
+  
+  const hasOldFormat = existsSync(oldPlaylistPath)
+  const hasNewFormat = existsSync(newMasterPath) || existsSync(newStreamPath)
+  
+  const result = doneExists && (hasOldFormat || hasNewFormat)
+  
+  // 🔍 DEBUG: Logger la vérification
   console.log(`[HLS-DEBUG] Vérification pré-transcodé:`, {
     filepath: filepath.split('/').pop(),
-    preTranscodedDir,
     doneExists,
-    playlistExists,
-    result: doneExists && playlistExists
+    hasOldFormat,
+    hasNewFormat,
+    result
   })
   
-  return doneExists && playlistExists
+  return result
 }
 
 export async function GET(request: NextRequest) {
@@ -482,6 +493,7 @@ export async function GET(request: NextRequest) {
 
 /**
  * 🆕 Servir les fichiers HLS pré-transcodés (seek instantané!)
+ * Supporte le nouveau format avec master.m3u8 et streams séparés par piste audio
  */
 async function servePreTranscoded(
   originalPath: string,
@@ -490,7 +502,7 @@ async function servePreTranscoded(
   audioTrack: string,
   timestamp: string
 ): Promise<NextResponse> {
-  // Si on demande un segment spécifique
+  // Si on demande un segment spécifique (stream_X_segmentY.ts ou segmentY.ts)
   if (segment) {
     const segmentPath = path.join(preTranscodedDir, segment)
     
@@ -510,18 +522,8 @@ async function servePreTranscoded(
     }
   }
 
-  // 🔧 FIX: Pour les fichiers pré-transcodés avec audio muxé,
-  // toujours servir playlist.m3u8 (les pistes audio sont dans les mêmes segments)
-  // Le changement de piste se fait via l'API HLS.js audioTrack côté client
-  
-  const playlistPath = path.join(preTranscodedDir, 'playlist.m3u8')
-  
-  if (!existsSync(playlistPath)) {
-    return NextResponse.json({ error: 'Playlist non trouvé' }, { status: 404 })
-  }
-  
-  // Lire les infos audio pour enrichir la réponse
-  let audioInfo: Array<{ index: number; language: string; title?: string }> = []
+  // 🔊 Lire les infos audio
+  let audioInfo: Array<{ index: number; language: string; title?: string; file?: string }> = []
   const audioInfoPath = path.join(preTranscodedDir, 'audio_info.json')
   if (existsSync(audioInfoPath)) {
     try {
@@ -532,8 +534,70 @@ async function servePreTranscoded(
     }
   }
   
+  // 🆕 Vérifier si c'est le nouveau format (master.m3u8 + stream_X.m3u8)
+  const masterPath = path.join(preTranscodedDir, 'master.m3u8')
+  const hasNewFormat = existsSync(masterPath)
+  
+  // Ancien format: playlist.m3u8 avec audio muxé
+  const oldPlaylistPath = path.join(preTranscodedDir, 'playlist.m3u8')
+  const hasOldFormat = existsSync(oldPlaylistPath)
+  
+  if (!hasNewFormat && !hasOldFormat) {
+    return NextResponse.json({ error: 'Playlist non trouvé' }, { status: 404 })
+  }
+  
   try {
-    let playlistContent = await readFile(playlistPath, 'utf-8')
+    let playlistContent: string
+    
+    if (hasNewFormat) {
+      // 🆕 NOUVEAU FORMAT: Servir la playlist de la piste audio sélectionnée
+      const audioIndex = parseInt(audioTrack) || 0
+      
+      // Trouver le fichier playlist pour cette piste audio
+      let streamPlaylistFile = `stream_${audioIndex}.m3u8`
+      
+      // Si audio_info.json existe, utiliser le fichier spécifié
+      if (audioInfo[audioIndex]?.file) {
+        streamPlaylistFile = audioInfo[audioIndex].file
+      }
+      
+      // Vérifier aussi avec le nom de langue (stream_fre.m3u8, stream_eng.m3u8, etc.)
+      let streamPlaylistPath = path.join(preTranscodedDir, streamPlaylistFile)
+      if (!existsSync(streamPlaylistPath) && audioInfo[audioIndex]?.language) {
+        const langFile = `stream_${audioInfo[audioIndex].language}.m3u8`
+        const langPath = path.join(preTranscodedDir, langFile)
+        if (existsSync(langPath)) {
+          streamPlaylistPath = langPath
+          streamPlaylistFile = langFile
+        }
+      }
+      
+      // Fallback sur stream_0.m3u8 ou stream_audio.m3u8
+      if (!existsSync(streamPlaylistPath)) {
+        const fallbacks = ['stream_0.m3u8', 'stream_audio.m3u8']
+        for (const fb of fallbacks) {
+          const fbPath = path.join(preTranscodedDir, fb)
+          if (existsSync(fbPath)) {
+            streamPlaylistPath = fbPath
+            streamPlaylistFile = fb
+            break
+          }
+        }
+      }
+      
+      if (!existsSync(streamPlaylistPath)) {
+        console.error(`[${timestamp}] [HLS-PRE] ❌ Playlist ${streamPlaylistFile} non trouvé`)
+        return NextResponse.json({ error: `Playlist ${streamPlaylistFile} non trouvé` }, { status: 404 })
+      }
+      
+      playlistContent = await readFile(streamPlaylistPath, 'utf-8')
+      console.log(`[${timestamp}] [HLS-PRE] 🔊 Piste audio ${audioIndex}: ${streamPlaylistFile}`)
+      
+    } else {
+      // ANCIEN FORMAT: playlist.m3u8 avec audio muxé
+      playlistContent = await readFile(oldPlaylistPath, 'utf-8')
+      console.log(`[${timestamp}] [HLS-PRE] 📦 Ancien format détecté (audio muxé)`)
+    }
     
     // Remplacer les chemins locaux par des URLs API
     const lines = playlistContent.split('\n')
@@ -547,7 +611,7 @@ async function servePreTranscoded(
     
     playlistContent = modifiedLines.join('\n')
     
-    // 🔊 Si plusieurs pistes audio, ajouter les infos dans un header JSON
+    // 🔊 Ajouter les infos des pistes audio dans un header JSON
     const audioTracksHeader = audioInfo.length > 0 
       ? JSON.stringify(audioInfo.map((a, i) => ({
           index: i,
@@ -556,16 +620,17 @@ async function servePreTranscoded(
         })))
       : '[]'
 
-    console.log(`[${timestamp}] [HLS-PRE] ✅ Playlist pré-transcodé servi (${audioInfo.length} pistes audio, seek instantané)`)
+    console.log(`[${timestamp}] [HLS-PRE] ✅ Playlist servi (${audioInfo.length} pistes, ${hasNewFormat ? 'nouveau' : 'ancien'} format)`)
 
     return new NextResponse(playlistContent, {
       headers: {
         'Content-Type': 'application/vnd.apple.mpegurl',
-        'Cache-Control': 'public, max-age=3600', // Cache 1h car fichier statique
+        'Cache-Control': 'public, max-age=3600',
         'X-Pre-Transcoded': 'true',
-        'X-Seek-Mode': 'instant', // Indique au player que le seek est instantané
+        'X-Seek-Mode': 'instant',
         'X-Audio-Track': audioTrack,
-        'X-Audio-Tracks': audioTracksHeader, // Info sur toutes les pistes disponibles
+        'X-Audio-Tracks': audioTracksHeader,
+        'X-Multi-Audio': hasNewFormat ? 'true' : 'false',
       }
     })
   } catch (error) {
