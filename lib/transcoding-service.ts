@@ -785,6 +785,22 @@ class TranscodingService {
       await this.extractSubtitles(job.filepath, job.outputDir, streamInfo.subtitles)
     }
     
+    // 🔊 Étape 2b: Sauvegarder les infos audio dans audio_info.json
+    if (streamInfo.audioCount > 0) {
+      const audioInfo = streamInfo.audios.map((audio, idx) => ({
+        index: idx,
+        language: audio.language,
+        title: audio.title || `Audio ${idx + 1}`,
+        file: `playlist.m3u8` // Pour l'instant, même playlist (multi-audio dans HLS)
+      }))
+      
+      await writeFile(
+        path.join(job.outputDir, 'audio_info.json'),
+        JSON.stringify(audioInfo, null, 2)
+      )
+      console.log(`[TRANSCODE] 🔊 ${audioInfo.length} pistes audio sauvegardées dans audio_info.json`)
+    }
+    
     // 🔊 Étape 3: Construire les arguments FFmpeg avec toutes les pistes audio
     const audioMappings: string[] = []
     const audioCodecs: string[] = []
