@@ -75,6 +75,13 @@
   background: linear-gradient(to top, #181818, transparent);
 }
 
+/* 🎬 Container pour le trailer auto-play */
+.trailerContainer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
 /* Poster flottant */
 .heroPoster {
   position: absolute;

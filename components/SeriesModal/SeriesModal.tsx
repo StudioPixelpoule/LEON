@@ -1,6 +1,7 @@
 /**
  * Modal Série - Affiche les détails, saisons et épisodes
  * Style Netflix avec progression de visionnage
+ * 🎬 Trailer auto-play style Netflix
  */
 
 'use client'
@@ -10,6 +11,7 @@ import Image from 'next/image'
 import { Play, Check } from 'lucide-react'
 import styles from './SeriesModal.module.css'
 import SimpleVideoPlayer from '@/components/SimpleVideoPlayer/SimpleVideoPlayer'
+import TrailerPlayer from '@/components/TrailerPlayer/TrailerPlayer'
 
 interface Episode {
   id: string
@@ -61,6 +63,8 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
   const [showPlayer, setShowPlayer] = useState(false)
   const [episodeProgress, setEpisodeProgress] = useState<Map<string, EpisodeProgress>>(new Map())
   const [nextToWatch, setNextToWatch] = useState<Episode | null>(null)
+  const [trailerKey, setTrailerKey] = useState<string | null>(null) // 🎬 Trailer YouTube
+  const [trailerEnded, setTrailerEnded] = useState(false)
 
   // Charger la progression de visionnage
   const loadProgress = useCallback(async (episodes: Episode[]) => {
@@ -126,6 +130,36 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
   useEffect(() => {
     loadSeriesDetails()
   }, [series.id])
+
+  // 🎬 Charger le trailer de la série
+  useEffect(() => {
+    async function loadTrailer() {
+      // Utiliser tmdb_id de la série (passé en props)
+      const tmdbId = series.tmdb_id
+      if (!tmdbId) {
+        setTrailerKey(null)
+        return
+      }
+      
+      try {
+        const response = await fetch(`/api/trailer?tmdb_id=${tmdbId}&type=tv`)
+        const result = await response.json()
+        
+        if (result.success && result.trailer?.key) {
+          console.log(`🎬 Trailer trouvé pour ${series.title}: ${result.trailer.key}`)
+          setTrailerKey(result.trailer.key)
+        } else {
+          setTrailerKey(null)
+        }
+      } catch (error) {
+        console.error('❌ Erreur chargement trailer:', error)
+        setTrailerKey(null)
+      }
+    }
+    
+    loadTrailer()
+    setTrailerEnded(false) // Reset quand la série change
+  }, [series.id, series.tmdb_id, series.title])
 
   async function loadSeriesDetails() {
     try {
@@ -305,9 +339,17 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
           ✕
         </button>
 
-        {/* Hero avec backdrop */}
+        {/* Hero avec backdrop et trailer auto-play */}
         <div className={styles.heroSection}>
-          {seriesDetails.backdrop_url && (
+          {/* 🎬 Trailer ou Image */}
+          {trailerKey && !trailerEnded ? (
+            <TrailerPlayer
+              youtubeKey={trailerKey}
+              backdropUrl={seriesDetails.backdrop_url || '/placeholder-backdrop.png'}
+              onEnded={() => setTrailerEnded(true)}
+              className={styles.trailerContainer}
+            />
+          ) : seriesDetails.backdrop_url && (
             <div className={styles.backdrop}>
               <Image
                 src={seriesDetails.backdrop_url}

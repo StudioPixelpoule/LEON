@@ -24,6 +24,7 @@ interface SeriesData {
   overview: string
   episodeCount?: number
   created_at?: string
+  tmdb_id?: number | null // 🎬 Pour récupérer les trailers
 }
 
 export default function SeriesPage() {
@@ -31,6 +32,7 @@ export default function SeriesPage() {
   const [loading, setLoading] = useState(true)
   const [selectedSeries, setSelectedSeries] = useState<SeriesData | null>(null)
   const [heroSeries, setHeroSeries] = useState<SeriesData | null>(null)
+  const [heroTrailerKey, setHeroTrailerKey] = useState<string | null>(null) // 🎬 Trailer YouTube
   const [refreshKey, setRefreshKey] = useState(0)
   
   useEffect(() => {
@@ -65,6 +67,33 @@ export default function SeriesPage() {
     
     loadSeries()
   }, [])
+
+  // 🎬 Charger le trailer de la série hero
+  useEffect(() => {
+    async function loadTrailer() {
+      if (!heroSeries?.tmdb_id) {
+        setHeroTrailerKey(null)
+        return
+      }
+      
+      try {
+        const response = await fetch(`/api/trailer?tmdb_id=${heroSeries.tmdb_id}&type=tv`)
+        const result = await response.json()
+        
+        if (result.success && result.trailer?.key) {
+          console.log(`🎬 Trailer trouvé pour ${heroSeries.title}: ${result.trailer.key}`)
+          setHeroTrailerKey(result.trailer.key)
+        } else {
+          setHeroTrailerKey(null)
+        }
+      } catch (error) {
+        console.error('❌ Erreur chargement trailer:', error)
+        setHeroTrailerKey(null)
+      }
+    }
+    
+    loadTrailer()
+  }, [heroSeries])
   
   // Fonction de mélange aléatoire
   function shuffleArray<T>(array: T[]): T[] {
@@ -145,12 +174,13 @@ export default function SeriesPage() {
           <HeroSection 
             movie={{
               ...heroSeries,
-              tmdb_id: 0,
+              tmdb_id: heroSeries.tmdb_id || 0,
               original_title: heroSeries.title,
               release_date: heroSeries.first_air_date,
               pcloud_fileid: null,
               created_at: '',
-              year: heroSeries.first_air_date ? new Date(heroSeries.first_air_date).getFullYear() : undefined
+              year: heroSeries.first_air_date ? new Date(heroSeries.first_air_date).getFullYear() : undefined,
+              trailerKey: heroTrailerKey // 🎬 Passer le trailer
             } as any}
             onInfoClick={() => setSelectedSeries(heroSeries)}
             showPlayButton={false}
