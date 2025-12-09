@@ -124,9 +124,8 @@ export default function SimpleVideoPlayer({
   
   // États pour l'épisode suivant (style Netflix)
   const [showNextEpisodeUI, setShowNextEpisodeUI] = useState(false)
-  const [nextEpisodeCountdown, setNextEpisodeCountdown] = useState(10)
-  const [isCountdownPaused, setIsCountdownPaused] = useState(false)
-  const nextEpisodeTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const [nextEpisodeCountdown, setNextEpisodeCountdown] = useState(10) // Temps réel restant
+  const [isNextEpisodeCancelled, setIsNextEpisodeCancelled] = useState(false) // Si l'utilisateur a annulé
   
   // Refs pour la gestion d'état
   const hideControlsTimeout = useRef<NodeJS.Timeout>()
@@ -231,35 +230,12 @@ export default function SimpleVideoPlayer({
     }
   }, [src])
 
-  // 🎬 Gestion du countdown pour l'épisode suivant
+  // 🎬 Reset de l'état épisode suivant quand la source change
   useEffect(() => {
-    // Démarrer le countdown quand l'UI s'affiche et que le compte à rebours n'est pas en pause
-    if (showNextEpisodeUI && !isCountdownPaused && nextEpisodeCountdown > 0) {
-      nextEpisodeTimerRef.current = setInterval(() => {
-        setNextEpisodeCountdown(prev => {
-          if (prev <= 1) {
-            // Countdown terminé, passer à l'épisode suivant
-            if (nextEpisodeTimerRef.current) {
-              clearInterval(nextEpisodeTimerRef.current)
-              nextEpisodeTimerRef.current = null
-            }
-            if (onNextEpisode) {
-              onNextEpisode()
-            }
-            return 0
-          }
-          return prev - 1
-        })
-      }, 1000)
-    }
-    
-    return () => {
-      if (nextEpisodeTimerRef.current) {
-        clearInterval(nextEpisodeTimerRef.current)
-        nextEpisodeTimerRef.current = null
-      }
-    }
-  }, [showNextEpisodeUI, isCountdownPaused, onNextEpisode])
+    setShowNextEpisodeUI(false)
+    setIsNextEpisodeCancelled(false)
+    setNextEpisodeCountdown(10)
+  }, [src])
 
   // Charger les infos des pistes et la durée
   useEffect(() => {
@@ -469,21 +445,16 @@ export default function SimpleVideoPlayer({
         markAsFinished()
       }
       
-      // Si épisode suivant disponible, le lancer
-      if (nextEpisode && onNextEpisode) {
+      // Si épisode suivant disponible et pas annulé par l'utilisateur, le lancer
+      if (nextEpisode && onNextEpisode && !isNextEpisodeCancelled) {
         console.log('[PLAYER] ➡️ Passage automatique à l\'épisode suivant:', nextEpisode.title)
-        // Nettoyer le timer du countdown s'il existe
-        if (nextEpisodeTimerRef.current) {
-          clearInterval(nextEpisodeTimerRef.current)
-          nextEpisodeTimerRef.current = null
-        }
         onNextEpisode()
       }
     }
 
     video.addEventListener('ended', handleVideoEnded)
     return () => video.removeEventListener('ended', handleVideoEnded)
-  }, [mediaId, nextEpisode, onNextEpisode, markAsFinished])
+  }, [mediaId, nextEpisode, onNextEpisode, markAsFinished, isNextEpisodeCancelled])
 
   // 🔧 FIX #3: Gérer spécifiquement le fullscreen
   useEffect(() => {
@@ -984,20 +955,21 @@ export default function SimpleVideoPlayer({
       
       // 🎬 Épisode suivant: Afficher le UI quand on arrive à la fin (30s avant la fin)
       const totalDuration = realDurationRef.current || video.duration
-      if (nextEpisode && onNextEpisode && totalDuration > 0) {
-        const timeRemaining = totalDuration - currentPos
-        if (timeRemaining <= 30 && timeRemaining > 0 && !showNextEpisodeUI) {
-          setShowNextEpisodeUI(true)
-          setNextEpisodeCountdown(10)
-          setIsCountdownPaused(false)
+      if (nextEpisode && onNextEpisode && !isNextEpisodeCancelled && totalDuration > 0) {
+        const timeRemaining = Math.max(0, totalDuration - currentPos)
+        
+        // Afficher l'UI 30s avant la fin
+        if (timeRemaining <= 30 && timeRemaining > 0) {
+          if (!showNextEpisodeUI) {
+            setShowNextEpisodeUI(true)
+          }
+          // Mettre à jour le countdown avec le temps réel restant (arrondi)
+          setNextEpisodeCountdown(Math.ceil(timeRemaining))
         }
+        
         // Masquer si on recule avant les 30 dernières secondes
         if (timeRemaining > 30 && showNextEpisodeUI) {
           setShowNextEpisodeUI(false)
-          if (nextEpisodeTimerRef.current) {
-            clearInterval(nextEpisodeTimerRef.current)
-            nextEpisodeTimerRef.current = null
-          }
         }
       }
     }
@@ -2227,10 +2199,6 @@ export default function SimpleVideoPlayer({
             <button 
               className={styles.nextEpisodePlay}
               onClick={() => {
-                if (nextEpisodeTimerRef.current) {
-                  clearInterval(nextEpisodeTimerRef.current)
-                  nextEpisodeTimerRef.current = null
-                }
                 onNextEpisode()
               }}
             >
@@ -2243,11 +2211,7 @@ export default function SimpleVideoPlayer({
               className={styles.nextEpisodeCancel}
               onClick={() => {
                 setShowNextEpisodeUI(false)
-                setIsCountdownPaused(true)
-                if (nextEpisodeTimerRef.current) {
-                  clearInterval(nextEpisodeTimerRef.current)
-                  nextEpisodeTimerRef.current = null
-                }
+                setIsNextEpisodeCancelled(true) // Empêche le passage auto à la fin
               }}
             >
               Annuler
