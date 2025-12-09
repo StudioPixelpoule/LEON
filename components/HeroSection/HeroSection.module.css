@@ -28,12 +28,14 @@
 .trailerContainer {
   position: absolute;
   inset: 0;
-  z-index: 0;
+  z-index: 1;
 }
 
 .overlay {
   position: absolute;
   inset: 0;
+  z-index: 2;
+  /* Pas de dégradé en haut à droite pour laisser le bouton son visible */
   background: linear-gradient(
     to right,
     rgba(0, 0, 0, 0.75) 0%,
@@ -52,6 +54,8 @@
   display: flex;
   align-items: center;
   padding: calc(var(--spacing-4xl) * 2) 0;
+  /* Laisser passer les clics sur le bouton son */
+  pointer-events: none;
 }
 
 .content {
@@ -59,6 +63,7 @@
   padding: 0 calc(var(--spacing-xl) * 3);
   z-index: 1;
   transition: transform 800ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  pointer-events: auto; /* Réactiver les clics sur le contenu */
 }
 
 .contentCollapsed {
