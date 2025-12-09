@@ -5,10 +5,10 @@
 
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Image from 'next/image'
 import type { Media } from '@/lib/supabase'
-import TrailerPlayer from '@/components/TrailerPlayer/TrailerPlayer'
+import TrailerPlayer, { TrailerPlayerRef, IconVolumeOff, IconVolumeOn } from '@/components/TrailerPlayer/TrailerPlayer'
 import styles from './HeroSection.module.css'
 
 // Type partiel pour accepter Media et GroupedMedia
@@ -27,6 +27,8 @@ export default function HeroSection({ movie, onPlayClick, onInfoClick, showPlayB
   const backdropUrl = movie.backdrop_url || movie.poster_url || '/placeholder-backdrop.png'
   const [showOverview, setShowOverview] = useState(true)
   const [trailerEnded, setTrailerEnded] = useState(false)
+  const [trailerMuted, setTrailerMuted] = useState(true) // 🔊 État du son
+  const trailerRef = useRef<TrailerPlayerRef>(null)
   
   useEffect(() => {
     // Masquer le synopsis après 8 secondes (plus long si trailer)
@@ -47,10 +49,13 @@ export default function HeroSection({ movie, onPlayClick, onInfoClick, showPlayB
       {/* 🎬 Trailer auto-play ou image de fond */}
       {movie.trailerKey && !trailerEnded ? (
         <TrailerPlayer
+          ref={trailerRef}
           youtubeKey={movie.trailerKey}
           backdropUrl={backdropUrl}
           onEnded={() => setTrailerEnded(true)}
           className={styles.trailerContainer}
+          showMuteButton={false}
+          onMuteChange={setTrailerMuted}
         />
       ) : (
         <div className={styles.backdrop}>
@@ -108,6 +113,16 @@ export default function HeroSection({ movie, onPlayClick, onInfoClick, showPlayB
             <button className={styles.infoButton} onClick={onInfoClick}>
               Plus d&apos;infos
             </button>
+            {/* 🔊 Bouton son - à droite de Plus d'infos */}
+            {movie.trailerKey && !trailerEnded && (
+              <button 
+                className={styles.muteButton}
+                onClick={() => trailerRef.current?.toggleMute()}
+                aria-label={trailerMuted ? 'Activer le son' : 'Couper le son'}
+              >
+                {trailerMuted ? <IconVolumeOff /> : <IconVolumeOn />}
+              </button>
+            )}
           </div>
         </div>
       </div>
