@@ -1,5 +1,6 @@
 /**
  * HeroSection - Film vedette en plein écran (style Netflix)
+ * Avec lecture automatique du trailer en fond
  */
 
 'use client'
@@ -7,10 +8,13 @@
 import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import type { Media } from '@/lib/supabase'
+import TrailerPlayer from '@/components/TrailerPlayer/TrailerPlayer'
 import styles from './HeroSection.module.css'
 
 // Type partiel pour accepter Media et GroupedMedia
-type HeroMovie = Pick<Media, 'id' | 'title' | 'overview' | 'backdrop_url' | 'poster_url' | 'rating' | 'year' | 'genres' | 'formatted_runtime'>
+type HeroMovie = Pick<Media, 'id' | 'title' | 'overview' | 'backdrop_url' | 'poster_url' | 'rating' | 'year' | 'genres' | 'formatted_runtime'> & {
+  trailerKey?: string | null // ID YouTube du trailer
+}
 
 type HeroSectionProps = {
   movie: HeroMovie
@@ -22,28 +26,44 @@ type HeroSectionProps = {
 export default function HeroSection({ movie, onPlayClick, onInfoClick, showPlayButton = true }: HeroSectionProps) {
   const backdropUrl = movie.backdrop_url || movie.poster_url || '/placeholder-backdrop.png'
   const [showOverview, setShowOverview] = useState(true)
+  const [trailerEnded, setTrailerEnded] = useState(false)
   
   useEffect(() => {
-    // Masquer le synopsis après 5 secondes
+    // Masquer le synopsis après 8 secondes (plus long si trailer)
     const timer = setTimeout(() => {
       setShowOverview(false)
-    }, 5000)
+    }, movie.trailerKey ? 8000 : 5000)
     
     return () => clearTimeout(timer)
+  }, [movie.id, movie.trailerKey])
+
+  // Reset quand le film change
+  useEffect(() => {
+    setTrailerEnded(false)
   }, [movie.id])
   
   return (
     <section className={styles.hero}>
-      <div className={styles.backdrop}>
-        <Image
-          src={backdropUrl}
-          alt=""
-          fill
-          style={{ objectFit: 'cover' }}
-          priority
-          unoptimized
+      {/* 🎬 Trailer auto-play ou image de fond */}
+      {movie.trailerKey && !trailerEnded ? (
+        <TrailerPlayer
+          youtubeKey={movie.trailerKey}
+          backdropUrl={backdropUrl}
+          onEnded={() => setTrailerEnded(true)}
+          className={styles.trailerContainer}
         />
-      </div>
+      ) : (
+        <div className={styles.backdrop}>
+          <Image
+            src={backdropUrl}
+            alt=""
+            fill
+            style={{ objectFit: 'cover' }}
+            priority
+            unoptimized
+          />
+        </div>
+      )}
       
       <div className={styles.overlay}>
         <div className={`${styles.content} ${!showOverview ? styles.contentCollapsed : ''}`}>

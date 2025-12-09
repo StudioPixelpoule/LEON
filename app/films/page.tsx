@@ -24,6 +24,7 @@ export default function FilmsPage() {
   const [selectedMovie, setSelectedMovie] = useState<GroupedMedia | null>(null)
   const [autoPlay, setAutoPlay] = useState(false) // Pour lancer la lecture directement
   const [heroMovie, setHeroMovie] = useState<GroupedMedia | null>(null)
+  const [heroTrailerKey, setHeroTrailerKey] = useState<string | null>(null) // 🎬 Trailer YouTube
   const [refreshKey, setRefreshKey] = useState(0) // Pour forcer le re-render
   const [searchQuery, setSearchQuery] = useState('')
   const [filteredMovies, setFilteredMovies] = useState<GroupedMedia[]>([])
@@ -68,6 +69,33 @@ export default function FilmsPage() {
     
     loadMovies()
   }, []) // Charger une seule fois au montage
+
+  // 🎬 Charger le trailer du film hero
+  useEffect(() => {
+    async function loadTrailer() {
+      if (!heroMovie?.tmdb_id) {
+        setHeroTrailerKey(null)
+        return
+      }
+      
+      try {
+        const response = await fetch(`/api/trailer?tmdb_id=${heroMovie.tmdb_id}&type=movie`)
+        const result = await response.json()
+        
+        if (result.success && result.trailer?.key) {
+          console.log(`🎬 Trailer trouvé pour ${heroMovie.title}: ${result.trailer.key}`)
+          setHeroTrailerKey(result.trailer.key)
+        } else {
+          setHeroTrailerKey(null)
+        }
+      } catch (error) {
+        console.error('❌ Erreur chargement trailer:', error)
+        setHeroTrailerKey(null)
+      }
+    }
+    
+    loadTrailer()
+  }, [heroMovie])
   
   // Fonction de mélange aléatoire (shuffle)
   function shuffleArray<T>(array: T[]): T[] {
@@ -244,7 +272,7 @@ export default function FilmsPage() {
           <>
             {heroMovie && (
               <HeroSection 
-                movie={heroMovie} 
+                movie={{ ...heroMovie, trailerKey: heroTrailerKey }} 
                 onPlayClick={() => setSelectedMovie(heroMovie)}
                 onInfoClick={() => setSelectedMovie(heroMovie)}
               />

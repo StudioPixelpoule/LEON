@@ -1,0 +1,71 @@
+/* TrailerPlayer - Style Netflix pour auto-play de trailers */
+
+.container {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+
+.backdrop {
+  position: absolute;
+  inset: 0;
+  transition: opacity 1s ease-in-out;
+  z-index: 1;
+}
+
+.backdrop.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.player {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 1s ease-in-out;
+  z-index: 0;
+  /* Agrandir légèrement pour cacher les bords noirs YouTube */
+  transform: scale(1.2);
+}
+
+.player.visible {
+  opacity: 1;
+  z-index: 1;
+}
+
+/* Le player YouTube génère un iframe */
+.player :global(iframe) {
+  width: 100%;
+  height: 100%;
+  border: none;
+  pointer-events: none; /* Empêche les interactions */
+}
+
+/* Gradient overlay pour le contenu texte */
+.gradient {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(
+    to top,
+    rgba(10, 10, 10, 1) 0%,
+    rgba(10, 10, 10, 0.9) 10%,
+    rgba(10, 10, 10, 0.6) 25%,
+    rgba(10, 10, 10, 0.3) 40%,
+    transparent 60%
+  ),
+  linear-gradient(
+    to right,
+    rgba(10, 10, 10, 0.8) 0%,
+    rgba(10, 10, 10, 0.4) 30%,
+    transparent 60%
+  );
+}
+

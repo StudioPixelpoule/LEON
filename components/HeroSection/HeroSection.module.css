@@ -24,6 +24,13 @@
   transform: scale(1.02);
 }
 
+/* 🎬 Container pour le trailer auto-play */
+.trailerContainer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
 .overlay {
   position: absolute;
   inset: 0;
