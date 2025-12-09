@@ -82,6 +82,9 @@ export default function ContinueWatchingRow({
     
     console.log(`[REMOVE] Suppression de ${mediaId} (type: ${mediaType})`)
     
+    // 🔧 FIX: Mettre à jour l'état local IMMÉDIATEMENT pour feedback utilisateur
+    setMedia(prev => prev.filter(m => m.id !== mediaId))
+    
     try {
       // Utiliser DELETE qui est plus fiable que POST avec position=0
       const response = await fetch(`/api/playback-position?mediaId=${encodeURIComponent(mediaId)}`, {
@@ -92,14 +95,19 @@ export default function ContinueWatchingRow({
       console.log(`[REMOVE] Résultat:`, result)
       
       if (response.ok) {
-        // Mettre à jour l'état local
-        setMedia(prev => prev.filter(m => m.id !== mediaId))
-        onRefresh()
+        // 🔧 FIX: Attendre un peu avant de rafraîchir pour laisser Supabase propager
+        setTimeout(() => {
+          onRefresh()
+        }, 500)
       } else {
         console.error('[REMOVE] Erreur API:', result)
+        // Restaurer si erreur - recharger depuis l'API
+        loadInProgressMedia()
       }
     } catch (error) {
       console.error('[REMOVE] Erreur suppression position:', error)
+      // Restaurer si erreur - recharger depuis l'API
+      loadInProgressMedia()
     }
   }
 
