@@ -2,6 +2,7 @@
  * MovieModal - Modale universelle (films + séries TV)
  * - Film: affiche détails + bouton Lire
  * - Série: affiche sélecteur de saison + grille d'épisodes
+ * - Trailer auto-play style Netflix
  */
 
 'use client'
@@ -12,6 +13,7 @@ import type { GroupedMedia } from '@/app/api/media/grouped/route'
 import styles from './MovieModal.module.css'
 import SimpleVideoPlayer from '@/components/SimpleVideoPlayer/SimpleVideoPlayer'
 import FavoriteButton from '@/components/FavoriteButton/FavoriteButton'
+import TrailerPlayer from '@/components/TrailerPlayer/TrailerPlayer'
 
 type Episode = {
   id: string
@@ -43,8 +45,39 @@ export default function MovieModal({ movie, onClose, onPlayClick, autoPlay = fal
   const [loadingEpisodes, setLoadingEpisodes] = useState(false)
   const [showPlayer, setShowPlayer] = useState(autoPlay) // Si autoPlay, ouvrir le lecteur directement
   const [currentEpisode, setCurrentEpisode] = useState<Episode | null>(null)
+  const [trailerKey, setTrailerKey] = useState<string | null>(null) // 🎬 Trailer YouTube
+  const [trailerEnded, setTrailerEnded] = useState(false)
   
   const isTVShow = movie.type === 'tv'
+  
+  // 🎬 Charger le trailer
+  useEffect(() => {
+    async function loadTrailer() {
+      if (!movie.tmdb_id) {
+        setTrailerKey(null)
+        return
+      }
+      
+      try {
+        const type = isTVShow ? 'tv' : 'movie'
+        const response = await fetch(`/api/trailer?tmdb_id=${movie.tmdb_id}&type=${type}`)
+        const result = await response.json()
+        
+        if (result.success && result.trailer?.key) {
+          console.log(`🎬 Trailer trouvé pour ${movie.title}: ${result.trailer.key}`)
+          setTrailerKey(result.trailer.key)
+        } else {
+          setTrailerKey(null)
+        }
+      } catch (error) {
+        console.error('❌ Erreur chargement trailer:', error)
+        setTrailerKey(null)
+      }
+    }
+    
+    loadTrailer()
+    setTrailerEnded(false) // Reset quand le film change
+  }, [movie.tmdb_id, movie.title, isTVShow])
   
   // Charger les épisodes pour les séries
   useEffect(() => {
@@ -152,15 +185,25 @@ export default function MovieModal({ movie, onClose, onPlayClick, autoPlay = fal
   return (
     <div className={styles.backdrop} onClick={onClose}>
       <div className={styles.modal} onClick={(e) => e.stopPropagation()}>
-        {/* Hero Section */}
+        {/* Hero Section avec Trailer auto-play */}
         <div className={styles.hero}>
-          <Image
-            src={backdropUrl}
-            alt=""
-            fill
-            style={{ objectFit: 'cover' }}
-            unoptimized
-          />
+          {/* 🎬 Trailer ou Image */}
+          {trailerKey && !trailerEnded ? (
+            <TrailerPlayer
+              youtubeKey={trailerKey}
+              backdropUrl={backdropUrl}
+              onEnded={() => setTrailerEnded(true)}
+              className={styles.trailerContainer}
+            />
+          ) : (
+            <Image
+              src={backdropUrl}
+              alt=""
+              fill
+              style={{ objectFit: 'cover' }}
+              unoptimized
+            />
+          )}
           <div className={styles.heroOverlay}>
             <button className={styles.closeButton} onClick={onClose}>
               ×
