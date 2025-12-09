@@ -228,15 +228,20 @@ class TranscodingService {
 
   /**
    * Scanner les films et créer la queue de transcodage
-   * Toujours trié par date de modification (plus récent en premier)
+   * 🔀 Queue mélangée: alterne films et séries
    */
   async scanAndQueue(): Promise<number> {
-    console.log('🔍 Scan des films (priorité: derniers ajouts)...')
+    console.log('🔍 Scan des films (priorité: alternance films/séries)...')
     
     const files = await this.scanMediaDirectory()
     let addedCount = 0
 
-    for (const file of files) {
+    // 🔀 Utiliser l'index dans le tableau mélangé comme priorité
+    // Plus l'index est petit = priorité plus haute
+    const maxPriority = Date.now()
+
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
       const outputDir = this.getOutputDir(file.filepath)
       
       // Vérifier si déjà transcodé
@@ -256,7 +261,8 @@ class TranscodingService {
         outputDir,
         status: 'pending',
         progress: 0,
-        priority: file.mtime.getTime(), // Priorité = timestamp de modification
+        // 🔀 Priorité basée sur la position dans le tableau mélangé (pas la date)
+        priority: maxPriority - i,
         fileSize: file.size,
         mtime: file.mtime.toISOString()
       }
@@ -265,7 +271,7 @@ class TranscodingService {
       addedCount++
     }
 
-    // Trier par priorité (timestamp plus élevé = plus récent = premier)
+    // Trier par priorité (priorité plus élevée = premier)
     this.queue.sort((a, b) => b.priority - a.priority)
 
     // Sauvegarder l'état
