@@ -7,13 +7,13 @@
 
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import Image from 'next/image'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
 import styles from './MovieModal.module.css'
 import SimpleVideoPlayer from '@/components/SimpleVideoPlayer/SimpleVideoPlayer'
 import FavoriteButton from '@/components/FavoriteButton/FavoriteButton'
-import TrailerPlayer from '@/components/TrailerPlayer/TrailerPlayer'
+import TrailerPlayer, { TrailerPlayerRef, IconVolumeOff, IconVolumeOn } from '@/components/TrailerPlayer/TrailerPlayer'
 
 type Episode = {
   id: string
@@ -47,6 +47,8 @@ export default function MovieModal({ movie, onClose, onPlayClick, autoPlay = fal
   const [currentEpisode, setCurrentEpisode] = useState<Episode | null>(null)
   const [trailerKey, setTrailerKey] = useState<string | null>(null) // 🎬 Trailer YouTube
   const [trailerEnded, setTrailerEnded] = useState(false)
+  const [trailerMuted, setTrailerMuted] = useState(true) // 🔊 État du son du trailer
+  const trailerRef = useRef<TrailerPlayerRef>(null)
   
   const isTVShow = movie.type === 'tv'
   
@@ -190,11 +192,13 @@ export default function MovieModal({ movie, onClose, onPlayClick, autoPlay = fal
           {/* 🎬 Trailer ou Image */}
           {trailerKey && !trailerEnded ? (
             <TrailerPlayer
+              ref={trailerRef}
               youtubeKey={trailerKey}
               backdropUrl={backdropUrl}
               onEnded={() => setTrailerEnded(true)}
               className={styles.trailerContainer}
-              muteButtonPosition="bottom-left"
+              showMuteButton={false}
+              onMuteChange={setTrailerMuted}
             />
           ) : (
             <Image
@@ -242,6 +246,16 @@ export default function MovieModal({ movie, onClose, onPlayClick, autoPlay = fal
                     mediaType="movie" 
                     size="large"
                   />
+                  {/* 🔊 Bouton son - à côté du favori */}
+                  {trailerKey && !trailerEnded && (
+                    <button 
+                      className={styles.muteButton}
+                      onClick={() => trailerRef.current?.toggleMute()}
+                      aria-label={trailerMuted ? 'Activer le son' : 'Couper le son'}
+                    >
+                      {trailerMuted ? <IconVolumeOff /> : <IconVolumeOn />}
+                    </button>
+                  )}
                 </div>
               )}
               

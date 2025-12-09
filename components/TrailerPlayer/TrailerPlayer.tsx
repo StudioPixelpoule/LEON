@@ -6,7 +6,7 @@
 
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react'
 import styles from './TrailerPlayer.module.css'
 
 // 🔊 Icônes SVG minimalistes et élégantes
@@ -33,16 +33,26 @@ interface TrailerPlayerProps {
   onEnded?: () => void
   className?: string
   muteButtonPosition?: 'top-left' | 'bottom-left' // Position du bouton son
+  showMuteButton?: boolean // Afficher le bouton interne (false = géré ailleurs)
+  onMuteChange?: (isMuted: boolean) => void // Callback pour sync externe
 }
 
-export default function TrailerPlayer({ 
+// Exposer les méthodes pour contrôle externe
+export interface TrailerPlayerRef {
+  toggleMute: () => void
+  isMuted: () => boolean
+}
+
+const TrailerPlayer = forwardRef<TrailerPlayerRef, TrailerPlayerProps>(({ 
   youtubeKey, 
   backdropUrl,
   onReady,
   onEnded,
   className = '',
-  muteButtonPosition = 'top-left'
-}: TrailerPlayerProps) {
+  muteButtonPosition = 'top-left',
+  showMuteButton = true,
+  onMuteChange
+}, ref) => {
   const [isPlaying, setIsPlaying] = useState(false)
   const [showImage, setShowImage] = useState(true)
   const [playerReady, setPlayerReady] = useState(false)
@@ -144,15 +154,22 @@ export default function TrailerPlayer({
   const toggleMute = useCallback(() => {
     if (!playerRef.current) return
     
-    if (isMuted) {
+    const newMutedState = !isMuted
+    if (newMutedState) {
+      playerRef.current.mute()
+    } else {
       playerRef.current.unMute()
       playerRef.current.setVolume(50) // Volume à 50%
-      setIsMuted(false)
-    } else {
-      playerRef.current.mute()
-      setIsMuted(true)
     }
-  }, [isMuted])
+    setIsMuted(newMutedState)
+    onMuteChange?.(newMutedState)
+  }, [isMuted, onMuteChange])
+
+  // Exposer les méthodes pour contrôle externe via ref
+  useImperativeHandle(ref, () => ({
+    toggleMute,
+    isMuted: () => isMuted
+  }), [toggleMute, isMuted])
 
   // Si pas de trailer, afficher juste l'image
   if (!youtubeKey) {
@@ -191,8 +208,8 @@ export default function TrailerPlayer({
       {/* Overlay gradient pour le texte */}
       <div className={styles.gradient} />
 
-      {/* 🔊 Bouton mute/unmute - visible seulement quand la vidéo joue */}
-      {isPlaying && (
+      {/* 🔊 Bouton mute/unmute - visible seulement quand la vidéo joue ET showMuteButton=true */}
+      {isPlaying && showMuteButton && (
         <button 
           className={`${styles.muteButton} ${muteButtonPosition === 'bottom-left' ? styles.muteButtonBottom : ''}`}
           onClick={toggleMute}
@@ -203,7 +220,15 @@ export default function TrailerPlayer({
       )}
     </div>
   )
-}
+})
+
+// Nom pour React DevTools
+TrailerPlayer.displayName = 'TrailerPlayer'
+
+export default TrailerPlayer
+
+// Exporter aussi les icônes pour utilisation externe
+export { IconVolumeOff, IconVolumeOn }
 
 // Déclaration de type pour l'API YouTube
 declare global {

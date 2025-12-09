@@ -6,12 +6,12 @@
 
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Image from 'next/image'
 import { Play, Check } from 'lucide-react'
 import styles from './SeriesModal.module.css'
 import SimpleVideoPlayer from '@/components/SimpleVideoPlayer/SimpleVideoPlayer'
-import TrailerPlayer from '@/components/TrailerPlayer/TrailerPlayer'
+import TrailerPlayer, { TrailerPlayerRef, IconVolumeOff, IconVolumeOn } from '@/components/TrailerPlayer/TrailerPlayer'
 
 interface Episode {
   id: string
@@ -65,6 +65,8 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
   const [nextToWatch, setNextToWatch] = useState<Episode | null>(null)
   const [trailerKey, setTrailerKey] = useState<string | null>(null) // 🎬 Trailer YouTube
   const [trailerEnded, setTrailerEnded] = useState(false)
+  const [trailerMuted, setTrailerMuted] = useState(true) // 🔊 État du son du trailer
+  const trailerRef = useRef<TrailerPlayerRef>(null)
 
   // Charger la progression de visionnage
   const loadProgress = useCallback(async (episodes: Episode[]) => {
@@ -344,11 +346,13 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
           {/* 🎬 Trailer ou Image */}
           {trailerKey && !trailerEnded ? (
             <TrailerPlayer
+              ref={trailerRef}
               youtubeKey={trailerKey}
               backdropUrl={seriesDetails.backdrop_url || '/placeholder-backdrop.png'}
               onEnded={() => setTrailerEnded(true)}
               className={styles.trailerContainer}
-              muteButtonPosition="bottom-left"
+              showMuteButton={false}
+              onMuteChange={setTrailerMuted}
             />
           ) : seriesDetails.backdrop_url && (
             <div className={styles.backdrop}>
@@ -403,7 +407,7 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
             )}
           </div>
 
-          {/* Bouton Reprendre / Commencer */}
+          {/* Bouton Reprendre / Commencer + Bouton son */}
           {nextToWatch && (
             <div className={styles.resumeSection}>
               <button 
@@ -416,6 +420,16 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
                   S{nextToWatch.season_number}E{nextToWatch.episode_number}
                 </span>
               </button>
+              {/* 🔊 Bouton son - à côté du bouton reprendre */}
+              {trailerKey && !trailerEnded && (
+                <button 
+                  className={styles.muteButton}
+                  onClick={() => trailerRef.current?.toggleMute()}
+                  aria-label={trailerMuted ? 'Activer le son' : 'Couper le son'}
+                >
+                  {trailerMuted ? <IconVolumeOff /> : <IconVolumeOn />}
+                </button>
+              )}
             </div>
           )}
 

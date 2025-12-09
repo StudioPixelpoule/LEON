@@ -136,6 +136,28 @@
   gap: var(--spacing-md);
 }
 
+/* 🔊 Bouton son - même style que FavoriteButton */
+.muteButton {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  background: rgba(20, 20, 20, 0.6);
+  color: rgba(255, 255, 255, 0.9);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 200ms ease;
+  backdrop-filter: blur(4px);
+}
+
+.muteButton:hover {
+  border-color: white;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+}
+
 .playButton {
   background: var(--color-white);
   color: var(--color-black);
