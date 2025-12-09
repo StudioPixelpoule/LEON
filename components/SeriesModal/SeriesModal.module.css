@@ -46,11 +46,11 @@
   transform: scale(1.1);
 }
 
-/* Hero Section avec Poster */
+/* Hero Section avec Poster - Agrandi pour mieux voir les trailers */
 .heroSection {
   position: relative;
   width: 100%;
-  height: 400px;
+  height: 550px; /* Augmenté de 400px à 550px */
 }
 
 .backdrop {
@@ -71,8 +71,14 @@
   bottom: 0;
   left: 0;
   right: 0;
-  height: 250px;
-  background: linear-gradient(to top, #181818, transparent);
+  height: 200px; /* Réduit pour moins couvrir le trailer */
+  /* Dégradé moins agressif */
+  background: linear-gradient(
+    to top, 
+    #181818 0%, 
+    rgba(24, 24, 24, 0.7) 30%,
+    transparent 100%
+  );
 }
 
 /* 🎬 Container pour le trailer auto-play */

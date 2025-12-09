@@ -45,10 +45,10 @@
   }
 }
 
-/* Hero Section */
+/* Hero Section - Agrandi pour mieux voir les trailers */
 .hero {
   position: relative;
-  height: 400px;
+  height: 550px; /* Augmenté de 400px à 550px */
   background: var(--color-black);
   overflow: hidden;
 }
@@ -67,12 +67,14 @@
 .heroOverlay {
   position: absolute;
   inset: 0;
+  /* Dégradé moins agressif - commence à 15% au lieu de 30% */
   background: linear-gradient(
     to top,
     #1a1a1a 0%,
-    rgba(26, 26, 26, 0.8) 30%,
-    rgba(0, 0, 0, 0.3) 70%,
-    transparent 100%
+    rgba(26, 26, 26, 0.85) 10%,
+    rgba(26, 26, 26, 0.5) 15%,
+    rgba(0, 0, 0, 0.2) 30%,
+    transparent 50%
   );
   display: flex;
   flex-direction: column;

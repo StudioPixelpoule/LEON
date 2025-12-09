@@ -1,11 +1,13 @@
 /**
  * TrailerPlayer - Lecteur YouTube intégré style Netflix
  * Auto-play muet, sans contrôles, transition fluide avec l'image
+ * 🔊 Bouton mute/unmute discret
  */
 
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { Volume2, VolumeX } from 'lucide-react'
 import styles from './TrailerPlayer.module.css'
 
 interface TrailerPlayerProps {
@@ -26,6 +28,7 @@ export default function TrailerPlayer({
   const [isPlaying, setIsPlaying] = useState(false)
   const [showImage, setShowImage] = useState(true)
   const [playerReady, setPlayerReady] = useState(false)
+  const [isMuted, setIsMuted] = useState(true) // 🔊 État du son
   const playerRef = useRef<YT.Player | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const timeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -119,6 +122,20 @@ export default function TrailerPlayer({
     setIsPlaying(false)
   }, [])
 
+  // 🔊 Toggle mute/unmute
+  const toggleMute = useCallback(() => {
+    if (!playerRef.current) return
+    
+    if (isMuted) {
+      playerRef.current.unMute()
+      playerRef.current.setVolume(50) // Volume à 50%
+      setIsMuted(false)
+    } else {
+      playerRef.current.mute()
+      setIsMuted(true)
+    }
+  }, [isMuted])
+
   // Si pas de trailer, afficher juste l'image
   if (!youtubeKey) {
     return (
@@ -155,6 +172,17 @@ export default function TrailerPlayer({
 
       {/* Overlay gradient pour le texte */}
       <div className={styles.gradient} />
+
+      {/* 🔊 Bouton mute/unmute - visible seulement quand la vidéo joue */}
+      {isPlaying && (
+        <button 
+          className={styles.muteButton}
+          onClick={toggleMute}
+          aria-label={isMuted ? 'Activer le son' : 'Couper le son'}
+        >
+          {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+        </button>
+      )}
     </div>
   )
 }
