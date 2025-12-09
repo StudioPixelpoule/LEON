@@ -488,6 +488,7 @@ async function servePreTranscoded(
       return new NextResponse(segmentData as unknown as BodyInit, {
         headers: {
           'Content-Type': 'video/mp2t',
+          'Content-Length': segmentData.length.toString(),
           'Cache-Control': 'public, max-age=31536000',
           'X-Pre-Transcoded': 'true',
         }
