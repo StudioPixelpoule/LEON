@@ -133,32 +133,34 @@
 .actionButtons {
   display: flex;
   align-items: center;
-  gap: var(--spacing-md);
+  gap: var(--spacing-sm); /* Réduit pour rapprocher les boutons */
 }
 
-/* 🔊 Bouton son - même style que FavoriteButton */
+/* 🔊 Bouton son - IDENTIQUE au FavoriteButton large */
 .muteButton {
-  width: 46px;
-  height: 46px;
+  width: 48px;
+  height: 48px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.5);
-  background: rgba(20, 20, 20, 0.6);
-  color: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(8px);
+  color: rgba(255, 255, 255, 0.7);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: all 200ms ease;
-  backdrop-filter: blur(4px);
-  pointer-events: auto; /* Assurer que le bouton est cliquable */
+  pointer-events: auto;
   position: relative;
   z-index: 10;
+  padding: 0;
+  margin-left: -4px; /* Rapprocher du cœur */
 }
 
 .muteButton:hover {
-  border-color: white;
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
+  background: rgba(0, 0, 0, 0.6);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.9);
   transform: scale(1.05);
 }
 
