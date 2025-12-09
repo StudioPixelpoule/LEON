@@ -1062,6 +1062,10 @@ class TranscodingService {
     transcodedAt: string
     segmentCount: number
     isComplete: boolean
+    hasMultiAudio: boolean
+    hasSubtitles: boolean
+    audioCount: number
+    subtitleCount: number
   }> | null = null
   private transcodedCacheTime: number = 0
   private readonly CACHE_TTL = 30000 // 30 secondes
