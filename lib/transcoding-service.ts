@@ -815,7 +815,9 @@ class TranscodingService {
       await this.extractSubtitles(job.filepath, job.outputDir, streamInfo.subtitles)
     }
     
-    // 🔊 Étape 3: Construire les arguments FFmpeg
+    // 🔊 Étape 3: Construire les arguments FFmpeg avec MULTI-AUDIO OPTIMISÉ
+    // Stratégie: v:0,a:0 = vidéo+audio1, a:1 = audio2 seul (pas de ré-encodage vidéo!)
+    
     const audioMappings: string[] = []
     const audioCodecs: string[] = []
     
@@ -831,34 +833,42 @@ class TranscodingService {
       audioCodecs.push('-c:a', 'aac', '-b:a', '192k', '-ac', '2')
     }
     
-    // 🔊 Construire le var_stream_map avec des noms NUMÉRIQUES simples (évite les problèmes de caractères)
-    // Format: "v:0,a:0,name:0 v:0,a:1,name:1" → créera stream_0.m3u8, stream_1.m3u8
+    // 🔊 Construire var_stream_map pour VRAI multi-audio HLS
+    // Format clé: "v:0,a:0,agroup:audio a:1,agroup:audio" 
+    // → stream_0 = vidéo+audio0, stream_1 = audio1 SEUL (pas de ré-encodage vidéo!)
     let varStreamMap = ''
-    let useVariantStreams = false
     
     if (streamInfo.audioCount > 1) {
-      // Multi-audio: créer une variante par piste audio (toutes partagent la vidéo)
-      const variants = streamInfo.audios.map((_, idx) => `v:0,a:${idx},name:${idx}`)
+      // Multi-audio: vidéo+audio0 puis audio-only pour les autres
+      const variants: string[] = []
+      
+      // Premier flux: vidéo + audio principal
+      variants.push('v:0,a:0,agroup:audio,default:yes')
+      
+      // Flux supplémentaires: audio seulement (efficace!)
+      for (let i = 1; i < streamInfo.audioCount; i++) {
+        variants.push(`a:${i},agroup:audio`)
+      }
+      
       varStreamMap = variants.join(' ')
-      useVariantStreams = true
-      console.log(`[TRANSCODE] 🔊 Multi-audio activé: ${streamInfo.audioCount} pistes → ${varStreamMap}`)
+      console.log(`[TRANSCODE] 🔊 Multi-audio HLS: ${streamInfo.audioCount} pistes`)
+      console.log(`[TRANSCODE] 🔊 var_stream_map: ${varStreamMap}`)
     } else if (streamInfo.audioCount === 1) {
-      // Single audio: une seule variante
-      varStreamMap = 'v:0,a:0,name:0'
-      useVariantStreams = true
+      // Single audio
+      varStreamMap = 'v:0,a:0'
     } else {
-      // Pas d'audio: vidéo seule
-      varStreamMap = 'v:0,name:0'
-      useVariantStreams = true
+      // Pas d'audio
+      varStreamMap = 'v:0'
     }
     
-    // 🔊 Sauvegarder les infos audio APRÈS avoir déterminé les noms de fichiers
+    // 🔊 Sauvegarder les infos audio
     if (streamInfo.audioCount > 0) {
       const audioInfo = streamInfo.audios.map((audio, idx) => ({
         index: idx,
-        language: audio.language,
+        language: audio.language || 'und',
         title: audio.title || `Audio ${idx + 1}`,
-        file: `stream_${idx}.m3u8` // Noms numériques garantis
+        file: `stream_${idx}.m3u8`,
+        isDefault: idx === 0
       }))
       
       await writeFile(
@@ -867,6 +877,8 @@ class TranscodingService {
       )
       console.log(`[TRANSCODE] 🔊 audio_info.json créé avec ${audioInfo.length} pistes`)
     }
+    
+    const playlistPath = path.join(job.outputDir, 'playlist.m3u8')
     
     const ffmpegArgs = [
       ...hardware.decoderArgs,
@@ -891,11 +903,12 @@ class TranscodingService {
       '-hls_segment_filename', path.join(job.outputDir, 'stream_%v_segment%d.ts'),
       '-hls_playlist_type', 'vod',
       '-start_number', '0',
-      ...(useVariantStreams ? ['-var_stream_map', varStreamMap, '-master_pl_name', 'master.m3u8'] : []),
+      '-var_stream_map', varStreamMap,
+      '-master_pl_name', 'playlist.m3u8',
       path.join(job.outputDir, 'stream_%v.m3u8')
     ]
     
-    console.log(`[TRANSCODE] 🎬 FFmpeg args: ${ffmpegArgs.filter(a => !a.startsWith('/')).join(' ')}`)
+    console.log(`[TRANSCODE] 🎬 Démarrage FFmpeg (${streamInfo.audioCount} audio, ${streamInfo.subtitleCount} sous-titres)`)
 
     return new Promise((resolve, reject) => {
       const ffmpeg = spawn('ffmpeg', ffmpegArgs, {
