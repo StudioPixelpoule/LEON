@@ -1101,6 +1101,10 @@ interface TranscodedFile {
   folder: string
   transcodedAt: string
   segmentCount: number
+  hasMultiAudio?: boolean
+  hasSubtitles?: boolean
+  audioCount?: number
+  subtitleCount?: number
 }
 
 // Type pour les stats du cache HLS
