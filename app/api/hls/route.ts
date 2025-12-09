@@ -510,33 +510,25 @@ async function servePreTranscoded(
     }
   }
 
-  // 🆕 MULTI-AUDIO : Vérifier si des playlists séparées existent
-  const audioIndex = parseInt(audioTrack) || 0
-  let playlistFilename = 'playlist.m3u8'
+  // 🔧 FIX: Pour les fichiers pré-transcodés avec audio muxé,
+  // toujours servir playlist.m3u8 (les pistes audio sont dans les mêmes segments)
+  // Le changement de piste se fait via l'API HLS.js audioTrack côté client
   
-  // Vérifier audio_info.json pour les playlists multi-audio
+  const playlistPath = path.join(preTranscodedDir, 'playlist.m3u8')
+  
+  if (!existsSync(playlistPath)) {
+    return NextResponse.json({ error: 'Playlist non trouvé' }, { status: 404 })
+  }
+  
+  // Lire les infos audio pour enrichir la réponse
+  let audioInfo: Array<{ index: number; language: string; title?: string }> = []
   const audioInfoPath = path.join(preTranscodedDir, 'audio_info.json')
   if (existsSync(audioInfoPath)) {
     try {
-      const audioInfo = JSON.parse(await readFile(audioInfoPath, 'utf-8'))
-      if (Array.isArray(audioInfo) && audioInfo[audioIndex]?.file) {
-        playlistFilename = audioInfo[audioIndex].file
-        console.log(`[${timestamp}] [HLS-PRE] 🔊 Multi-audio: piste ${audioIndex} → ${playlistFilename}`)
-      }
+      audioInfo = JSON.parse(await readFile(audioInfoPath, 'utf-8'))
+      console.log(`[${timestamp}] [HLS-PRE] 🔊 ${audioInfo.length} pistes audio disponibles`)
     } catch (err) {
       console.warn(`[${timestamp}] [HLS-PRE] ⚠️ Erreur lecture audio_info.json:`, err)
-    }
-  }
-  
-  const playlistPath = path.join(preTranscodedDir, playlistFilename)
-  
-  // Fallback sur playlist.m3u8 si le fichier spécifique n'existe pas
-  if (!existsSync(playlistPath)) {
-    const fallbackPath = path.join(preTranscodedDir, 'playlist.m3u8')
-    if (existsSync(fallbackPath)) {
-      console.log(`[${timestamp}] [HLS-PRE] ⚠️ Playlist ${playlistFilename} non trouvé, fallback sur playlist.m3u8`)
-    } else {
-      return NextResponse.json({ error: 'Playlist non trouvé' }, { status: 404 })
     }
   }
   
@@ -554,8 +546,17 @@ async function servePreTranscoded(
     })
     
     playlistContent = modifiedLines.join('\n')
+    
+    // 🔊 Si plusieurs pistes audio, ajouter les infos dans un header JSON
+    const audioTracksHeader = audioInfo.length > 0 
+      ? JSON.stringify(audioInfo.map((a, i) => ({
+          index: i,
+          language: a.language,
+          title: a.title || a.language
+        })))
+      : '[]'
 
-    console.log(`[${timestamp}] [HLS-PRE] ✅ Playlist pré-transcodé servi: ${playlistFilename} (seek instantané disponible!)`)
+    console.log(`[${timestamp}] [HLS-PRE] ✅ Playlist pré-transcodé servi (${audioInfo.length} pistes audio, seek instantané)`)
 
     return new NextResponse(playlistContent, {
       headers: {
@@ -564,6 +565,7 @@ async function servePreTranscoded(
         'X-Pre-Transcoded': 'true',
         'X-Seek-Mode': 'instant', // Indique au player que le seek est instantané
         'X-Audio-Track': audioTrack,
+        'X-Audio-Tracks': audioTracksHeader, // Info sur toutes les pistes disponibles
       }
     })
   } catch (error) {

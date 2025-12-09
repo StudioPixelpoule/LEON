@@ -1400,7 +1400,38 @@ export default function SimpleVideoPlayer({
         }, 300000) // 5 minutes
       }
     } else {
-      // Pour HLS : recharger avec la nouvelle piste audio
+      // Pour HLS : essayer d'abord de changer via l'API HLS.js audioTrack
+      
+      // 🔧 FIX: Si HLS.js est actif avec plusieurs pistes audio, utiliser son API native
+      if (hlsRef.current && hlsRef.current.audioTracks && hlsRef.current.audioTracks.length > 1) {
+        console.log(`🔊 [HLS] Changement piste audio via HLS.js API: ${idx}`)
+        console.log(`🔊 [HLS] Pistes disponibles:`, hlsRef.current.audioTracks.map((t, i) => `${i}: ${t.name || t.lang}`))
+        
+        // Trouver la piste correspondante dans HLS.js
+        // L'index dans audioTracks peut différer de notre index
+        const hlsAudioTracks = hlsRef.current.audioTracks
+        let hlsTrackIndex = idx
+        
+        // Si on a un track.index spécifique, chercher par langue
+        if (track.language) {
+          const matchingTrack = hlsAudioTracks.findIndex(t => 
+            t.lang === track.language || 
+            t.name?.toLowerCase().includes(track.language.toLowerCase())
+          )
+          if (matchingTrack !== -1) {
+            hlsTrackIndex = matchingTrack
+          }
+        }
+        
+        // Changer la piste audio via HLS.js
+        hlsRef.current.audioTrack = hlsTrackIndex
+        setSelectedAudio(idx)
+        setShowSettingsMenu(false)
+        console.log(`✅ Audio changé via HLS.js (piste ${hlsTrackIndex})`)
+        return
+      }
+      
+      // Fallback: recharger avec la nouvelle piste audio (si HLS.js n'a pas plusieurs pistes)
       const currentPos = video.currentTime
       const wasPlaying = !video.paused
       
@@ -1409,6 +1440,7 @@ export default function SimpleVideoPlayer({
         ? `/api/hls-v2?path=${encodeURIComponent(filepath)}&playlist=true&audio=${track.index}`
         : `/api/hls?path=${encodeURIComponent(filepath)}&playlist=true&audio=${track.index}`
       
+      console.log(`🔊 [HLS] Rechargement stream avec piste audio ${track.index}`)
       
       // Marquer qu'on change de piste
       isChangingTrack.current = true
