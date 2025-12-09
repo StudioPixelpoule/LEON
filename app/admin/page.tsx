@@ -1561,17 +1561,49 @@ function TranscodeSection() {
                       <span className={styles.transcodedName}>{film.name}</span>
                       <span className={styles.transcodedMeta}>
                         {film.segmentCount} segments • Transcodé le {formatDate(film.transcodedAt)}
+                        {/* Indicateurs multi-audio et sous-titres */}
+                        <span style={{ marginLeft: '10px', display: 'inline-flex', gap: '6px' }}>
+                          <span 
+                            title={`${film.audioCount || 1} piste(s) audio`}
+                            style={{ 
+                              padding: '2px 6px', 
+                              borderRadius: '4px', 
+                              fontSize: '10px',
+                              fontWeight: 600,
+                              background: (film.audioCount || 1) > 1 ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255, 255, 255, 0.1)',
+                              color: (film.audioCount || 1) > 1 ? '#22c55e' : 'rgba(255,255,255,0.5)'
+                            }}
+                          >
+                            🔊 {film.audioCount || 1}
+                          </span>
+                          <span 
+                            title={`${film.subtitleCount || 0} sous-titre(s)`}
+                            style={{ 
+                              padding: '2px 6px', 
+                              borderRadius: '4px', 
+                              fontSize: '10px',
+                              fontWeight: 600,
+                              background: (film.subtitleCount || 0) > 0 ? 'rgba(59, 130, 246, 0.2)' : 'rgba(255, 255, 255, 0.1)',
+                              color: (film.subtitleCount || 0) > 0 ? '#3b82f6' : 'rgba(255,255,255,0.5)'
+                            }}
+                          >
+                            📝 {film.subtitleCount || 0}
+                          </span>
+                        </span>
                       </span>
                     </div>
                     <div className={styles.transcodedActions}>
-                      <button
-                        className={styles.secondaryButton}
-                        onClick={() => reTranscode(film.folder, film.name)}
-                        title="Re-transcoder avec multi-audio et sous-titres"
-                        style={{ padding: '6px 10px', fontSize: '12px' }}
-                      >
-                        <RotateCcw size={14} />
-                      </button>
+                      {/* Afficher le bouton re-transcoder uniquement si ancien format (1 audio, 0 sous-titres) */}
+                      {((film.audioCount || 1) <= 1 && (film.subtitleCount || 0) === 0) && (
+                        <button
+                          className={styles.secondaryButton}
+                          onClick={() => reTranscode(film.folder, film.name)}
+                          title="Re-transcoder avec multi-audio et sous-titres"
+                          style={{ padding: '6px 10px', fontSize: '12px' }}
+                        >
+                          <RotateCcw size={14} />
+                        </button>
+                      )}
                       <button
                         className={styles.deleteButton}
                         onClick={() => deleteTranscoded(film.folder, film.name)}

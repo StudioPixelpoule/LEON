@@ -1072,6 +1072,10 @@ class TranscodingService {
     transcodedAt: string
     segmentCount: number
     isComplete: boolean
+    hasMultiAudio: boolean
+    hasSubtitles: boolean
+    audioCount: number
+    subtitleCount: number
   }>> {
     // Utiliser le cache si frais
     const now = Date.now()
@@ -1085,6 +1089,10 @@ class TranscodingService {
       transcodedAt: string
       segmentCount: number
       isComplete: boolean
+      hasMultiAudio: boolean
+      hasSubtitles: boolean
+      audioCount: number
+      subtitleCount: number
     }> = []
 
     try {
@@ -1120,12 +1128,37 @@ class TranscodingService {
             const files = await readdir(folderPath)
             const segmentCount = files.filter(f => f.endsWith('.ts')).length
             
+            // Vérifier multi-audio et sous-titres
+            const audioInfoPath = path.join(folderPath, 'audio_info.json')
+            const subtitlesPath = path.join(folderPath, 'subtitles.json')
+            
+            let audioCount = 1 // Par défaut, au moins 1 piste
+            let subtitleCount = 0
+            
+            if (existsSync(audioInfoPath)) {
+              try {
+                const audioInfo = JSON.parse(await readFile(audioInfoPath, 'utf-8'))
+                audioCount = Array.isArray(audioInfo) ? audioInfo.length : 1
+              } catch {}
+            }
+            
+            if (existsSync(subtitlesPath)) {
+              try {
+                const subsInfo = JSON.parse(await readFile(subtitlesPath, 'utf-8'))
+                subtitleCount = Array.isArray(subsInfo) ? subsInfo.length : 0
+              } catch {}
+            }
+            
             transcoded.push({
               name: prefix + entry.name.replace(/_/g, ' '),
               folder: prefix ? `series/${entry.name}` : entry.name,
               transcodedAt,
               segmentCount,
-              isComplete: true
+              isComplete: true,
+              hasMultiAudio: audioCount > 1,
+              hasSubtitles: subtitleCount > 0,
+              audioCount,
+              subtitleCount
             })
           } catch (error) {
             // Ignorer silencieusement
