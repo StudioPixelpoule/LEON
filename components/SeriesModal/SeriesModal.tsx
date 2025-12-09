@@ -348,6 +348,7 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
               backdropUrl={seriesDetails.backdrop_url || '/placeholder-backdrop.png'}
               onEnded={() => setTrailerEnded(true)}
               className={styles.trailerContainer}
+              muteButtonPosition="bottom-left"
             />
           ) : seriesDetails.backdrop_url && (
             <div className={styles.backdrop}>

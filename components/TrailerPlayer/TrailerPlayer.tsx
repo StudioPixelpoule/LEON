@@ -7,8 +7,24 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Volume2, VolumeX } from 'lucide-react'
 import styles from './TrailerPlayer.module.css'
+
+// 🔊 Icônes SVG minimalistes et élégantes
+const IconVolumeOff = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 5L6 9H2v6h4l5 4V5z"/>
+    <line x1="23" y1="9" x2="17" y2="15"/>
+    <line x1="17" y1="9" x2="23" y2="15"/>
+  </svg>
+)
+
+const IconVolumeOn = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 5L6 9H2v6h4l5 4V5z"/>
+    <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+    <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+  </svg>
+)
 
 interface TrailerPlayerProps {
   youtubeKey: string | null // ID de la vidéo YouTube
@@ -16,7 +32,7 @@ interface TrailerPlayerProps {
   onReady?: () => void
   onEnded?: () => void
   className?: string
-  buttonTopOffset?: number // Décalage du bouton son depuis le haut (pour éviter le header)
+  muteButtonPosition?: 'top-left' | 'bottom-left' // Position du bouton son
 }
 
 export default function TrailerPlayer({ 
@@ -24,7 +40,8 @@ export default function TrailerPlayer({
   backdropUrl,
   onReady,
   onEnded,
-  className = ''
+  className = '',
+  muteButtonPosition = 'top-left'
 }: TrailerPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false)
   const [showImage, setShowImage] = useState(true)
@@ -177,11 +194,11 @@ export default function TrailerPlayer({
       {/* 🔊 Bouton mute/unmute - visible seulement quand la vidéo joue */}
       {isPlaying && (
         <button 
-          className={styles.muteButton}
+          className={`${styles.muteButton} ${muteButtonPosition === 'bottom-left' ? styles.muteButtonBottom : ''}`}
           onClick={toggleMute}
           aria-label={isMuted ? 'Activer le son' : 'Couper le son'}
         >
-          {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+          {isMuted ? <IconVolumeOff /> : <IconVolumeOn />}
         </button>
       )}
     </div>

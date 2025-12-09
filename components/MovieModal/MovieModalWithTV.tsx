@@ -194,6 +194,7 @@ export default function MovieModal({ movie, onClose, onPlayClick, autoPlay = fal
               backdropUrl={backdropUrl}
               onEnded={() => setTrailerEnded(true)}
               className={styles.trailerContainer}
+              muteButtonPosition="bottom-left"
             />
           ) : (
             <Image
