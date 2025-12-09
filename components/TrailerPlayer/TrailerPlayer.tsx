@@ -152,9 +152,14 @@ const TrailerPlayer = forwardRef<TrailerPlayerRef, TrailerPlayerProps>(({
 
   // 🔊 Toggle mute/unmute
   const toggleMute = useCallback(() => {
-    if (!playerRef.current) return
+    console.log('🔊 toggleMute appelé, playerRef:', playerRef.current, 'isMuted:', isMuted)
+    if (!playerRef.current) {
+      console.log('❌ playerRef.current est null')
+      return
+    }
     
     const newMutedState = !isMuted
+    console.log('🔊 Nouveau state:', newMutedState ? 'MUTED' : 'UNMUTED')
     if (newMutedState) {
       playerRef.current.mute()
     } else {

@@ -150,12 +150,20 @@
   justify-content: center;
   transition: all 200ms ease;
   backdrop-filter: blur(4px);
+  pointer-events: auto; /* Assurer que le bouton est cliquable */
+  position: relative;
+  z-index: 10;
 }
 
 .muteButton:hover {
   border-color: white;
   background: rgba(255, 255, 255, 0.1);
   color: white;
+  transform: scale(1.05);
+}
+
+.muteButton:active {
+  transform: scale(0.95);
 }
 
 .playButton {

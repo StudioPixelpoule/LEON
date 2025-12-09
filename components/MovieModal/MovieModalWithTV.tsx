@@ -250,7 +250,10 @@ export default function MovieModal({ movie, onClose, onPlayClick, autoPlay = fal
                   {trailerKey && !trailerEnded && (
                     <button 
                       className={styles.muteButton}
-                      onClick={() => trailerRef.current?.toggleMute()}
+                      onClick={() => {
+                        console.log('🔊 Click bouton son, ref:', trailerRef.current)
+                        trailerRef.current?.toggleMute()
+                      }}
                       aria-label={trailerMuted ? 'Activer le son' : 'Couper le son'}
                     >
                       {trailerMuted ? <IconVolumeOff /> : <IconVolumeOn />}
