@@ -35,6 +35,7 @@ interface AudioTrack {
   language: string
   title?: string
   codec?: string
+  hlsPlaylist?: string // 🆕 Pour les pistes audio pré-transcodées (ex: stream_1.m3u8)
 }
 
 interface SubtitleTrack {
@@ -45,6 +46,7 @@ interface SubtitleTrack {
   forced?: boolean
   isDownloaded?: boolean // Pour les tracks téléchargés depuis OpenSubtitles
   sourceUrl?: string // URL de l'API pour les tracks téléchargés
+  vttFile?: string // 🆕 Pour les sous-titres VTT pré-transcodés (ex: sub_fre_0.vtt)
 }
 
 // Extension pour audioTracks (supporté uniquement sur Safari/WebKit)
@@ -1806,8 +1808,15 @@ export default function SimpleVideoPlayer({
         return
       }
       
-      const subtitleUrl = `/api/subtitles?path=${encodeURIComponent(filepath)}&track=${track.index}`
-      console.log(`📝 [HLS] URL sous-titres:`, subtitleUrl)
+      // 🆕 Pour les fichiers pré-transcodés avec VTT, utiliser l'API dédiée
+      let subtitleUrl: string
+      if (track.vttFile) {
+        subtitleUrl = `/api/hls/subtitles?path=${encodeURIComponent(filepath)}&file=${encodeURIComponent(track.vttFile)}`
+        console.log(`📝 [HLS-PRE] URL sous-titres VTT pré-transcodé:`, subtitleUrl)
+      } else {
+        subtitleUrl = `/api/subtitles?path=${encodeURIComponent(filepath)}&track=${track.index}`
+        console.log(`📝 [HLS] URL sous-titres temps réel:`, subtitleUrl)
+      }
       
       // 🔧 NOUVELLE APPROCHE : Charger manuellement les sous-titres via fetch
       // Car les browsers ne chargent pas toujours les <track> ajoutés dynamiquement

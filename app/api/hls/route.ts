@@ -510,8 +510,35 @@ async function servePreTranscoded(
     }
   }
 
-  // Retourner le playlist
-  const playlistPath = path.join(preTranscodedDir, 'playlist.m3u8')
+  // 🆕 MULTI-AUDIO : Vérifier si des playlists séparées existent
+  const audioIndex = parseInt(audioTrack) || 0
+  let playlistFilename = 'playlist.m3u8'
+  
+  // Vérifier audio_info.json pour les playlists multi-audio
+  const audioInfoPath = path.join(preTranscodedDir, 'audio_info.json')
+  if (existsSync(audioInfoPath)) {
+    try {
+      const audioInfo = JSON.parse(await readFile(audioInfoPath, 'utf-8'))
+      if (Array.isArray(audioInfo) && audioInfo[audioIndex]?.file) {
+        playlistFilename = audioInfo[audioIndex].file
+        console.log(`[${timestamp}] [HLS-PRE] 🔊 Multi-audio: piste ${audioIndex} → ${playlistFilename}`)
+      }
+    } catch (err) {
+      console.warn(`[${timestamp}] [HLS-PRE] ⚠️ Erreur lecture audio_info.json:`, err)
+    }
+  }
+  
+  const playlistPath = path.join(preTranscodedDir, playlistFilename)
+  
+  // Fallback sur playlist.m3u8 si le fichier spécifique n'existe pas
+  if (!existsSync(playlistPath)) {
+    const fallbackPath = path.join(preTranscodedDir, 'playlist.m3u8')
+    if (existsSync(fallbackPath)) {
+      console.log(`[${timestamp}] [HLS-PRE] ⚠️ Playlist ${playlistFilename} non trouvé, fallback sur playlist.m3u8`)
+    } else {
+      return NextResponse.json({ error: 'Playlist non trouvé' }, { status: 404 })
+    }
+  }
   
   try {
     let playlistContent = await readFile(playlistPath, 'utf-8')
@@ -528,7 +555,7 @@ async function servePreTranscoded(
     
     playlistContent = modifiedLines.join('\n')
 
-    console.log(`[${timestamp}] [HLS-PRE] ✅ Playlist pré-transcodé servi (seek instantané disponible!)`)
+    console.log(`[${timestamp}] [HLS-PRE] ✅ Playlist pré-transcodé servi: ${playlistFilename} (seek instantané disponible!)`)
 
     return new NextResponse(playlistContent, {
       headers: {
@@ -536,6 +563,7 @@ async function servePreTranscoded(
         'Cache-Control': 'public, max-age=3600', // Cache 1h car fichier statique
         'X-Pre-Transcoded': 'true',
         'X-Seek-Mode': 'instant', // Indique au player que le seek est instantané
+        'X-Audio-Track': audioTrack,
       }
     })
   } catch (error) {

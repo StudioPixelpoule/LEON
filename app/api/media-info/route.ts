@@ -1,11 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { exec } from 'child_process'
 import { promisify } from 'util'
+import { existsSync } from 'fs'
+import { readFile } from 'fs/promises'
+import path from 'path'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
 
 const execAsync = promisify(exec)
+const TRANSCODED_DIR = process.env.TRANSCODED_DIR || '/leon/transcoded'
 
 interface StreamInfo {
   index: number
@@ -23,6 +27,7 @@ interface MediaInfo {
     language: string
     title: string
     codec: string
+    hlsPlaylist?: string // 🆕 Pour HLS pré-transcodé
   }[]
   subtitleTracks: {
     index: number
@@ -30,7 +35,9 @@ interface MediaInfo {
     title: string
     codec: string
     forced?: boolean
+    vttFile?: string // 🆕 Pour sous-titres WebVTT pré-transcodés
   }[]
+  isPreTranscoded?: boolean // 🆕 Indicateur
 }
 
 // Mapping des codes ISO 639 vers noms complets
@@ -65,6 +72,28 @@ const languageMap: Record<string, string> = {
   'unknown': 'Inconnu'
 }
 
+/**
+ * Trouver le dossier pré-transcodé pour un fichier
+ */
+function getPreTranscodedDir(filepath: string): { dir: string; found: boolean } {
+  const filename = path.basename(filepath, path.extname(filepath))
+  const safeName = filename.replace(/[^a-zA-Z0-9àâäéèêëïîôùûüç\s\-_.()[\]]/gi, '_')
+  
+  // Vérifier dans le dossier racine (films)
+  const mainDir = path.join(TRANSCODED_DIR, safeName)
+  if (existsSync(mainDir) && existsSync(path.join(mainDir, '.done'))) {
+    return { dir: mainDir, found: true }
+  }
+  
+  // Vérifier dans le sous-dossier series/ (épisodes)
+  const seriesDir = path.join(TRANSCODED_DIR, 'series', safeName)
+  if (existsSync(seriesDir) && existsSync(path.join(seriesDir, '.done'))) {
+    return { dir: seriesDir, found: true }
+  }
+  
+  return { dir: mainDir, found: false }
+}
+
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const filepathRaw = searchParams.get('path')
@@ -73,11 +102,79 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Chemin manquant' }, { status: 400 })
   }
   
-  // Normaliser pour gérer les caractères Unicode
-  const filepath = filepathRaw.normalize('NFD')
+  // NE PAS normaliser - utiliser le chemin tel quel
+  const filepath = filepathRaw
 
   try {
-    // Utiliser ffprobe pour obtenir les infos sur les pistes
+    // 🆕 VÉRIFIER D'ABORD SI LE FICHIER EST PRÉ-TRANSCODÉ
+    const preTranscoded = getPreTranscodedDir(filepath)
+    
+    if (preTranscoded.found) {
+      console.log(`[MEDIA-INFO] 📁 Fichier pré-transcodé trouvé: ${preTranscoded.dir}`)
+      
+      const audioInfoPath = path.join(preTranscoded.dir, 'audio_info.json')
+      const subtitlesPath = path.join(preTranscoded.dir, 'subtitles.json')
+      
+      let audioTracks: MediaInfo['audioTracks'] = []
+      let subtitleTracks: MediaInfo['subtitleTracks'] = []
+      
+      // Charger les pistes audio depuis audio_info.json
+      if (existsSync(audioInfoPath)) {
+        try {
+          const audioInfo = JSON.parse(await readFile(audioInfoPath, 'utf-8'))
+          audioTracks = audioInfo.map((track: any, idx: number) => ({
+            index: idx,
+            language: languageMap[track.language] || track.language || 'Inconnu',
+            title: track.title || `Piste audio ${idx + 1}`,
+            codec: 'aac', // Pré-transcodé en AAC
+            hlsPlaylist: track.file || `stream_${idx}.m3u8`
+          }))
+          console.log(`[MEDIA-INFO] 🔊 ${audioTracks.length} pistes audio trouvées`)
+        } catch (err) {
+          console.warn('[MEDIA-INFO] ⚠️ Erreur lecture audio_info.json:', err)
+        }
+      }
+      
+      // Charger les sous-titres depuis subtitles.json
+      if (existsSync(subtitlesPath)) {
+        try {
+          const subsInfo = JSON.parse(await readFile(subtitlesPath, 'utf-8'))
+          subtitleTracks = subsInfo.map((sub: any, idx: number) => ({
+            index: idx,
+            language: languageMap[sub.language] || sub.language || 'Inconnu',
+            title: sub.title || `Sous-titres ${idx + 1}`,
+            codec: 'webvtt',
+            forced: sub.forced || false,
+            vttFile: sub.file // ex: sub_fre_0.vtt
+          }))
+          console.log(`[MEDIA-INFO] 📝 ${subtitleTracks.length} sous-titres trouvés`)
+        } catch (err) {
+          console.warn('[MEDIA-INFO] ⚠️ Erreur lecture subtitles.json:', err)
+        }
+      }
+      
+      // Si pas de audio_info.json, au moins une piste par défaut
+      if (audioTracks.length === 0) {
+        audioTracks = [{
+          index: 0,
+          language: 'Original',
+          title: 'Piste audio',
+          codec: 'aac',
+          hlsPlaylist: 'playlist.m3u8'
+        }]
+      }
+      
+      return NextResponse.json({
+        audioTracks,
+        subtitleTracks,
+        isPreTranscoded: true,
+        preTranscodedDir: preTranscoded.dir
+      })
+    }
+    
+    // SINON: Utiliser FFprobe sur le fichier original
+    console.log(`[MEDIA-INFO] 🔍 FFprobe sur fichier original: ${filepath}`)
+    
     const { stdout } = await execAsync(
       `ffprobe -v quiet -print_format json -show_streams "${filepath}"`
     )
@@ -118,7 +215,8 @@ export async function GET(request: NextRequest) {
 
     const mediaInfo: MediaInfo = {
       audioTracks,
-      subtitleTracks
+      subtitleTracks,
+      isPreTranscoded: false
     }
 
     return NextResponse.json(mediaInfo)
@@ -127,7 +225,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       { 
         audioTracks: [],
-        subtitleTracks: []
+        subtitleTracks: [],
+        isPreTranscoded: false
       }
     )
   }
