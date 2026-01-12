@@ -170,6 +170,7 @@
 /* Header du dashboard */
 .dashboardHeader {
   margin-bottom: 32px;
+  position: relative;
 }
 
 .dashboardTitle {
@@ -183,6 +184,31 @@
   font-size: 15px;
   color: rgba(255, 255, 255, 0.6);
   margin: 0;
+}
+
+/* Badge de version */
+.versionBadge {
+  position: absolute;
+  top: 16px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+}
+
+.versionCommit {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.versionDate {
+  color: rgba(255, 255, 255, 0.4);
 }
 
 /* Status système (barre supérieure) */

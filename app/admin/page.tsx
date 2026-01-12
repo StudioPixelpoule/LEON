@@ -299,6 +299,21 @@ function DashboardView({ status, stats, loading, onNavigate, onRefresh }: Dashbo
         <p className={styles.dashboardSubtitle}>
           Vue d&apos;ensemble de votre médiathèque LEON
         </p>
+        <div className={styles.versionBadge}>
+          <span className={styles.versionCommit}>
+            {process.env.NEXT_PUBLIC_GIT_COMMIT || 'dev'}
+          </span>
+          <span className={styles.versionDate}>
+            {process.env.NEXT_PUBLIC_BUILD_DATE 
+              ? new Date(process.env.NEXT_PUBLIC_BUILD_DATE).toLocaleDateString('fr-FR', { 
+                  day: '2-digit', 
+                  month: '2-digit',
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })
+              : 'local'}
+          </span>
+        </div>
       </div>
 
       {/* Statut système */}
