@@ -263,7 +263,8 @@ class FileWatcher {
       // Imports dynamiques pour éviter les dépendances circulaires
       const { supabase } = await import('./supabase')
       const { searchMovie, getMovieDetails, getTMDBImageUrl, getYearFromDate } = await import('./tmdb')
-      const { sanitizeFilename, findLocalSubtitles, formatFileSize, detectVideoQuality } = await import('./localScanner')
+      const { findLocalSubtitles, formatFileSize, detectVideoQuality } = await import('./localScanner')
+      const { sanitizeFilename } = await import('./media-recognition/filenameSanitizer')
 
       // Vérifier si le fichier existe déjà en base
       const { data: existing } = await supabase
@@ -278,18 +279,16 @@ class FileWatcher {
       }
 
       // Nettoyer le nom du fichier pour la recherche TMDB
-      const cleanName = sanitizeFilename(filename)
-      
-      // Extraire l'année si présente
-      const yearMatch = filename.match(/\b(19\d{2}|20\d{2})\b/)
-      const year = yearMatch ? parseInt(yearMatch[1]) : undefined
+      const sanitized = sanitizeFilename(filename)
+      const cleanName = sanitized.cleanName
+      const year = sanitized.year || undefined
 
       // Rechercher sur TMDB
       let mediaDetails = null
       let tmdbId = null
 
       try {
-        const searchResults = await searchMovie(cleanName, year)
+        const searchResults = await searchMovie(cleanName, year || undefined)
         if (searchResults && searchResults.length > 0) {
           tmdbId = searchResults[0].id
           mediaDetails = await getMovieDetails(tmdbId)
@@ -337,9 +336,10 @@ class FileWatcher {
         vote_count: mediaDetails?.vote_count || null,
         tagline: mediaDetails?.tagline || null,
         director: mediaDetails?.credits?.crew?.find((c: { job: string }) => c.job === 'Director')?.name || null,
-        trailer_url: mediaDetails?.videos?.results?.find((v: { type: string; site: string }) => v.type === 'Trailer' && v.site === 'YouTube')?.key 
-          ? `https://www.youtube.com/watch?v=${mediaDetails.videos.results.find((v: { type: string; site: string }) => v.type === 'Trailer' && v.site === 'YouTube').key}` 
-          : null,
+        trailer_url: (() => {
+          const trailer = mediaDetails?.videos?.results?.find((v: { type: string; site: string }) => v.type === 'Trailer' && v.site === 'YouTube')
+          return trailer?.key ? `https://www.youtube.com/watch?v=${trailer.key}` : null
+        })(),
         media_type: 'movie',
         updated_at: new Date().toISOString()
       }
