@@ -1126,26 +1126,43 @@ function TranscodeSection() {
   const [showTranscoded, setShowTranscoded] = useState(false)
   const [clearingCache, setClearingCache] = useState(false)
 
-  // Charger les stats au montage et toutes les 3 secondes
+  // Charger les stats au montage et toutes les 3 secondes (mode rapide)
   useEffect(() => {
-    loadStats()
+    loadStats(false) // Premier chargement complet
     loadCacheStats()
-    const interval = setInterval(loadStats, 3000)
+    const interval = setInterval(() => loadStats(true), 3000) // Polling rapide
     return () => clearInterval(interval)
   }, [])
 
-  async function loadStats() {
+  // Charger les stats (quick=true pour polling fréquent, false pour la liste transcodés)
+  async function loadStats(quick: boolean = true) {
     try {
-      const response = await fetch('/api/transcode')
+      const response = await fetch(`/api/transcode${quick ? '?quick=true' : ''}`)
       const data = await response.json()
       setStats(data.stats)
       setQueue(data.queue || [])
       setWatcher(data.watcher || null)
-      setTranscoded(data.transcoded || [])
+      // La liste transcodés n'est chargée qu'en mode complet
+      if (data.transcoded) {
+        setTranscoded(data.transcoded)
+      }
     } catch (error) {
       console.error('Erreur chargement stats transcodage:', error)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Recharger la liste des transcodés (appelé manuellement)
+  async function reloadTranscoded() {
+    try {
+      const response = await fetch('/api/transcode')
+      const data = await response.json()
+      if (data.transcoded) {
+        setTranscoded(data.transcoded)
+      }
+    } catch (error) {
+      console.error('Erreur chargement liste transcodés:', error)
     }
   }
 

@@ -12,21 +12,30 @@ import fileWatcher from '@/lib/file-watcher'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
+    const searchParams = request.nextUrl.searchParams
+    const quick = searchParams.get('quick') === 'true'
+    
+    // Mode rapide: stats + queue seulement (pour polling fréquent)
     const stats = await transcodingService.getStats()
     const queue = transcodingService.getQueue()
     const completed = transcodingService.getCompletedJobs()
     const watcherStats = fileWatcher.getStats()
-    const transcoded = await transcodingService.listTranscoded()
 
-    return NextResponse.json({
+    const response: Record<string, unknown> = {
       stats,
       queue: queue.slice(0, 50), // Limiter à 50 pour la performance
       completed: completed.slice(-20), // 20 derniers terminés
-      watcher: watcherStats,
-      transcoded // Liste des films transcodés
-    })
+      watcher: watcherStats
+    }
+
+    // Mode complet: inclure la liste des transcodés (lourd)
+    if (!quick) {
+      response.transcoded = await transcodingService.listTranscoded()
+    }
+
+    return NextResponse.json(response)
   } catch (error) {
     console.error('❌ Erreur GET /api/transcode:', error)
     return NextResponse.json(

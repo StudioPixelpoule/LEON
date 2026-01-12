@@ -1248,7 +1248,7 @@ class TranscodingService {
     subtitleCount: number
   }> | null = null
   private transcodedCacheTime: number = 0
-  private readonly CACHE_TTL = 30000 // 30 secondes
+  private readonly CACHE_TTL = 120000 // 2 minutes (était 30s)
 
   async listTranscoded(): Promise<Array<{
     name: string
@@ -1267,7 +1267,7 @@ class TranscodingService {
       return this.transcodedCache
     }
 
-    const transcoded: Array<{
+    type TranscodedItem = {
       name: string
       folder: string
       transcodedAt: string
@@ -1277,85 +1277,109 @@ class TranscodingService {
       hasSubtitles: boolean
       audioCount: number
       subtitleCount: number
-    }> = []
+    }
+
+    const transcoded: TranscodedItem[] = []
 
     try {
-      // Fonction helper pour scanner un répertoire
-      const scanDirectory = async (baseDir: string, prefix: string = '') => {
-        if (!existsSync(baseDir)) return
+      // Collecter tous les dossiers candidats (async)
+      const collectCandidates = async (baseDir: string, prefix: string = ''): Promise<Array<{ folderPath: string; entryName: string; prefix: string }>> => {
+        const candidates: Array<{ folderPath: string; entryName: string; prefix: string }> = []
         
-        const entries = await readdir(baseDir, { withFileTypes: true })
+        if (!existsSync(baseDir)) return candidates
         
-        for (const entry of entries) {
-          if (!entry.isDirectory()) continue
-          if (entry.name.startsWith('.')) continue
+        try {
+          const entries = await readdir(baseDir, { withFileTypes: true })
           
-          // Ne pas descendre dans "series" ici, on le fera séparément
-          if (entry.name === 'series' && prefix === '') continue
-          
-          const folderPath = path.join(baseDir, entry.name)
-          const donePath = path.join(folderPath, '.done')
-          const transcodingPath = path.join(folderPath, '.transcoding')
-          
-          // Si .transcoding existe, ignorer
-          if (existsSync(transcodingPath)) continue
-          
-          // Vérifier si le transcodage est complet
-          if (!existsSync(donePath)) continue
-          
-          try {
-            // Lire la date de completion
-            const doneContent = await readFile(donePath, 'utf-8')
-            const transcodedAt = doneContent.trim()
+          for (const entry of entries) {
+            if (!entry.isDirectory()) continue
+            if (entry.name.startsWith('.')) continue
+            if (entry.name === 'series' && prefix === '') continue
             
-            // Compter les segments (sans calculer la taille - trop lent)
-            const files = await readdir(folderPath)
-            const segmentCount = files.filter(f => f.endsWith('.ts')).length
+            const folderPath = path.join(baseDir, entry.name)
+            const transcodingPath = path.join(folderPath, '.transcoding')
+            const donePath = path.join(folderPath, '.done')
             
-            // Vérifier multi-audio et sous-titres
-            const audioInfoPath = path.join(folderPath, 'audio_info.json')
-            const subtitlesPath = path.join(folderPath, 'subtitles.json')
+            // Skip si en cours ou pas terminé
+            if (existsSync(transcodingPath)) continue
+            if (!existsSync(donePath)) continue
             
-            let audioCount = 1 // Par défaut, au moins 1 piste
-            let subtitleCount = 0
-            
-            if (existsSync(audioInfoPath)) {
-              try {
-                const audioInfo = JSON.parse(await readFile(audioInfoPath, 'utf-8'))
-                audioCount = Array.isArray(audioInfo) ? audioInfo.length : 1
-              } catch {}
-            }
-            
-            if (existsSync(subtitlesPath)) {
-              try {
-                const subsInfo = JSON.parse(await readFile(subtitlesPath, 'utf-8'))
-                subtitleCount = Array.isArray(subsInfo) ? subsInfo.length : 0
-              } catch {}
-            }
-            
-            transcoded.push({
-              name: prefix + entry.name.replace(/_/g, ' '),
-              folder: prefix ? `series/${entry.name}` : entry.name,
-              transcodedAt,
-              segmentCount,
-              isComplete: true,
-              hasMultiAudio: audioCount > 1,
-              hasSubtitles: subtitleCount > 0,
-              audioCount,
-              subtitleCount
-            })
-          } catch (error) {
-            // Ignorer silencieusement
+            candidates.push({ folderPath, entryName: entry.name, prefix })
           }
+        } catch (err) {
+          console.error(`Erreur scan ${baseDir}:`, err)
+        }
+        
+        return candidates
+      }
+      
+      // Collecter les films et séries en parallèle
+      const [filmCandidates, seriesCandidates] = await Promise.all([
+        collectCandidates(TRANSCODED_DIR),
+        collectCandidates(path.join(TRANSCODED_DIR, 'series'), '📺 ')
+      ])
+      
+      const allCandidates = [...filmCandidates, ...seriesCandidates]
+      console.log(`[TRANSCODE] Scan: ${allCandidates.length} dossiers transcodés trouvés`)
+      
+      // Traiter tous les candidats EN PARALLÈLE (par lots de 50)
+      const BATCH_SIZE = 50
+      
+      const processCandidate = async (candidate: { folderPath: string; entryName: string; prefix: string }): Promise<TranscodedItem | null> => {
+        const { folderPath, entryName, prefix } = candidate
+        
+        try {
+          const donePath = path.join(folderPath, '.done')
+          
+          // Lire date + fichiers en parallèle
+          const [doneContent, files] = await Promise.all([
+            readFile(donePath, 'utf-8'),
+            readdir(folderPath)
+          ])
+          
+          const transcodedAt = doneContent.trim()
+          const segmentCount = files.filter(f => f.endsWith('.ts')).length
+          
+          // Audio et sous-titres (lecture conditionnelle)
+          let audioCount = 1
+          let subtitleCount = 0
+          
+          if (files.includes('audio_info.json')) {
+            try {
+              const audioInfo = JSON.parse(await readFile(path.join(folderPath, 'audio_info.json'), 'utf-8'))
+              audioCount = Array.isArray(audioInfo) ? audioInfo.length : 1
+            } catch {}
+          }
+          
+          if (files.includes('subtitles.json')) {
+            try {
+              const subsInfo = JSON.parse(await readFile(path.join(folderPath, 'subtitles.json'), 'utf-8'))
+              subtitleCount = Array.isArray(subsInfo) ? subsInfo.length : 0
+            } catch {}
+          }
+          
+          return {
+            name: prefix + entryName.replace(/_/g, ' '),
+            folder: prefix ? `series/${entryName}` : entryName,
+            transcodedAt,
+            segmentCount,
+            isComplete: true,
+            hasMultiAudio: audioCount > 1,
+            hasSubtitles: subtitleCount > 0,
+            audioCount,
+            subtitleCount
+          }
+        } catch {
+          return null
         }
       }
       
-      // Scanner le répertoire racine (films)
-      await scanDirectory(TRANSCODED_DIR)
-      
-      // Scanner le sous-répertoire séries
-      const seriesDir = path.join(TRANSCODED_DIR, 'series')
-      await scanDirectory(seriesDir, '📺 ')
+      // Traiter par lots pour éviter trop de file handles
+      for (let i = 0; i < allCandidates.length; i += BATCH_SIZE) {
+        const batch = allCandidates.slice(i, i + BATCH_SIZE)
+        const results = await Promise.all(batch.map(processCandidate))
+        transcoded.push(...results.filter((r): r is TranscodedItem => r !== null))
+      }
       
       // Trier par date de transcodage (plus récent en premier)
       transcoded.sort((a, b) => {
@@ -1364,15 +1388,17 @@ class TranscodingService {
         return dateB - dateA
       })
       
+      console.log(`[TRANSCODE] ${transcoded.length} films/séries transcodés listés`)
+      
+      // Mettre en cache
+      this.transcodedCache = transcoded
+      this.transcodedCacheTime = now
+      
+      return transcoded
     } catch (error) {
       console.error('Erreur listage transcodés:', error)
+      return []
     }
-    
-    // Mettre en cache
-    this.transcodedCache = transcoded
-    this.transcodedCacheTime = now
-    
-    return transcoded
   }
   
   /**
