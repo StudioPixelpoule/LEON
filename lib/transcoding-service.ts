@@ -912,6 +912,7 @@ class TranscodingService {
       '-i', job.filepath,
       '-map', '0:v:0',
       '-an', // PAS D'AUDIO dans le flux vidéo
+      '-map_metadata', '-1', // Ignorer les métadonnées (évite "Too long service name" en MPEG-TS)
       '-vf', videoFilter,
       ...hardware.encoderArgs,
       '-g', '48',
@@ -937,6 +938,7 @@ class TranscodingService {
         '-i', job.filepath,
         '-map', `0:a:${i}`,
         '-vn', // PAS DE VIDÉO
+        '-map_metadata', '-1', // Ignorer les métadonnées
         '-c:a', 'aac',
         '-b:a', '192k',
         '-ac', '2',
