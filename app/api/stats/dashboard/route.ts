@@ -175,6 +175,9 @@ export async function GET() {
     const playbacks = playbackResult.data || []
     const favorites = favoritesResult.data || []
 
+    // Debug log
+    console.log(`[DASHBOARD] Films: ${movies.length}, Séries: ${series.length}, Erreur séries: ${seriesResult.error?.message || 'aucune'}`)
+
     // Stats bibliothèque
     const totalDuration = movies.reduce((acc, m) => acc + (m.duration || 0), 0)
     const moviesWithDuration = movies.filter(m => m.duration && m.duration > 0)
