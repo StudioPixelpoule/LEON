@@ -1,12 +1,30 @@
 const { withSentryConfig } = require('@sentry/nextjs')
+const fs = require('fs')
+const path = require('path')
 
 // Récupérer les infos de version
-// En Docker: BUILD_SHA est passé comme ARG/ENV
-// En local: on essaie git, sinon 'dev'
-let gitCommit = process.env.BUILD_SHA || 'dev'
-let buildDate = process.env.BUILD_DATE || new Date().toISOString()
+let gitCommit = 'dev'
+let buildDate = new Date().toISOString()
 
-// En dev local, essayer de lire git
+// 1. Essayer de lire build-info.json (créé par GitHub Actions)
+try {
+  const buildInfoPath = path.join(__dirname, 'build-info.json')
+  if (fs.existsSync(buildInfoPath)) {
+    const buildInfo = JSON.parse(fs.readFileSync(buildInfoPath, 'utf8'))
+    gitCommit = buildInfo.sha?.slice(0, 7) || 'dev'
+    buildDate = buildInfo.date || buildDate
+    console.log(`📦 Build info: ${gitCommit} @ ${buildDate}`)
+  }
+} catch (e) {
+  console.log('⚠️ Could not read build-info.json:', e.message)
+}
+
+// 2. Fallback: variables d'environnement
+if (gitCommit === 'dev' && process.env.BUILD_SHA) {
+  gitCommit = process.env.BUILD_SHA.slice(0, 7)
+}
+
+// 3. Fallback: git en dev local
 if (gitCommit === 'dev') {
   try {
     const { execSync } = require('child_process')

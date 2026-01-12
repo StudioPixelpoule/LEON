@@ -39,6 +39,11 @@ jobs:
             type=raw,value=latest
             type=sha,prefix=
 
+      - name: 📝 Write build info
+        run: |
+          echo '{"sha":"${{ github.sha }}","date":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","run":"${{ github.run_id }}"}' > build-info.json
+          cat build-info.json
+
       - name: 🏗️ Build and push Docker image
         uses: docker/build-push-action@v5
         with:

@@ -30,6 +30,9 @@ COPY package*.json ./
 # Installation des dépendances
 RUN npm ci --ignore-scripts
 
+# Copie du fichier build-info (créé par GitHub Actions, invalide le cache)
+COPY build-info.json ./
+
 # Copie du code source
 COPY . .
 
