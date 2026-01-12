@@ -14,10 +14,12 @@ export const dynamic = 'force-dynamic'
 const MEDIA_DIR = process.env.MEDIA_DIR || '/leon/media/films'
 const TRANSCODED_DIR = process.env.TRANSCODED_DIR || '/leon/transcoded'
 
-// Cache pour éviter les scans répétés du filesystem
+// Cache pour éviter les requêtes répétées
 let storageCache: { files: number; sizeBytes: number; timestamp: number } | null = null
 let transcodedCache: { completed: number; folders: string[]; timestamp: number } | null = null
-const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+let dashboardCache: { data: DashboardStats; timestamp: number } | null = null
+const CACHE_TTL = 60 * 1000 // 1 minute pour le dashboard
+const FS_CACHE_TTL = 5 * 60 * 1000 // 5 minutes pour le filesystem
 
 interface DashboardStats {
   library: {
@@ -77,7 +79,7 @@ interface DashboardStats {
 
 async function getDirectorySize(dirPath: string): Promise<{ files: number; sizeBytes: number }> {
   // Utiliser le cache si disponible et valide
-  if (storageCache && Date.now() - storageCache.timestamp < CACHE_TTL) {
+  if (storageCache && Date.now() - storageCache.timestamp < FS_CACHE_TTL) {
     return { files: storageCache.files, sizeBytes: storageCache.sizeBytes }
   }
 
@@ -110,7 +112,7 @@ async function getDirectorySize(dirPath: string): Promise<{ files: number; sizeB
 
 async function getTranscodedStats(): Promise<{ completed: number; folders: string[] }> {
   // Utiliser le cache si disponible et valide
-  if (transcodedCache && Date.now() - transcodedCache.timestamp < CACHE_TTL) {
+  if (transcodedCache && Date.now() - transcodedCache.timestamp < FS_CACHE_TTL) {
     return { completed: transcodedCache.completed, folders: transcodedCache.folders }
   }
 
@@ -141,6 +143,11 @@ async function getTranscodedStats(): Promise<{ completed: number; folders: strin
 
 export async function GET() {
   try {
+    // Utiliser le cache si disponible et valide
+    if (dashboardCache && Date.now() - dashboardCache.timestamp < CACHE_TTL) {
+      return NextResponse.json(dashboardCache.data)
+    }
+
     // Requêtes Supabase en parallèle
     const [
       moviesResult,
@@ -153,9 +160,8 @@ export async function GET() {
         .select('id, title, poster_url, tmdb_id, year, duration, genres, created_at, media_type')
         .or('media_type.eq.movie,media_type.is.null'), // Films = movie ou pas de type défini
       supabase
-        .from('media')
-        .select('id, title, poster_url, created_at, media_type')
-        .eq('media_type', 'tv'),
+        .from('series')
+        .select('id, title, poster_url, created_at'),
       supabase
         .from('playback_positions')
         .select('media_id, position, duration, updated_at'),
@@ -303,6 +309,9 @@ export async function GET() {
       genres,
       years
     }
+
+    // Mettre en cache
+    dashboardCache = { data: stats, timestamp: Date.now() }
 
     return NextResponse.json(stats)
 
