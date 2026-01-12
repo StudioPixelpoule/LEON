@@ -1357,7 +1357,7 @@ function TranscodeSection() {
         <h3>Progression globale</h3>
         <div className={styles.stats}>
           <div className={styles.statItem}>
-            <span className={styles.statValue}>{stats?.completedFiles || 0}</span>
+            <span className={styles.statValue}>{transcoded.length || stats?.completedFiles || 0}</span>
             <span className={styles.statLabel}>Films transcodés</span>
           </div>
           <div className={styles.statItem}>
