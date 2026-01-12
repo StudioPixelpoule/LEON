@@ -151,7 +151,7 @@ export async function GET() {
       supabase
         .from('media')
         .select('id, title, poster_url, tmdb_id, year, duration, genres, created_at, media_type')
-        .eq('media_type', 'movie'),
+        .or('media_type.eq.movie,media_type.is.null'), // Films = movie ou pas de type défini
       supabase
         .from('media')
         .select('id, title, poster_url, created_at, media_type')
