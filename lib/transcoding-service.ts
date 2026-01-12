@@ -680,11 +680,18 @@ class TranscodingService {
         job.error = error instanceof Error ? error.message : String(error)
         job.completedAt = new Date().toISOString()
         
-        // Réessayer plus tard (ajouter en fin de queue)
-        if (!job.error.includes('SIGKILL') && !job.error.includes('SIGTERM')) {
+        // Réessayer plus tard SAUF si fichier corrompu ou erreur fatale
+        const isFatalError = job.error.includes('SIGKILL') || 
+                            job.error.includes('SIGTERM') ||
+                            job.error.includes('corrompu') ||
+                            job.error.includes('Invalid data')
+        
+        if (!isFatalError) {
           job.status = 'pending'
           job.priority = 0 // Basse priorité pour les retry
           this.queue.push(job)
+        } else {
+          console.log(`[TRANSCODE] ⛔ Fichier ignoré définitivement: ${job.filename}`)
         }
         
         console.error(`❌ Échec: ${job.filename}`, error)
@@ -767,7 +774,15 @@ class TranscodingService {
         subtitles
       }
     } catch (error) {
-      console.error('[TRANSCODE] Erreur probe streams:', error)
+      const errorMsg = error instanceof Error ? error.message : String(error)
+      console.error('[TRANSCODE] Erreur probe streams:', errorMsg)
+      
+      // Détecter les fichiers corrompus
+      if (errorMsg.includes('Invalid data') || errorMsg.includes('EBML header') || errorMsg.includes('parsing failed')) {
+        console.error('[TRANSCODE] 💀 FICHIER CORROMPU - impossible à transcoder')
+        throw new Error('Fichier corrompu: ' + errorMsg.slice(0, 100))
+      }
+      
       // Retourner des valeurs par défaut avec 1 audio pour ne pas bloquer
       return { 
         audioCount: 1, // Supposer au moins 1 piste audio
@@ -887,14 +902,17 @@ class TranscodingService {
     // 📺 PASS 1: Encoder la VIDÉO (sans audio)
     console.log(`[TRANSCODE] 📺 Pass 1: Encodage vidéo...`)
     
+    // Filtre vidéo pour conversion 10-bit → 8-bit (requis pour HEVC 10-bit → H.264)
+    const videoFilter = hardware.acceleration === 'vaapi' 
+      ? 'format=nv12|vaapi,hwupload'
+      : 'format=yuv420p'  // Force 8-bit, gère aussi les sources 10-bit
+    
     const videoArgs = [
       ...hardware.decoderArgs,
       '-i', job.filepath,
       '-map', '0:v:0',
       '-an', // PAS D'AUDIO dans le flux vidéo
-      ...(hardware.acceleration === 'vaapi' 
-        ? [] 
-        : ['-vf', 'format=yuv420p']),
+      '-vf', videoFilter,
       ...hardware.encoderArgs,
       '-g', '48',
       '-keyint_min', '24',
