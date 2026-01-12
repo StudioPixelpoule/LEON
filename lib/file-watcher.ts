@@ -223,13 +223,17 @@ class FileWatcher {
       this.knownFiles.add(filepath)
       await this.saveState()
 
-      console.log(`🆕 Nouveau fichier détecté: ${path.basename(filepath)} (${(stats.size / (1024*1024*1024)).toFixed(2)} GB)`)
+      const filename = path.basename(filepath)
+      const fileSize = (stats.size / (1024*1024*1024)).toFixed(2)
+      console.log(`🆕 Nouveau fichier détecté: ${filename} (${fileSize} GB)`)
 
-      // Importer le service de transcodage de manière dynamique
+      // 1. IMPORTER DANS LA BASE AVEC MÉTADONNÉES TMDB
+      await this.importToDatabase(filepath, stats.size)
+
+      // 2. Ajouter à la queue de transcodage
       const transcodingServiceModule = await import('./transcoding-service')
       const transcodingService = transcodingServiceModule.default
       
-      // Ajouter à la queue de transcodage avec haute priorité
       const job = await transcodingService.addToQueue(filepath, true)
       
       if (job) {
@@ -245,6 +249,116 @@ class FileWatcher {
     } catch (error) {
       // Le fichier n'existe peut-être plus (supprimé ou renommé)
       console.log(`⚠️ Fichier non accessible: ${path.basename(filepath)}`)
+    }
+  }
+
+  /**
+   * Importer un fichier dans la base de données avec métadonnées TMDB
+   */
+  private async importToDatabase(filepath: string, fileSize: number): Promise<void> {
+    try {
+      const filename = path.basename(filepath)
+      console.log(`📥 Import automatique: ${filename}`)
+
+      // Imports dynamiques pour éviter les dépendances circulaires
+      const { supabase } = await import('./supabase')
+      const { searchMovie, getMovieDetails, getTMDBImageUrl, getYearFromDate } = await import('./tmdb')
+      const { sanitizeFilename, findLocalSubtitles, formatFileSize, detectVideoQuality } = await import('./localScanner')
+
+      // Vérifier si le fichier existe déjà en base
+      const { data: existing } = await supabase
+        .from('media')
+        .select('id')
+        .eq('pcloud_fileid', filepath)
+        .single()
+
+      if (existing) {
+        console.log(`⏭️ Déjà en base: ${filename}`)
+        return
+      }
+
+      // Nettoyer le nom du fichier pour la recherche TMDB
+      const cleanName = sanitizeFilename(filename)
+      
+      // Extraire l'année si présente
+      const yearMatch = filename.match(/\b(19\d{2}|20\d{2})\b/)
+      const year = yearMatch ? parseInt(yearMatch[1]) : undefined
+
+      // Rechercher sur TMDB
+      let mediaDetails = null
+      let tmdbId = null
+
+      try {
+        const searchResults = await searchMovie(cleanName, year)
+        if (searchResults && searchResults.length > 0) {
+          tmdbId = searchResults[0].id
+          mediaDetails = await getMovieDetails(tmdbId)
+          console.log(`🎬 TMDB match: ${mediaDetails?.title} (${mediaDetails?.release_date?.slice(0,4)})`)
+        }
+      } catch (tmdbError) {
+        console.log(`⚠️ Pas de résultat TMDB pour: ${cleanName}`)
+      }
+
+      // Chercher les sous-titres locaux
+      const localSubtitles = await findLocalSubtitles(filepath)
+      const subtitles = localSubtitles.reduce((acc: Record<string, unknown>, sub: { language?: string; filename: string; filepath: string; forced?: boolean; sdh?: boolean }) => {
+        const lang = sub.language || 'UNKNOWN'
+        acc[lang.toUpperCase()] = {
+          filename: sub.filename,
+          filepath: sub.filepath,
+          isForced: sub.forced || false,
+          isSDH: sub.sdh || false
+        }
+        return acc
+      }, {} as Record<string, unknown>)
+
+      // Détecter la qualité
+      const quality = detectVideoQuality(filename, fileSize)
+
+      // Préparer les données
+      const mediaData = {
+        pcloud_fileid: filepath,
+        title: mediaDetails?.title || cleanName || filename,
+        original_title: mediaDetails?.original_title || null,
+        year: mediaDetails?.release_date ? getYearFromDate(mediaDetails.release_date) : year || null,
+        duration: mediaDetails?.runtime || null,
+        formatted_runtime: mediaDetails?.runtime ? `${Math.floor(mediaDetails.runtime / 60)}h ${mediaDetails.runtime % 60}min` : null,
+        file_size: formatFileSize(fileSize),
+        quality: quality,
+        tmdb_id: mediaDetails?.id || null,
+        poster_url: getTMDBImageUrl(mediaDetails?.poster_path || null, 'w500'),
+        backdrop_url: getTMDBImageUrl(mediaDetails?.backdrop_path || null, 'original'),
+        overview: mediaDetails?.overview || null,
+        genres: mediaDetails?.genres?.map((g: { name: string }) => g.name) || null,
+        movie_cast: mediaDetails?.credits?.cast || null,
+        subtitles: Object.keys(subtitles).length > 0 ? subtitles : null,
+        release_date: mediaDetails?.release_date || null,
+        rating: mediaDetails?.vote_average || null,
+        vote_count: mediaDetails?.vote_count || null,
+        tagline: mediaDetails?.tagline || null,
+        director: mediaDetails?.credits?.crew?.find((c: { job: string }) => c.job === 'Director')?.name || null,
+        trailer_url: mediaDetails?.videos?.results?.find((v: { type: string; site: string }) => v.type === 'Trailer' && v.site === 'YouTube')?.key 
+          ? `https://www.youtube.com/watch?v=${mediaDetails.videos.results.find((v: { type: string; site: string }) => v.type === 'Trailer' && v.site === 'YouTube').key}` 
+          : null,
+        media_type: 'movie',
+        updated_at: new Date().toISOString()
+      }
+
+      // Insérer en base
+      const { error } = await supabase
+        .from('media')
+        .insert(mediaData)
+
+      if (error) {
+        console.error(`❌ Erreur insertion base: ${error.message}`)
+      } else {
+        console.log(`✅ Importé dans LEON: ${mediaData.title} ${mediaData.year ? `(${mediaData.year})` : ''}`)
+        if (mediaData.poster_url) console.log(`   🖼️ Jaquette: OK`)
+        if (mediaData.trailer_url) console.log(`   🎬 Bande-annonce: OK`)
+        if (Object.keys(subtitles).length > 0) console.log(`   💬 Sous-titres: ${Object.keys(subtitles).join(', ')}`)
+      }
+    } catch (error) {
+      console.error(`❌ Erreur import automatique:`, error)
     }
   }
 
