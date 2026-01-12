@@ -301,7 +301,7 @@ function DashboardView({ status, stats, loading, onNavigate, onRefresh }: Dashbo
         </p>
         <div className={styles.versionBadge}>
           <span className={styles.versionCommit}>
-            {process.env.NEXT_PUBLIC_GIT_COMMIT || 'dev'}
+            {process.env.NEXT_PUBLIC_BUILD_SHA?.slice(0, 7) || 'dev'}
           </span>
           <span className={styles.versionDate}>
             {process.env.NEXT_PUBLIC_BUILD_DATE 

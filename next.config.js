@@ -1,16 +1,19 @@
 const { withSentryConfig } = require('@sentry/nextjs')
-const { execSync } = require('child_process')
 
-// Récupérer les infos de version au build
-let gitCommit = 'dev'
-let gitBranch = 'local'
-let buildDate = new Date().toISOString()
+// Récupérer les infos de version
+// En Docker: BUILD_SHA est passé comme ARG/ENV
+// En local: on essaie git, sinon 'dev'
+let gitCommit = process.env.BUILD_SHA || 'dev'
+let buildDate = process.env.BUILD_DATE || new Date().toISOString()
 
-try {
-  gitCommit = execSync('git rev-parse --short HEAD').toString().trim()
-  gitBranch = execSync('git rev-parse --abbrev-ref HEAD').toString().trim()
-} catch {
-  // En cas d'erreur (pas de git), utiliser les valeurs par défaut
+// En dev local, essayer de lire git
+if (gitCommit === 'dev') {
+  try {
+    const { execSync } = require('child_process')
+    gitCommit = execSync('git rev-parse --short HEAD').toString().trim()
+  } catch {
+    // Pas de git disponible
+  }
 }
 
 /** @type {import('next').NextConfig} */
@@ -31,8 +34,7 @@ const nextConfig = {
   
   // Variables d'environnement de build (accessibles côté client)
   env: {
-    NEXT_PUBLIC_GIT_COMMIT: gitCommit,
-    NEXT_PUBLIC_GIT_BRANCH: gitBranch,
+    NEXT_PUBLIC_BUILD_SHA: gitCommit,
     NEXT_PUBLIC_BUILD_DATE: buildDate,
   },
 }
