@@ -1170,12 +1170,22 @@ class TranscodingService {
   /**
    * Obtenir les statistiques
    */
+  // Cache pour diskUsage (évite le du -sh lent)
+  private diskUsageCache: { value: string; timestamp: number } | null = null
+  private readonly DISK_CACHE_TTL = 10 * 60 * 1000 // 10 minutes
+
   async getStats(): Promise<TranscodeStats> {
-    let diskUsage = 'N/A'
-    try {
-      const { stdout } = await execAsync(`du -sh ${TRANSCODED_DIR} 2>/dev/null`)
-      diskUsage = stdout.split('\t')[0]
-    } catch {}
+    // Utiliser le cache pour diskUsage
+    let diskUsage = this.diskUsageCache?.value || 'N/A'
+    const now = Date.now()
+    
+    // Recalculer en arrière-plan si le cache est expiré
+    if (!this.diskUsageCache || (now - this.diskUsageCache.timestamp) > this.DISK_CACHE_TTL) {
+      // Lancer en arrière-plan sans bloquer
+      execAsync(`du -sh ${TRANSCODED_DIR} 2>/dev/null`).then(({ stdout }) => {
+        this.diskUsageCache = { value: stdout.split('\t')[0], timestamp: Date.now() }
+      }).catch(() => {})
+    }
 
     let estimatedTimeRemaining: number | undefined
     if (this.currentJob?.speed && this.currentJob?.estimatedDuration && this.currentJob?.currentTime) {
