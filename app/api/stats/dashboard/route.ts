@@ -14,6 +14,11 @@ export const dynamic = 'force-dynamic'
 const MEDIA_DIR = process.env.MEDIA_DIR || '/leon/media/films'
 const TRANSCODED_DIR = process.env.TRANSCODED_DIR || '/leon/transcoded'
 
+// Cache pour éviter les scans répétés du filesystem
+let storageCache: { files: number; sizeBytes: number; timestamp: number } | null = null
+let transcodedCache: { completed: number; folders: string[]; timestamp: number } | null = null
+const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
 interface DashboardStats {
   library: {
     totalMovies: number
@@ -71,6 +76,11 @@ interface DashboardStats {
 }
 
 async function getDirectorySize(dirPath: string): Promise<{ files: number; sizeBytes: number }> {
+  // Utiliser le cache si disponible et valide
+  if (storageCache && Date.now() - storageCache.timestamp < CACHE_TTL) {
+    return { files: storageCache.files, sizeBytes: storageCache.sizeBytes }
+  }
+
   let totalSize = 0
   let totalFiles = 0
 
@@ -78,29 +88,32 @@ async function getDirectorySize(dirPath: string): Promise<{ files: number; sizeB
     return { files: 0, sizeBytes: 0 }
   }
 
-  const scanDir = async (dir: string) => {
-    try {
-      const entries = await readdir(dir, { withFileTypes: true })
-      for (const entry of entries) {
-        const fullPath = path.join(dir, entry.name)
-        if (entry.isDirectory()) {
-          await scanDir(fullPath)
-        } else {
-          try {
-            const stats = await stat(fullPath)
-            totalSize += stats.size
-            totalFiles++
-          } catch {}
-        }
+  // Scan simplifié : juste le premier niveau pour la vitesse
+  try {
+    const entries = await readdir(dirPath, { withFileTypes: true })
+    for (const entry of entries) {
+      if (!entry.isDirectory()) {
+        try {
+          const fullPath = path.join(dirPath, entry.name)
+          const stats = await stat(fullPath)
+          totalSize += stats.size
+          totalFiles++
+        } catch {}
       }
-    } catch {}
-  }
+    }
+  } catch {}
 
-  await scanDir(dirPath)
+  // Mettre en cache
+  storageCache = { files: totalFiles, sizeBytes: totalSize, timestamp: Date.now() }
   return { files: totalFiles, sizeBytes: totalSize }
 }
 
 async function getTranscodedStats(): Promise<{ completed: number; folders: string[] }> {
+  // Utiliser le cache si disponible et valide
+  if (transcodedCache && Date.now() - transcodedCache.timestamp < CACHE_TTL) {
+    return { completed: transcodedCache.completed, folders: transcodedCache.folders }
+  }
+
   const folders: string[] = []
   let completed = 0
 
@@ -121,6 +134,8 @@ async function getTranscodedStats(): Promise<{ completed: number; folders: strin
     }
   } catch {}
 
+  // Mettre en cache
+  transcodedCache = { completed, folders, timestamp: Date.now() }
   return { completed, folders }
 }
 
