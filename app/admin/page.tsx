@@ -1600,8 +1600,8 @@ function TranscodeView() {
   const [showTranscoded, setShowTranscoded] = useState(false)
 
   useEffect(() => {
-    loadStats(false)
-    const interval = setInterval(() => loadStats(true), 3000)
+    loadStats(true) // Mode rapide au démarrage
+    const interval = setInterval(() => loadStats(true), 5000) // Polling toutes les 5s
     return () => clearInterval(interval)
   }, [])
 
@@ -1628,7 +1628,7 @@ function TranscodeView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action })
       })
-      await loadStats(false)
+      await loadStats(true) // Mode rapide après action
     } catch (error) {
       console.error(`Erreur action ${action}:`, error)
     } finally {
