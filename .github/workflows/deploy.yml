@@ -56,8 +56,7 @@ jobs:
             NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
             BUILD_SHA=${{ github.sha }}
             BUILD_DATE=${{ github.run_id }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          no-cache: true
 
       - name: ✅ Deploy notification
         if: success()
