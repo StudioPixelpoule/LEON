@@ -10,6 +10,48 @@ import { usePlaybackPosition } from '@/lib/hooks/usePlaybackPosition'
 import { useNetworkResilience } from '@/lib/hooks/useNetworkResilience'
 import { HLS_BASE_CONFIG, selectHlsConfig } from '@/lib/hls-config'
 
+// 🔧 Utilitaires Fullscreen compatibles Safari
+interface ExtendedDocument extends Document {
+  webkitFullscreenElement?: Element | null
+  webkitExitFullscreen?: () => Promise<void>
+}
+
+interface ExtendedHTMLElement extends HTMLElement {
+  webkitRequestFullscreen?: () => Promise<void>
+}
+
+const getFullscreenElement = (): Element | null => {
+  const doc = document as ExtendedDocument
+  return doc.fullscreenElement || doc.webkitFullscreenElement || null
+}
+
+const requestFullscreen = async (element: HTMLElement): Promise<void> => {
+  const el = element as ExtendedHTMLElement
+  if (el.requestFullscreen) {
+    await el.requestFullscreen()
+  } else if (el.webkitRequestFullscreen) {
+    await el.webkitRequestFullscreen()
+  }
+}
+
+const exitFullscreen = async (): Promise<void> => {
+  const doc = document as ExtendedDocument
+  if (doc.exitFullscreen) {
+    await doc.exitFullscreen()
+  } else if (doc.webkitExitFullscreen) {
+    await doc.webkitExitFullscreen()
+  }
+}
+
+const addFullscreenChangeListener = (handler: () => void): (() => void) => {
+  document.addEventListener('fullscreenchange', handler)
+  document.addEventListener('webkitfullscreenchange', handler)
+  return () => {
+    document.removeEventListener('fullscreenchange', handler)
+    document.removeEventListener('webkitfullscreenchange', handler)
+  }
+}
+
 interface NextEpisodeInfo {
   id: string
   title: string
@@ -456,10 +498,10 @@ export default function SimpleVideoPlayer({
     return () => video.removeEventListener('ended', handleVideoEnded)
   }, [mediaId, nextEpisode, onNextEpisode, markAsFinished, isNextEpisodeCancelled])
 
-  // 🔧 FIX #3: Gérer spécifiquement le fullscreen
+  // 🔧 FIX #3: Gérer spécifiquement le fullscreen (compatible Safari)
   useEffect(() => {
     const handleFullscreenChange = () => {
-      if (document.fullscreenElement) {
+      if (getFullscreenElement()) {
         // En fullscreen : forcer la disparition des contrôles après 3s
         setTimeout(() => {
           const video = videoRef.current
@@ -470,8 +512,8 @@ export default function SimpleVideoPlayer({
       }
     }
     
-    document.addEventListener('fullscreenchange', handleFullscreenChange)
-    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
+    const cleanup = addFullscreenChangeListener(handleFullscreenChange)
+    return cleanup
   }, [])
 
   // 🔧 FIX #3b: Masquer automatiquement les contrôles quand la vidéo joue
@@ -523,8 +565,8 @@ export default function SimpleVideoPlayer({
         case 'escape':
           if (showSettingsMenu) {
             setShowSettingsMenu(false)
-          } else if (document.fullscreenElement) {
-            document.exitFullscreen()
+          } else if (getFullscreenElement()) {
+            exitFullscreen()
           }
           break
       }
@@ -1985,10 +2027,10 @@ export default function SimpleVideoPlayer({
   }
 
   const handleFullscreen = useCallback(() => {
-    if (document.fullscreenElement) {
-      document.exitFullscreen()
+    if (getFullscreenElement()) {
+      exitFullscreen()
     } else if (containerRef.current) {
-      containerRef.current.requestFullscreen()
+      requestFullscreen(containerRef.current)
     }
   }, [])
 
