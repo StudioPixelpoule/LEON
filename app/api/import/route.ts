@@ -227,16 +227,40 @@ async function importWithTMDB(filepath: string, tmdbId: number, fileSize?: numbe
 
   console.log(`✅ Film importé: ${mediaDetails.title}`)
 
+  // Ajouter automatiquement à la queue de transcodage
+  let transcodingQueued = false
+  try {
+    const transcodingResponse = await fetch(`${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/api/transcode`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'add',
+        filepath: fullPath,
+        priority: 'high' // Haute priorité pour les imports manuels
+      })
+    })
+    
+    if (transcodingResponse.ok) {
+      transcodingQueued = true
+      console.log(`📥 Ajouté à la queue de transcodage: ${filename}`)
+    }
+  } catch (error) {
+    console.warn('⚠️ Impossible d\'ajouter à la queue de transcodage:', error)
+  }
+
   return NextResponse.json({
     success: true,
-    message: `Film importé avec succès`,
+    message: transcodingQueued 
+      ? `Film importé et ajouté à la queue de transcodage`
+      : `Film importé avec succès`,
     film: {
       id: data.id,
       title: mediaDetails.title,
       year: mediaData.year,
       poster_url: mediaData.poster_url,
       quality: mediaData.quality,
-      subtitles: Object.keys(subtitles)
+      subtitles: Object.keys(subtitles),
+      transcodingQueued
     }
   })
 }
