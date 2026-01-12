@@ -702,6 +702,14 @@ class TranscodingService {
   }
 
   /**
+   * Échapper les caractères spéciaux pour les commandes shell
+   */
+  private escapeFilePath(filepath: string): string {
+    // Échapper les guillemets et autres caractères problématiques
+    return filepath.replace(/'/g, "'\\''")
+  }
+
+  /**
    * Analyser un fichier pour obtenir les infos sur les pistes audio et sous-titres
    */
   private async probeStreams(filepath: string): Promise<{
@@ -710,9 +718,18 @@ class TranscodingService {
     audios: Array<{ index: number; language: string; title?: string }>
     subtitles: Array<{ index: number; language: string; title?: string; codec: string }>
   }> {
+    // Liste des codecs sous-titres bitmap (non convertibles en WebVTT)
+    const BITMAP_SUBTITLE_CODECS = [
+      'hdmv_pgs_subtitle', 'pgssub', 'pgs',
+      'dvd_subtitle', 'dvdsub', 'dvbsub',
+      'xsub', 'vobsub'
+    ]
+    
     try {
+      // Utiliser des guillemets simples pour les caractères spéciaux (accents, espaces)
+      const escapedPath = this.escapeFilePath(filepath)
       const { stdout } = await execAsync(
-        `ffprobe -v quiet -print_format json -show_streams "${filepath}"`
+        `ffprobe -v quiet -print_format json -show_streams '${escapedPath}'`
       )
       const data = JSON.parse(stdout)
       const streams = data.streams || []
@@ -725,8 +742,17 @@ class TranscodingService {
           title: s.tags?.title
         }))
       
+      // Filtrer les sous-titres bitmap (PGS, DVD) qui ne peuvent pas être convertis en WebVTT
       const subtitles = streams
         .filter((s: any) => s.codec_type === 'subtitle')
+        .filter((s: any) => {
+          const codec = (s.codec_name || '').toLowerCase()
+          const isBitmap = BITMAP_SUBTITLE_CODECS.some(bc => codec.includes(bc))
+          if (isBitmap) {
+            console.log(`[TRANSCODE] ⏭️ Sous-titre bitmap ignoré: ${s.tags?.language || 'und'} (${codec})`)
+          }
+          return !isBitmap
+        })
         .map((s: any, idx: number) => ({
           index: idx,
           language: s.tags?.language || 'und',
@@ -742,46 +768,63 @@ class TranscodingService {
       }
     } catch (error) {
       console.error('[TRANSCODE] Erreur probe streams:', error)
-      return { audioCount: 0, subtitleCount: 0, audios: [], subtitles: [] }
+      // Retourner des valeurs par défaut avec 1 audio pour ne pas bloquer
+      return { 
+        audioCount: 1, // Supposer au moins 1 piste audio
+        subtitleCount: 0, 
+        audios: [{ index: 0, language: 'und', title: 'Audio' }], 
+        subtitles: [] 
+      }
     }
   }
 
   /**
    * Extraire les sous-titres en fichiers WebVTT
+   * Note: Les sous-titres bitmap (PGS, DVD) sont déjà filtrés dans probeStreams()
    */
   private async extractSubtitles(
     filepath: string,
     outputDir: string,
     subtitles: Array<{ index: number; language: string; title?: string; codec: string }>
   ): Promise<void> {
-    console.log(`[TRANSCODE] Extraction de ${subtitles.length} sous-titres...`)
+    if (subtitles.length === 0) {
+      console.log(`[TRANSCODE] Aucun sous-titre texte à extraire`)
+      return
+    }
+    
+    console.log(`[TRANSCODE] Extraction de ${subtitles.length} sous-titres texte...`)
+    
+    const extractedSubs: Array<{ language: string; title?: string; file: string }> = []
+    const escapedPath = this.escapeFilePath(filepath)
     
     for (const sub of subtitles) {
       const outputFile = path.join(outputDir, `sub_${sub.language}_${sub.index}.vtt`)
       
       try {
-        // Convertir en WebVTT
+        // Convertir en WebVTT avec guillemets simples pour les caractères spéciaux
         await execAsync(
-          `ffmpeg -y -i "${filepath}" -map 0:s:${sub.index} -c:s webvtt "${outputFile}"`
+          `ffmpeg -y -i '${escapedPath}' -map 0:s:${sub.index} -c:s webvtt "${outputFile}"`
         )
         console.log(`[TRANSCODE] ✅ Sous-titre extrait: ${sub.language}`)
+        extractedSubs.push({
+          language: sub.language,
+          title: sub.title,
+          file: `sub_${sub.language}_${sub.index}.vtt`
+        })
       } catch (error) {
-        // Certains codecs (PGS, DVB) ne peuvent pas être convertis en WebVTT
-        console.warn(`[TRANSCODE] ⚠️ Impossible d'extraire sous-titre ${sub.language} (${sub.codec}):`, error)
+        // En cas d'erreur, ignorer ce sous-titre et continuer
+        console.warn(`[TRANSCODE] ⚠️ Impossible d'extraire sous-titre ${sub.language} (${sub.codec}) - ignoré`)
       }
     }
     
-    // Créer un fichier JSON avec la liste des sous-titres disponibles
-    const subsInfo = subtitles.map(sub => ({
-      language: sub.language,
-      title: sub.title,
-      file: `sub_${sub.language}_${sub.index}.vtt`
-    }))
-    
-    await writeFile(
-      path.join(outputDir, 'subtitles.json'),
-      JSON.stringify(subsInfo, null, 2)
-    )
+    // Créer un fichier JSON seulement avec les sous-titres réellement extraits
+    if (extractedSubs.length > 0) {
+      await writeFile(
+        path.join(outputDir, 'subtitles.json'),
+        JSON.stringify(extractedSubs, null, 2)
+      )
+      console.log(`[TRANSCODE] 📝 ${extractedSubs.length}/${subtitles.length} sous-titres extraits`)
+    }
   }
 
   /**
@@ -795,13 +838,16 @@ class TranscodingService {
     await writeFile(transcodingLockPath, new Date().toISOString())
 
     // Obtenir la durée du fichier
+    const escapedFilePath = this.escapeFilePath(job.filepath)
     try {
       const { stdout } = await execAsync(
-        `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${job.filepath}"`
+        `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 '${escapedFilePath}'`
       )
       job.estimatedDuration = parseFloat(stdout.trim())
     } catch {
-      job.estimatedDuration = undefined
+      // Si ffprobe échoue, estimer 2h par défaut
+      job.estimatedDuration = 7200
+      console.warn(`[TRANSCODE] ⚠️ Impossible d'obtenir la durée, estimation 2h`)
     }
 
     const hardware = await detectHardwareCapabilities()
