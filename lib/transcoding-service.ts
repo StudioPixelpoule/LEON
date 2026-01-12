@@ -962,19 +962,25 @@ class TranscodingService {
     }
     
     console.log(`[TRANSCODE] 🎬 Démarrage FFmpeg vidéo...`)
+    console.log(`[TRANSCODE] 📋 Video args: ffmpeg ${videoArgs.slice(0, 10).join(' ')} ...`)
 
     // Helper pour exécuter FFmpeg et suivre la progression
     const runFFmpeg = (args: string[], label: string, progressWeight: number, progressOffset: number): Promise<void> => {
       return new Promise((resolve, reject) => {
+        console.log(`[TRANSCODE] 🔧 FFmpeg ${label}: ffmpeg`, args.join(' ').slice(0, 200) + '...')
+        
         const ffmpeg = spawn('ffmpeg', args, {
           stdio: ['ignore', 'pipe', 'pipe']
         })
 
         this.currentProcess = ffmpeg
         job.pid = ffmpeg.pid
+        
+        let lastError = ''
 
         ffmpeg.stderr?.on('data', (data) => {
           const message = data.toString()
+          lastError = message // Garder la dernière sortie pour debug
           
           const timeMatch = message.match(/time=(\d+):(\d+):(\d+)\.(\d+)/)
           const speedMatch = message.match(/speed=\s*([\d.]+)x/)
@@ -1002,6 +1008,8 @@ class TranscodingService {
             console.log(`[TRANSCODE] ✅ ${label} terminé`)
             resolve()
           } else {
+            console.error(`[TRANSCODE] ❌ FFmpeg ${label} erreur (code ${code}):`)
+            console.error(`[TRANSCODE] 📄 Dernière sortie: ${lastError.slice(-500)}`)
             reject(new Error(`FFmpeg ${label} exit code: ${code}`))
           }
         })
