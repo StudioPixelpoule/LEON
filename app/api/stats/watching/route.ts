@@ -12,6 +12,7 @@ interface ActiveSession {
   id: string
   userId: string | null
   userName: string
+  userEmail: string | null
   mediaId: string
   title: string
   posterUrl: string | null
@@ -27,6 +28,7 @@ interface WatchHistoryEntry {
   id: string
   userId: string | null
   userName: string
+  userEmail: string | null
   mediaId: string
   title: string
   posterUrl: string | null
@@ -84,19 +86,22 @@ export async function GET() {
 
     const mediaMap = new Map(mediaData?.map(m => [m.id, m]) || [])
 
-    // Récupérer les infos utilisateurs
-    const userIds = activeSessions?.filter(s => s.user_id).map(s => s.user_id) || []
-    let userMap = new Map<string, string>()
+    // Récupérer les infos utilisateurs depuis la table profiles
+    const userIds = [...new Set(activeSessions?.filter(s => s.user_id).map(s => s.user_id) || [])]
+    let userMap = new Map<string, { name: string; email: string }>()
     
     if (userIds.length > 0) {
-      const { data: userData } = await supabase
-        .from('auth.users')
-        .select('id, email, raw_user_meta_data')
+      const { data: profilesData } = await supabase
+        .from('profiles')
+        .select('id, display_name, username')
+        .in('id', userIds)
       
-      if (userData) {
-        userData.forEach(u => {
-          const name = u.raw_user_meta_data?.name || u.email || 'Utilisateur'
-          userMap.set(u.id, name)
+      if (profilesData) {
+        profilesData.forEach(p => {
+          userMap.set(p.id, { 
+            name: p.display_name || p.username?.split('@')[0] || 'Utilisateur',
+            email: p.username || ''
+          })
         })
       }
     }
@@ -106,11 +111,13 @@ export async function GET() {
       const media = mediaMap.get(session.media_id)
       const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000)
       const isActive = new Date(session.updated_at) > fiveMinutesAgo
+      const userInfo = session.user_id ? userMap.get(session.user_id) : null
       
       return {
         id: session.id,
         userId: session.user_id,
-        userName: session.user_id ? (userMap.get(session.user_id) || 'Utilisateur') : 'Anonyme',
+        userName: userInfo?.name || 'Anonyme',
+        userEmail: userInfo?.email || null,
         mediaId: session.media_id,
         title: media?.title || 'Film inconnu',
         posterUrl: media?.poster_url || null,
@@ -137,6 +144,26 @@ export async function GET() {
       console.error('Erreur historique:', historyError)
     }
 
+    // Récupérer les user_ids manquants de l'historique
+    const historyUserIds = [...new Set(historyData?.filter(h => h.user_id).map(h => h.user_id) || [])]
+    const missingUserIds = historyUserIds.filter(id => !userMap.has(id))
+    
+    if (missingUserIds.length > 0) {
+      const { data: additionalProfiles } = await supabase
+        .from('profiles')
+        .select('id, display_name, username')
+        .in('id', missingUserIds)
+      
+      if (additionalProfiles) {
+        additionalProfiles.forEach(p => {
+          userMap.set(p.id, { 
+            name: p.display_name || p.username?.split('@')[0] || 'Utilisateur',
+            email: p.username || ''
+          })
+        })
+      }
+    }
+
     // Récupérer les infos médias pour l'historique
     const historyMediaIds = historyData?.map(h => h.media_id) || []
     const { data: historyMediaData } = await supabase
@@ -149,10 +176,12 @@ export async function GET() {
     // Formater l'historique
     const formattedHistory: WatchHistoryEntry[] = (historyData || []).map(entry => {
       const media = historyMediaMap.get(entry.media_id)
+      const userInfo = entry.user_id ? userMap.get(entry.user_id) : null
       return {
         id: entry.id,
         userId: entry.user_id,
-        userName: entry.user_id ? (userMap.get(entry.user_id) || 'Utilisateur') : 'Anonyme',
+        userName: userInfo?.name || 'Anonyme',
+        userEmail: userInfo?.email || null,
         mediaId: entry.media_id,
         title: media?.title || 'Film inconnu',
         posterUrl: media?.poster_url || null,
