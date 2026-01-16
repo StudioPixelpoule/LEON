@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" width="1000" height="1000"><style>
+    #light-icon {
+      display: inline;
+    }
+    #dark-icon {
+      display: none;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      #light-icon {
+        display: none;
+      }
+      #dark-icon {
+        display: inline;
+      }
+    }
+  </style><g id="light-icon"><svg xmlns="http://www.w3.org/2000/svg" version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" width="1000" height="1000"><g><g transform="matrix(7.633587786259542,0,0,7.633587786259542,229.00763358778624,0)"><svg xmlns="http://www.w3.org/2000/svg" version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" width="71" height="131" viewBox="0 0 71 131"><image width="71" height="131" xlink:href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEcAAACDCAYAAADfyQa9AAAACXBIWXMAAAsSAAALEgHS3X78AAABOklEQVR4nO3cMQ7DIBAAQRPlY/l5fnYu0pJtcTFT0mCtrgLhNTMXe6/TH/Bk4gRxgjhBnCBOECeIE8QJ4gRxgjhBnCBOECeIE8QJ4gRxgjjhvVtca504df/MzPfAvn+ZnCBOECeIE8QJ4gRxgjhBnCBOECeIE8QJ4gRxgjhBnCBOECeIE8QJ4gRxgjhBnCBOECeIE8QJ4gRxgjhBnCBOECeIE8QJ4gRxgjhBnCBOECeIE8QJ4gRxgjhBnCBOECeIE8QJ4gRxwtr9uPXQu/LHmJl1XSYniRPECeIEcYI4QZwgThAniBPECeIEcYI4QZwgThAniBPECeIEcYI4QZwgTthe6vFjcoI4QZwgThAniBPECeIEcYI4QZwgThAniBPECeIEcYI4QZwgThAniBPECeIEcYI4QZwgTrgBJnoS/XGQcKkAAAAASUVORK5CYII="></image></svg></g></g></svg></g><g id="dark-icon"><svg xmlns="http://www.w3.org/2000/svg" version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" width="1000" height="1000"><g><g transform="matrix(7.633587786259542,0,0,7.633587786259542,229.00763358778624,0)"><svg xmlns="http://www.w3.org/2000/svg" version="1.1" xmlns:xlink="http://www.w3.org/1999/xlink" width="71" height="131" viewBox="0 0 71 131"><image width="71" height="131" xlink:href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEcAAACDCAYAAADfyQa9AAAACXBIWXMAAAsSAAALEgHS3X78AAABNUlEQVR4nO3cMQ7DIBAAQYjyMP//U+QDZptYsaXMSDRUx+pq5lprcO519wBPJk4QJ4gTxAniBHGCOEGcIE4QJ4gTxAniBHGCOEGcIE4QJ4gTdnHWDee4+G1fszlBnCBOECeIE8QJ4gRxgjhBnCBOECeIE8QJ4gRxgjhBnCBOECeIE8QJ4gRxgjhBnCBOECeIE8QJ4gRxgjhBnCBOECeIE8QJ4gRxgjhBnCBOECeIE8QJ4gRxgjhBnCBOECeIE8QJ4oS5+bj1339znWPYnCROECeIE8QJ4gRxgjhBnCBOECeIE8QJ4gRxgjhBnCBOECeIE8QJ4gRxgjjhvbmfP53ioWxOECeIE8QJ4gRxgjhBnCBOECeIE8QJ4gRxgjhBnCBOECeIE8QJ4gRxgjhBnCBOECeIE8QJH7RqJSUhsjFAAAAAAElFTkSuQmCC"></image></svg></g></g></svg></g></svg>
