@@ -54,6 +54,9 @@
 html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Empêcher le zoom sur iOS */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
 }
 
 body {
@@ -62,6 +65,30 @@ body {
   font-size: var(--font-size-base);
   font-weight: var(--font-weight-regular);
   line-height: 1.6;
+  /* Support Safari iOS pour hauteur 100vh */
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+  /* Empêcher le bounce scroll sur iOS */
+  overscroll-behavior: none;
+}
+
+/* Support Safari iOS pour les éléments fullscreen */
+html, body {
+  height: 100%;
+  overflow-x: hidden;
+}
+
+/* Désactiver le highlight au tap sur mobile */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Améliorer le scroll sur iOS */
+@supports (-webkit-touch-callout: none) {
+  body {
+    /* Permettre le scroll momentum sur iOS */
+    -webkit-overflow-scrolling: touch;
+  }
 }
 
 /* Typography */

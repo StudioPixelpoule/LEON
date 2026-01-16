@@ -1,4 +1,4 @@
-import type { Metadata } from 'next'
+import type { Metadata, Viewport } from 'next'
 import { Nunito } from 'next/font/google'
 import '@/styles/globals.css'
 import { AuthProvider } from '@/contexts/AuthContext'
@@ -8,6 +8,15 @@ const nunito = Nunito({
   subsets: ['latin'],
   display: 'swap',
 })
+
+// Viewport séparé pour Next.js 14+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+  viewportFit: 'cover', // Important pour Safari iOS - utilise tout l'écran
+}
 
 export const metadata: Metadata = {
   title: 'LEON - Médiathèque Personnelle',
@@ -25,6 +34,10 @@ export const metadata: Metadata = {
     capable: true,
     statusBarStyle: 'black-translucent',
     title: 'LEON',
+  },
+  // Autres meta tags pour mobile
+  other: {
+    'mobile-web-app-capable': 'yes',
   },
 }
 

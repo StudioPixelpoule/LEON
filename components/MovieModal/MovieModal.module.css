@@ -632,23 +632,125 @@
 @media (max-width: 768px) {
   .backdrop {
     padding: 0;
+    padding-top: 0;
+    align-items: flex-start;
   }
   
   .modal {
     max-height: 100vh;
+    height: 100vh;
     border-radius: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
   
   .hero {
-    height: 300px;
+    height: 45vh;
+    min-height: 280px;
+    max-height: 400px;
+  }
+  
+  .heroOverlay {
+    padding: 20px 16px 16px;
+  }
+  
+  .closeButton {
+    top: 12px;
+    right: 12px;
+    font-size: 2rem;
+    width: 36px;
+    height: 36px;
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
   
   .title {
-    font-size: var(--font-size-3xl);
+    font-size: 1.75rem;
+    line-height: 1.15;
+    margin-bottom: 8px;
+  }
+  
+  .originalTitle {
+    font-size: 0.9rem;
+    margin-bottom: 12px;
+  }
+  
+  /* Boutons d'action - disposition optimisée mobile */
+  .actionButtons {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: nowrap;
+  }
+  
+  .playButton {
+    padding: 12px 24px;
+    font-size: 0.95rem;
+    flex-shrink: 0;
+  }
+  
+  /* Bouton favori - taille mobile */
+  .actionButtons > :nth-child(2) {
+    flex-shrink: 0;
+  }
+  
+  /* Bouton son - visible et accessible */
+  .muteButton {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    margin-left: 0;
   }
   
   .content {
-    padding: var(--spacing-md);
+    padding: 16px;
+  }
+  
+  .meta {
+    font-size: 0.9rem;
+    gap: 6px;
+    margin-bottom: 12px;
+  }
+  
+  .genres {
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  
+  .genre {
+    padding: 6px 10px;
+    font-size: 0.8rem;
+  }
+  
+  .overview {
+    font-size: 0.95rem;
+    line-height: 1.6;
+  }
+  
+  .sectionTitle {
+    font-size: 1.25rem;
+    margin-bottom: 12px;
+  }
+  
+  .castGrid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+  
+  .castPhoto {
+    width: 70px;
+    height: 70px;
+  }
+  
+  .castName {
+    font-size: 0.8rem;
+  }
+  
+  .castCharacter {
+    font-size: 0.75rem;
   }
   
   .episodeCard {
@@ -669,6 +771,55 @@
     width: 32px;
     height: 32px;
     font-size: var(--font-size-base);
+  }
+  
+  .director,
+  .subtitles {
+    font-size: 0.9rem;
+    flex-wrap: wrap;
+  }
+}
+
+/* iPhone SE et petits écrans */
+@media (max-width: 375px) {
+  .hero {
+    height: 40vh;
+    min-height: 240px;
+  }
+  
+  .title {
+    font-size: 1.5rem;
+  }
+  
+  .playButton {
+    padding: 10px 20px;
+    font-size: 0.9rem;
+  }
+  
+  .actionButtons {
+    gap: 8px;
+  }
+  
+  .muteButton {
+    width: 40px;
+    height: 40px;
+  }
+  
+  .castGrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Safe areas pour iPhone avec notch */
+@supports (padding-top: env(safe-area-inset-top)) {
+  @media (max-width: 768px) {
+    .backdrop {
+      padding-top: env(safe-area-inset-top);
+    }
+    
+    .closeButton {
+      top: calc(12px + env(safe-area-inset-top));
+    }
   }
 }
 

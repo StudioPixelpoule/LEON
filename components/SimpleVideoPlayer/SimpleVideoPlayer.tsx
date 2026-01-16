@@ -11,7 +11,7 @@ import { useNetworkResilience } from '@/lib/hooks/useNetworkResilience'
 import { HLS_BASE_CONFIG, selectHlsConfig } from '@/lib/hls-config'
 import { useAuth } from '@/contexts/AuthContext'
 
-// 🔧 Utilitaires Fullscreen compatibles Safari
+// 🔧 Utilitaires Fullscreen compatibles Safari et iOS
 interface ExtendedDocument extends Document {
   webkitFullscreenElement?: Element | null
   webkitExitFullscreen?: () => Promise<void>
@@ -21,12 +21,42 @@ interface ExtendedHTMLElement extends HTMLElement {
   webkitRequestFullscreen?: () => Promise<void>
 }
 
+interface ExtendedHTMLVideoElement extends HTMLVideoElement {
+  webkitEnterFullscreen?: () => void // iOS Safari specific
+  webkitExitFullscreen?: () => void
+  webkitDisplayingFullscreen?: boolean
+  webkitSupportsFullscreen?: boolean
+}
+
+// Détecter iOS (iPhone, iPad, iPod)
+const isIOS = (): boolean => {
+  if (typeof navigator === 'undefined') return false
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+}
+
+// Détecter Safari
+const isSafari = (): boolean => {
+  if (typeof navigator === 'undefined') return false
+  return /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
+}
+
 const getFullscreenElement = (): Element | null => {
   const doc = document as ExtendedDocument
   return doc.fullscreenElement || doc.webkitFullscreenElement || null
 }
 
-const requestFullscreen = async (element: HTMLElement): Promise<void> => {
+const requestFullscreen = async (element: HTMLElement, videoElement?: HTMLVideoElement): Promise<void> => {
+  // Sur iOS, utiliser webkitEnterFullscreen sur la vidéo directement
+  if (isIOS() && videoElement) {
+    const video = videoElement as ExtendedHTMLVideoElement
+    if (video.webkitSupportsFullscreen && video.webkitEnterFullscreen) {
+      video.webkitEnterFullscreen()
+      return
+    }
+  }
+  
+  // Desktop et Android
   const el = element as ExtendedHTMLElement
   if (el.requestFullscreen) {
     await el.requestFullscreen()
@@ -35,7 +65,16 @@ const requestFullscreen = async (element: HTMLElement): Promise<void> => {
   }
 }
 
-const exitFullscreen = async (): Promise<void> => {
+const exitFullscreen = async (videoElement?: HTMLVideoElement): Promise<void> => {
+  // Sur iOS, utiliser webkitExitFullscreen sur la vidéo
+  if (isIOS() && videoElement) {
+    const video = videoElement as ExtendedHTMLVideoElement
+    if (video.webkitDisplayingFullscreen && video.webkitExitFullscreen) {
+      video.webkitExitFullscreen()
+      return
+    }
+  }
+  
   const doc = document as ExtendedDocument
   if (doc.exitFullscreen) {
     await doc.exitFullscreen()
@@ -44,12 +83,31 @@ const exitFullscreen = async (): Promise<void> => {
   }
 }
 
-const addFullscreenChangeListener = (handler: () => void): (() => void) => {
+const isVideoFullscreen = (videoElement?: HTMLVideoElement): boolean => {
+  if (isIOS() && videoElement) {
+    const video = videoElement as ExtendedHTMLVideoElement
+    return video.webkitDisplayingFullscreen || false
+  }
+  return !!getFullscreenElement()
+}
+
+const addFullscreenChangeListener = (handler: () => void, videoElement?: HTMLVideoElement): (() => void) => {
   document.addEventListener('fullscreenchange', handler)
   document.addEventListener('webkitfullscreenchange', handler)
+  
+  // Sur iOS, écouter aussi les événements vidéo spécifiques
+  if (videoElement) {
+    videoElement.addEventListener('webkitbeginfullscreen', handler)
+    videoElement.addEventListener('webkitendfullscreen', handler)
+  }
+  
   return () => {
     document.removeEventListener('fullscreenchange', handler)
     document.removeEventListener('webkitfullscreenchange', handler)
+    if (videoElement) {
+      videoElement.removeEventListener('webkitbeginfullscreen', handler)
+      videoElement.removeEventListener('webkitendfullscreen', handler)
+    }
   }
 }
 
@@ -503,10 +561,10 @@ export default function SimpleVideoPlayer({
     return () => video.removeEventListener('ended', handleVideoEnded)
   }, [mediaId, nextEpisode, onNextEpisode, markAsFinished, isNextEpisodeCancelled])
 
-  // 🔧 FIX #3: Gérer spécifiquement le fullscreen (compatible Safari)
+  // 🔧 FIX #3: Gérer spécifiquement le fullscreen (compatible Safari et iOS)
   useEffect(() => {
     const handleFullscreenChange = () => {
-      if (getFullscreenElement()) {
+      if (isVideoFullscreen(videoRef.current || undefined)) {
         // En fullscreen : forcer la disparition des contrôles après 3s
         setTimeout(() => {
           const video = videoRef.current
@@ -517,7 +575,7 @@ export default function SimpleVideoPlayer({
       }
     }
     
-    const cleanup = addFullscreenChangeListener(handleFullscreenChange)
+    const cleanup = addFullscreenChangeListener(handleFullscreenChange, videoRef.current || undefined)
     return cleanup
   }, [])
 
@@ -570,8 +628,8 @@ export default function SimpleVideoPlayer({
         case 'escape':
           if (showSettingsMenu) {
             setShowSettingsMenu(false)
-          } else if (getFullscreenElement()) {
-            exitFullscreen()
+          } else if (isVideoFullscreen(videoRef.current || undefined)) {
+            exitFullscreen(videoRef.current || undefined)
           }
           break
       }
@@ -2032,10 +2090,10 @@ export default function SimpleVideoPlayer({
   }
 
   const handleFullscreen = useCallback(() => {
-    if (getFullscreenElement()) {
-      exitFullscreen()
+    if (isVideoFullscreen(videoRef.current || undefined)) {
+      exitFullscreen(videoRef.current || undefined)
     } else if (containerRef.current) {
-      requestFullscreen(containerRef.current)
+      requestFullscreen(containerRef.current, videoRef.current || undefined)
     }
   }, [])
 
@@ -2182,6 +2240,8 @@ export default function SimpleVideoPlayer({
         className={styles.video}
         poster={poster}
         playsInline
+        // @ts-expect-error - webkit-playsinline est nécessaire pour Safari iOS
+        webkit-playsinline="true"
         onDoubleClick={handleFullscreen}
       />
 

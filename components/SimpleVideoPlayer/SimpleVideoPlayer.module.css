@@ -868,28 +868,205 @@
 
 /* Responsive */
 @media (max-width: 768px) {
+  .container {
+    /* Forcer le plein écran sur mobile */
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    /* Support Safari iOS */
+    height: -webkit-fill-available;
+  }
+  
+  .video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+  
   .timeline {
-    padding: 0 15px;
+    padding: 0 12px;
   }
   
   .controlsBottom {
-    padding: 0 15px;
-    gap: 15px;
+    padding: 0 12px;
+    gap: 10px;
   }
   
   .volumeGroup {
     display: none;
   }
   
+  .titleBar {
+    padding: 20px 16px;
+  }
+  
+  .titleInfo {
+    max-width: calc(100% - 60px);
+  }
+  
   .titleInfo h2 {
-    font-size: 24px;
+    font-size: 18px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
   
   .titleInfo span {
-    font-size: 14px;
+    font-size: 13px;
+  }
+  
+  .closeButton {
+    top: 16px;
+    right: 16px;
+    width: 36px;
+    height: 36px;
+    font-size: 20px;
+  }
+  
+  .closeButton svg {
+    width: 20px;
+    height: 20px;
+  }
+  
+  .controls {
+    padding: 30px 12px 16px;
+  }
+  
+  .controlBtn {
+    padding: 10px;
+  }
+  
+  .controlBtn svg {
+    width: 22px;
+    height: 22px;
+  }
+  
+  .playBtn svg {
+    width: 26px;
+    height: 26px;
   }
   
   .settingsMenu {
-    min-width: 240px;
+    min-width: 220px;
+    max-width: 280px;
+    max-height: 300px;
+    right: 50%;
+    transform: translateX(50%);
+  }
+  
+  .progressThumb {
+    width: 18px;
+    height: 18px;
+  }
+  
+  .currentTime, .duration {
+    font-size: 12px;
+    min-width: 40px;
+  }
+  
+  .centerPlayButton {
+    width: 80px;
+    height: 80px;
+  }
+  
+  .centerPlayButton svg {
+    width: 80px;
+    height: 80px;
+    margin-left: 5px;
+  }
+  
+  .loader {
+    gap: 16px;
+  }
+  
+  .spinner {
+    width: 50px;
+    height: 50px;
+  }
+  
+  .loaderMessage {
+    font-size: 13px;
+    max-width: 250px;
+  }
+  
+  /* Next episode overlay mobile */
+  .nextEpisodeOverlay {
+    left: 12px;
+    right: 12px;
+    bottom: 100px;
+  }
+  
+  .nextEpisodeCard {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  
+  .nextEpisodeThumbnail {
+    width: 100%;
+    height: 100px;
+  }
+  
+  .nextEpisodeTitle {
+    max-width: 100%;
+  }
+  
+  .nextEpisodeButtons {
+    width: 100%;
+    justify-content: space-between;
+  }
+  
+  .nextEpisodePlay,
+  .nextEpisodeCancel {
+    flex: 1;
+    justify-content: center;
+    padding: 12px 16px;
+  }
+}
+
+/* Safe areas pour iPhone avec notch */
+@supports (padding-top: env(safe-area-inset-top)) {
+  @media (max-width: 768px) {
+    .container {
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
+      padding-left: env(safe-area-inset-left);
+      padding-right: env(safe-area-inset-right);
+    }
+    
+    .titleBar {
+      padding-top: calc(20px + env(safe-area-inset-top));
+    }
+    
+    .closeButton {
+      top: calc(16px + env(safe-area-inset-top));
+      right: calc(16px + env(safe-area-inset-right));
+    }
+    
+    .controls {
+      padding-bottom: calc(16px + env(safe-area-inset-bottom));
+      padding-left: calc(12px + env(safe-area-inset-left));
+      padding-right: calc(12px + env(safe-area-inset-right));
+    }
+  }
+}
+
+/* iPhone SE et très petits écrans */
+@media (max-width: 375px) {
+  .titleInfo h2 {
+    font-size: 16px;
+  }
+  
+  .controlBtn {
+    padding: 8px;
+  }
+  
+  .controlBtn svg {
+    width: 20px;
+    height: 20px;
   }
 }
