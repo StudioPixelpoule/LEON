@@ -6,22 +6,6 @@
   position: relative;
 }
 
-.row::after {
-  content: '';
-  position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: 120px;
-  background: linear-gradient(
-    to left,
-    #0a0a0a 0%,
-    transparent 100%
-  );
-  pointer-events: none;
-  z-index: 50;
-}
-
 .title {
   font-size: 2.5rem;
   font-weight: 700;
@@ -30,6 +14,78 @@
   padding: 0 calc(var(--spacing-xl) * 3);
   letter-spacing: -0.04em;
   line-height: 1.1;
+}
+
+/* Conteneur scroll avec flèches */
+.scrollContainer {
+  position: relative;
+  overflow: visible;
+}
+
+.scrollContainer::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 100px;
+  background: linear-gradient(
+    to left,
+    #0a0a0a 0%,
+    transparent 100%
+  );
+  pointer-events: none;
+  z-index: 40;
+}
+
+/* Flèches de navigation */
+.navArrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 200;
+  width: 48px;
+  height: 48px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(20, 20, 20, 0.85);
+  backdrop-filter: blur(8px);
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: all 300ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  pointer-events: none;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+.navArrow.visible {
+  opacity: 0;
+  pointer-events: auto;
+}
+
+.row:hover .navArrow.visible {
+  opacity: 1;
+}
+
+.navArrow:hover {
+  background: rgba(40, 40, 40, 0.95);
+  transform: translateY(-50%) scale(1.08);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+}
+
+.navArrow:active {
+  transform: translateY(-50%) scale(0.95);
+}
+
+.navLeft {
+  left: 12px;
+}
+
+.navRight {
+  right: 12px;
 }
 
 .scroll {
@@ -172,6 +228,11 @@
   .cardMeta {
     font-size: 0.85rem;
   }
+
+  .navArrow {
+    width: 42px;
+    height: 42px;
+  }
 }
 
 @media (max-width: 768px) {
@@ -179,8 +240,8 @@
     padding: var(--spacing-xl) 0;
   }
 
-  .row::after {
-    width: 60px;
+  .scrollContainer::after {
+    width: 50px;
   }
 
   .title {
@@ -214,6 +275,10 @@
 
   .cardRating {
     font-size: 0.75rem;
+  }
+
+  .navArrow {
+    display: none;
   }
 }
 

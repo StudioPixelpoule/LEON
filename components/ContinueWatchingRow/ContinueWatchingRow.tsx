@@ -5,9 +5,9 @@
 
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import Image from 'next/image'
-import { X } from 'lucide-react'
+import { X, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
 import styles from './ContinueWatchingRow.module.css'
@@ -45,6 +45,17 @@ export default function ContinueWatchingRow({
   const [loading, setLoading] = useState(true)
   const { user } = useAuth()
   const userId = user?.id
+  
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const [canScrollLeft, setCanScrollLeft] = useState(false)
+  const [canScrollRight, setCanScrollRight] = useState(false)
+
+  const checkScrollability = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    setCanScrollLeft(el.scrollLeft > 20)
+    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 20)
+  }, [])
 
   useEffect(() => {
     if (userId) {
@@ -57,6 +68,31 @@ export default function ContinueWatchingRow({
     
     return () => clearInterval(intervalId)
   }, [refreshKey, userId])
+
+  useEffect(() => {
+    checkScrollability()
+    const el = scrollRef.current
+    if (el) {
+      el.addEventListener('scroll', checkScrollability)
+      window.addEventListener('resize', checkScrollability)
+    }
+    return () => {
+      if (el) {
+        el.removeEventListener('scroll', checkScrollability)
+        window.removeEventListener('resize', checkScrollability)
+      }
+    }
+  }, [checkScrollability, media])
+
+  const scroll = (direction: 'left' | 'right') => {
+    const el = scrollRef.current
+    if (!el) return
+    const scrollAmount = el.clientWidth * 0.75
+    el.scrollBy({
+      left: direction === 'left' ? -scrollAmount : scrollAmount,
+      behavior: 'smooth'
+    })
+  }
 
   async function loadInProgressMedia(silent = false) {
     if (!userId) return
@@ -148,72 +184,91 @@ export default function ContinueWatchingRow({
   return (
     <section className={styles.row}>
       <h2 className={styles.title}>Continuer le visionnage</h2>
-      <div className={styles.scroll}>
-        {media.map((item) => (
-          <div
-            key={item.id}
-            className={styles.card}
-            onClick={() => handleClick(item)}
-          >
-            {/* Bouton supprimer */}
-            <button
-              className={styles.removeBtn}
-              onClick={(e) => handleRemove(item.id, item.content_type, e)}
-              title="Marquer comme terminé"
+      
+      <div className={styles.scrollContainer}>
+        <button
+          className={`${styles.navArrow} ${styles.navLeft} ${canScrollLeft ? styles.visible : ''}`}
+          onClick={() => scroll('left')}
+          aria-label="Précédent"
+        >
+          <ChevronLeft size={32} strokeWidth={2.5} />
+        </button>
+
+        <div className={styles.scroll} ref={scrollRef}>
+          {media.map((item) => (
+            <div
+              key={item.id}
+              className={styles.card}
+              onClick={() => handleClick(item)}
             >
-              <X size={16} />
-            </button>
+              {/* Bouton supprimer */}
+              <button
+                className={styles.removeBtn}
+                onClick={(e) => handleRemove(item.id, item.content_type, e)}
+                title="Marquer comme terminé"
+              >
+                <X size={16} />
+              </button>
 
-            {/* Poster avec barre de progression */}
-            <div className={styles.posterContainer}>
-              <Image
-                src={item.poster_url || '/placeholder-poster.svg'}
-                alt={item.title}
-                width={240}
-                height={360}
-                className={styles.poster}
-                unoptimized
-              />
-              
-              {/* Badge épisode */}
-              {item.content_type === 'episode' && item.season_number && item.episode_number && (
-                <div className={styles.episodeBadge}>
-                  S{item.season_number}E{item.episode_number}
-                </div>
-              )}
-              
-              {/* Barre de progression */}
-              <div className={styles.progressBar}>
-                <div 
-                  className={styles.progressFill} 
-                  style={{ width: `${item.progress_percent}%` }}
+              {/* Poster avec barre de progression */}
+              <div className={styles.posterContainer}>
+                <Image
+                  src={item.poster_url || '/placeholder-poster.svg'}
+                  alt={item.title}
+                  width={240}
+                  height={360}
+                  className={styles.poster}
+                  unoptimized
                 />
+                
+                {/* Badge épisode */}
+                {item.content_type === 'episode' && item.season_number && item.episode_number && (
+                  <div className={styles.episodeBadge}>
+                    S{item.season_number}E{item.episode_number}
+                  </div>
+                )}
+                
+                {/* Barre de progression */}
+                <div className={styles.progressBar}>
+                  <div 
+                    className={styles.progressFill} 
+                    style={{ width: `${item.progress_percent}%` }}
+                  />
+                </div>
               </div>
-            </div>
 
-            {/* Info au hover */}
-            <div className={styles.cardHover}>
-              <h3 className={styles.cardTitle}>{item.title}</h3>
-              {item.subtitle && (
-                <div className={styles.cardSubtitle}>{item.subtitle}</div>
-              )}
-              <div className={styles.cardMeta}>
-                {item.year && <span>{item.year}</span>}
-                {item.formatted_runtime && (
-                  <>
-                    <span>·</span>
-                    <span>{item.formatted_runtime}</span>
-                  </>
+              {/* Info au hover */}
+              <div className={styles.cardHover}>
+                <h3 className={styles.cardTitle}>{item.title}</h3>
+                {item.subtitle && (
+                  <div className={styles.cardSubtitle}>{item.subtitle}</div>
+                )}
+                <div className={styles.cardMeta}>
+                  {item.year && <span>{item.year}</span>}
+                  {item.formatted_runtime && (
+                    <>
+                      <span>·</span>
+                      <span>{item.formatted_runtime}</span>
+                    </>
+                  )}
+                </div>
+                {item.progress_percent > 0 && (
+                  <div className={styles.cardProgress}>
+                    {item.progress_percent}% regardé
+                  </div>
                 )}
               </div>
-              {item.progress_percent > 0 && (
-                <div className={styles.cardProgress}>
-                  {item.progress_percent}% regardé
-                </div>
-              )}
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
+
+        <button
+          className={`${styles.navArrow} ${styles.navRight} ${canScrollRight ? styles.visible : ''}`}
+          onClick={() => scroll('right')}
+          aria-label="Suivant"
+        >
+          <ChevronRight size={32} strokeWidth={2.5} />
+        </button>
       </div>
     </section>
   )
