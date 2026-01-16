@@ -67,6 +67,10 @@ export default function Header({ movies, onMovieClick, series, onSeriesClick, on
   const displayName = user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'Utilisateur'
   const userEmail = user?.email || ''
   
+  // Liste des emails admin (doit correspondre à middleware.ts)
+  const ADMIN_EMAILS = ['theboxoflio@gmail.com']
+  const isAdmin = userEmail && ADMIN_EMAILS.includes(userEmail.toLowerCase())
+  
   return (
     <header className={styles.header}>
       <div className={styles.container}>
@@ -125,10 +129,12 @@ export default function Header({ movies, onMovieClick, series, onSeriesClick, on
 
                 <div className={styles.dropdownDivider} />
 
-                <button className={styles.menuItem} onClick={handleAdminAccess}>
-                  <Shield size={18} />
-                  <span>Administration</span>
-                </button>
+                {isAdmin && (
+                  <button className={styles.menuItem} onClick={handleAdminAccess}>
+                    <Shield size={18} />
+                    <span>Administration</span>
+                  </button>
+                )}
 
                 <button className={styles.menuItem} onClick={handleSettings}>
                   <Settings size={18} />
