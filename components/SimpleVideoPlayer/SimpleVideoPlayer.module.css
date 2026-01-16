@@ -877,14 +877,20 @@
     bottom: 0 !important;
     width: 100vw !important;
     height: 100vh !important;
+    height: 100dvh !important; /* Dynamic viewport height pour mobile */
     /* Support Safari iOS */
     height: -webkit-fill-available;
+    display: flex;
+    flex-direction: column;
   }
   
   .video {
     width: 100%;
     height: 100%;
     object-fit: contain;
+    /* Centrer la vidéo mais laisser de l'espace pour les contrôles */
+    max-height: calc(100% - 80px);
+    margin: auto 0;
   }
   
   .timeline {
@@ -901,27 +907,29 @@
   }
   
   .titleBar {
-    padding: 20px 16px;
+    padding: 16px 12px;
+    position: relative;
+    background: linear-gradient(to bottom, rgba(0,0,0,0.9) 0%, transparent 100%);
   }
   
   .titleInfo {
-    max-width: calc(100% - 60px);
+    max-width: calc(100% - 50px);
   }
   
   .titleInfo h2 {
-    font-size: 18px;
+    font-size: 16px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }
   
   .titleInfo span {
-    font-size: 13px;
+    font-size: 12px;
   }
   
   .closeButton {
-    top: 16px;
-    right: 16px;
+    top: 12px;
+    right: 12px;
     width: 36px;
     height: 36px;
     font-size: 20px;
@@ -933,11 +941,18 @@
   }
   
   .controls {
-    padding: 30px 12px 16px;
+    padding: 20px 12px 12px;
+    position: relative;
+    background: linear-gradient(to top, rgba(0,0,0,0.95) 0%, rgba(0,0,0,0.8) 60%, transparent 100%);
+    /* S'assurer que les contrôles sont toujours visibles */
+    min-height: 80px;
   }
   
   .controlBtn {
-    padding: 10px;
+    padding: 12px;
+    /* Zone de touche plus grande sur mobile */
+    min-width: 44px;
+    min-height: 44px;
   }
   
   .controlBtn svg {
@@ -953,14 +968,20 @@
   .settingsMenu {
     min-width: 220px;
     max-width: 280px;
-    max-height: 300px;
+    max-height: 250px;
     right: 50%;
     transform: translateX(50%);
+    bottom: calc(100% + 8px);
+  }
+  
+  .progressBar {
+    height: 6px; /* Plus épais pour faciliter le toucher */
   }
   
   .progressThumb {
-    width: 18px;
-    height: 18px;
+    width: 20px;
+    height: 20px;
+    opacity: 1; /* Toujours visible sur mobile */
   }
   
   .currentTime, .duration {
@@ -1028,29 +1049,76 @@
   }
 }
 
+/* Mode portrait spécifique */
+@media (max-width: 768px) and (orientation: portrait) {
+  .container {
+    /* Flex column pour bien organiser vidéo + contrôles */
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+  }
+  
+  .video {
+    /* En portrait, la vidéo prend tout l'espace disponible au centre */
+    flex: 1;
+    max-height: none;
+    margin: 0;
+    object-fit: contain;
+  }
+  
+  .titleBar {
+    flex-shrink: 0;
+    padding-top: 12px;
+  }
+  
+  .controls {
+    flex-shrink: 0;
+    /* Contrôles toujours en bas et accessibles */
+    position: relative;
+    bottom: auto;
+    padding-bottom: 16px;
+  }
+  
+  /* Augmenter la zone de progression pour faciliter le toucher */
+  .progressBar {
+    height: 8px;
+  }
+  
+  .progressBar::before {
+    top: -15px;
+    bottom: -15px;
+  }
+}
+
 /* Safe areas pour iPhone avec notch */
 @supports (padding-top: env(safe-area-inset-top)) {
   @media (max-width: 768px) {
     .container {
       padding-top: env(safe-area-inset-top);
-      padding-bottom: env(safe-area-inset-bottom);
       padding-left: env(safe-area-inset-left);
       padding-right: env(safe-area-inset-right);
     }
     
     .titleBar {
-      padding-top: calc(20px + env(safe-area-inset-top));
+      padding-top: calc(12px + env(safe-area-inset-top));
     }
     
     .closeButton {
-      top: calc(16px + env(safe-area-inset-top));
-      right: calc(16px + env(safe-area-inset-right));
+      top: calc(12px + env(safe-area-inset-top));
+      right: calc(12px + env(safe-area-inset-right));
     }
     
     .controls {
       padding-bottom: calc(16px + env(safe-area-inset-bottom));
       padding-left: calc(12px + env(safe-area-inset-left));
       padding-right: calc(12px + env(safe-area-inset-right));
+    }
+  }
+  
+  /* Portrait spécifique avec safe areas */
+  @media (max-width: 768px) and (orientation: portrait) {
+    .controls {
+      padding-bottom: calc(20px + env(safe-area-inset-bottom));
     }
   }
 }

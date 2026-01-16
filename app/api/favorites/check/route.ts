@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createSupabaseClient } from '@/lib/supabase'
+import { createSupabaseAdmin } from '@/lib/supabase'
 
 // Forcer le rendu dynamique
 export const dynamic = 'force-dynamic'
@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
       )
     }
     
-    const supabase = createSupabaseClient()
+    const supabase = createSupabaseAdmin()
     
     let query = supabase
       .from('favorites')

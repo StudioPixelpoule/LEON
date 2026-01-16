@@ -52,22 +52,28 @@ export function useFavorites({ mediaId, mediaType = 'movie' }: UseFavoritesOptio
   // Toggle favori
   const toggleFavorite = useCallback(async () => {
     if (!mediaId) return
+    
+    // Vérifier que l'utilisateur est connecté
+    if (!user?.id) {
+      console.warn('[FAVORITES] Utilisateur non connecté - impossible d\'ajouter aux favoris')
+      return
+    }
 
     setLoading(true)
 
     try {
       if (isFavorite) {
         // Supprimer des favoris
-        let url = `/api/favorites?mediaId=${encodeURIComponent(mediaId)}&mediaType=${mediaType}`
-        if (user?.id) {
-          url += `&userId=${encodeURIComponent(user.id)}`
-        }
+        const url = `/api/favorites?mediaId=${encodeURIComponent(mediaId)}&mediaType=${mediaType}&userId=${encodeURIComponent(user.id)}`
         
         const response = await fetch(url, { method: 'DELETE' })
         
         if (response.ok) {
           setIsFavorite(false)
           console.log('[FAVORITES] 💔 Retiré des favoris')
+        } else {
+          const errorData = await response.json()
+          console.error('[FAVORITES] Erreur suppression:', errorData)
         }
       } else {
         // Ajouter aux favoris
@@ -77,13 +83,16 @@ export function useFavorites({ mediaId, mediaType = 'movie' }: UseFavoritesOptio
           body: JSON.stringify({ 
             mediaId, 
             mediaType,
-            userId: user?.id || null
+            userId: user.id
           })
         })
         
         if (response.ok) {
           setIsFavorite(true)
           console.log('[FAVORITES] ❤️ Ajouté aux favoris')
+        } else {
+          const errorData = await response.json()
+          console.error('[FAVORITES] Erreur ajout:', errorData)
         }
       }
     } catch (error) {

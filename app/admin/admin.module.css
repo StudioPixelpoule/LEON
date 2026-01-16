@@ -37,6 +37,48 @@
   padding-top: 80px;
 }
 
+/* Bouton menu mobile */
+.mobileMenuBtn {
+  display: none;
+  position: fixed;
+  top: 90px;
+  left: 16px;
+  z-index: 101;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: #141414;
+  border: 1px solid #2a2a2a;
+  color: white;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.mobileMenuBtn:hover {
+  background: #1a1a1a;
+  border-color: #3a3a3a;
+}
+
+.mobileOverlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 99;
+}
+
+@media (max-width: 768px) {
+  .mobileMenuBtn {
+    display: flex;
+  }
+  
+  .mobileOverlay {
+    display: block;
+  }
+}
+
 /* ============================================
    Navigation latérale compacte
    ============================================ */
@@ -1512,49 +1554,372 @@
 }
 
 @media (max-width: 768px) {
+  .content {
+    flex-direction: column;
+    min-height: auto;
+  }
+  
   .sidebar {
-    position: relative;
+    position: fixed;
+    top: 60px;
+    left: 0;
+    right: 0;
     width: 100%;
     height: auto;
+    max-height: calc(100vh - 60px);
+    overflow-y: auto;
     border-right: none;
     border-bottom: 1px solid #2a2a2a;
     padding: 16px;
+    transform: translateY(-100%);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 0.3s ease, opacity 0.3s ease;
+    z-index: 100;
+  }
+  
+  .sidebar.open {
+    transform: translateY(0);
+    opacity: 1;
+    pointer-events: all;
+  }
+  
+  .sidebarHeader {
+    display: none;
   }
   
   .nav {
-    flex-direction: row;
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 4px;
+  }
+  
+  .navGroup {
+    margin-bottom: 12px;
+  }
+  
+  .navGroupLabel {
+    font-size: 9px;
+    padding: 0 8px;
+    margin-bottom: 6px;
   }
   
   .navItem {
-    flex: 1;
-    min-width: 120px;
-    justify-content: center;
+    padding: 12px 16px;
+    font-size: 14px;
   }
   
   .main {
     margin-left: 0;
-    padding: 20px 16px;
+    padding: 16px;
+    padding-top: 80px;
+  }
+  
+  .dashboardHeader {
+    margin-bottom: 20px;
+  }
+  
+  .dashboardTitle {
+    font-size: 22px;
+  }
+  
+  .dashboardSubtitle {
+    font-size: 13px;
+  }
+  
+  .versionBadge {
+    position: static;
+    margin-top: 12px;
+    justify-content: flex-start;
+  }
+  
+  .systemStatus {
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px 16px;
   }
   
   .kpiGrid {
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  
+  .kpiCard {
+    padding: 16px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  
+  .kpiIcon {
+    width: 40px;
+    height: 40px;
+  }
+  
+  .kpiValue {
+    font-size: 24px;
+  }
+  
+  .kpiLabel {
+    font-size: 11px;
+  }
+  
+  .quickActions {
     grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  
+  .quickAction {
+    padding: 16px;
+  }
+  
+  .quickActionIcon {
+    width: 36px;
+    height: 36px;
+  }
+  
+  .quickActionTitle {
+    font-size: 14px;
+  }
+  
+  .quickActionDesc {
+    font-size: 12px;
+  }
+  
+  .sectionHeader {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  
+  .sectionTitle {
+    font-size: 20px;
+  }
+  
+  .sectionDesc {
+    font-size: 13px;
   }
   
   .filterBar {
     flex-direction: column;
     align-items: stretch;
+    gap: 12px;
+    padding: 12px;
+  }
+  
+  .filterGroup {
+    flex-wrap: wrap;
+  }
+  
+  .filterBtn {
+    padding: 8px 12px;
+    font-size: 12px;
   }
   
   .searchBox {
     min-width: 100%;
   }
   
-  .modal {
+  .tabs {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-bottom: 12px;
+  }
+  
+  .tab {
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+  
+  .card {
     padding: 16px;
   }
   
+  .cardHeader {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  
+  .cardIcon {
+    width: 32px;
+    height: 32px;
+  }
+  
+  .cardTitle {
+    font-size: 14px;
+  }
+  
+  .statsGrid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+  
+  .statBox {
+    padding: 16px 12px;
+  }
+  
+  .statValue {
+    font-size: 24px;
+  }
+  
+  .statLabel {
+    font-size: 10px;
+  }
+  
+  .mediaGrid {
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 10px;
+  }
+  
+  .mediaInfo {
+    padding: 8px;
+  }
+  
+  .mediaTitle {
+    font-size: 11px;
+  }
+  
+  .mediaYear {
+    font-size: 10px;
+  }
+  
+  .modal {
+    padding: 12px;
+  }
+  
   .modalContent {
-    padding: 20px;
+    padding: 16px;
+    max-height: 95vh;
+  }
+  
+  .modalClose {
+    top: 12px;
+    right: 12px;
+    width: 32px;
+    height: 32px;
+  }
+  
+  /* Historique et activité mobile */
+  .historyEntry {
+    flex-wrap: wrap;
+    padding: 12px;
+    gap: 10px;
+  }
+  
+  .historyPoster {
+    width: 40px;
+    height: 60px;
+  }
+  
+  .historyContent {
+    flex: 1;
+    min-width: calc(100% - 60px);
+  }
+  
+  .historyTitle span {
+    font-size: 13px;
+  }
+  
+  .historyMeta {
+    font-size: 11px;
+  }
+  
+  .historyDate {
+    width: 100%;
+    text-align: left;
+    margin-top: 4px;
+    display: flex;
+    gap: 8px;
+  }
+  
+  .userCard {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  
+  .userAvatar {
+    width: 40px;
+    height: 40px;
+    font-size: 16px;
+  }
+  
+  .userStats {
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 12px;
+  }
+  
+  .userLastActivity {
+    text-align: left;
+    width: 100%;
+    margin-top: 8px;
+  }
+  
+  .filters {
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .filterSelect {
+    width: 100%;
+  }
+  
+  .pagination {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 12px;
+  }
+  
+  .paginationBtn {
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+  
+  .paginationInfo {
+    width: 100%;
+    text-align: center;
+    order: -1;
+    padding: 0 0 8px 0;
+  }
+  
+  .actions {
+    flex-direction: column;
+    width: 100%;
+  }
+  
+  .btnPrimary,
+  .btnSecondary,
+  .btnDanger {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* Très petits écrans */
+@media (max-width: 480px) {
+  .main {
+    padding: 12px;
+    padding-top: 72px;
+  }
+  
+  .dashboardTitle {
+    font-size: 18px;
+  }
+  
+  .kpiGrid {
+    grid-template-columns: 1fr;
+  }
+  
+  .kpiCard {
+    flex-direction: row;
+    align-items: center;
+  }
+  
+  .statsGrid {
+    grid-template-columns: 1fr;
+  }
+  
+  .mediaGrid {
+    grid-template-columns: repeat(3, 1fr);
   }
 }

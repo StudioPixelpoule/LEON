@@ -237,6 +237,7 @@
   cursor: pointer;
   transition: all 0.15s ease;
   text-align: left;
+  text-decoration: none;
 }
 
 .menuItem:hover {

@@ -3,20 +3,38 @@
  * Utilise les variables d'environnement Next.js
  */
 
-import { createClient } from '@supabase/supabase-js'
+import { createClient, SupabaseClient } from '@supabase/supabase-js'
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || ''
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || ''
 
-// Client Supabase (sera créé uniquement si les variables sont définies)
+// Client Supabase public (pour le navigateur)
 export const supabase = createClient(
   supabaseUrl || 'https://placeholder.supabase.co', 
   supabaseAnonKey || 'placeholder-key'
 )
 
 // Helper function pour créer un client Supabase (compatibilité avec les routes API)
-export function createSupabaseClient() {
+export function createSupabaseClient(): SupabaseClient {
   return supabase
+}
+
+// Client Supabase admin (pour les API routes - bypass RLS)
+let supabaseAdmin: SupabaseClient | null = null
+
+export function createSupabaseAdmin(): SupabaseClient {
+  if (!supabaseAdmin && supabaseUrl && supabaseServiceKey) {
+    supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false
+      }
+    })
+  }
+  
+  // Fallback sur le client normal si pas de service key
+  return supabaseAdmin || supabase
 }
 
 // Types TypeScript pour la base de données

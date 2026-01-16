@@ -8,7 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createSupabaseClient } from '@/lib/supabase'
+import { createSupabaseAdmin } from '@/lib/supabase'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic'
  */
 export async function GET(request: NextRequest) {
   try {
-    const supabase = createSupabaseClient()
+    const supabase = createSupabaseAdmin()
     const searchParams = request.nextUrl.searchParams
     const mediaType = searchParams.get('type') || 'movie'
     const userId = searchParams.get('userId')
@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    const supabase = createSupabaseClient()
+    const supabase = createSupabaseAdmin()
     
     // Vérifier si déjà en favori pour cet utilisateur
     let existingQuery = supabase
@@ -187,7 +187,7 @@ export async function DELETE(request: NextRequest) {
       )
     }
     
-    const supabase = createSupabaseClient()
+    const supabase = createSupabaseAdmin()
     
     let deleteQuery = supabase
       .from('favorites')

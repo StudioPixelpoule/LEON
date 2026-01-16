@@ -40,7 +40,8 @@ import {
   Tv,
   Upload,
   FileVideo,
-  AlertCircle
+  AlertCircle,
+  Menu
 } from 'lucide-react'
 import styles from './admin.module.css'
 
@@ -70,6 +71,7 @@ interface DashboardStats {
 
 export default function AdminPageV2() {
   const [view, setView] = useState<AdminView>('dashboard')
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [status, setStatus] = useState<SystemStatus>({
     transcodingActive: false,
     watcherActive: false,
@@ -77,6 +79,12 @@ export default function AdminPageV2() {
   })
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
+  
+  // Fermer le menu mobile quand on change de vue
+  const handleViewChange = (newView: AdminView) => {
+    setView(newView)
+    setMobileMenuOpen(false)
+  }
 
   // Charger les données initiales
   useEffect(() => {
@@ -129,9 +137,26 @@ export default function AdminPageV2() {
     <div className={styles.container}>
       <Header />
       
+      {/* Bouton menu mobile */}
+      <button 
+        className={styles.mobileMenuBtn}
+        onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+        aria-label="Menu"
+      >
+        <Menu size={24} />
+      </button>
+      
+      {/* Overlay mobile */}
+      {mobileMenuOpen && (
+        <div 
+          className={styles.mobileOverlay} 
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+      
       <div className={styles.content}>
         {/* Navigation latérale */}
-        <nav className={styles.sidebar}>
+        <nav className={`${styles.sidebar} ${mobileMenuOpen ? styles.open : ''}`}>
           <div className={styles.sidebarHeader}>
             <h1 className={styles.logo}>LEON</h1>
             <p className={styles.logoSub}>Administration</p>
@@ -143,7 +168,7 @@ export default function AdminPageV2() {
               <p className={styles.navGroupLabel}>Vue d&apos;ensemble</p>
               <button
                 className={`${styles.navItem} ${view === 'dashboard' ? styles.active : ''}`}
-                onClick={() => setView('dashboard')}
+                onClick={() => handleViewChange('dashboard')}
               >
                 <LayoutDashboard className={styles.navIcon} size={18} />
                 Dashboard
@@ -155,14 +180,14 @@ export default function AdminPageV2() {
               <p className={styles.navGroupLabel}>Médiathèque</p>
               <button
                 className={`${styles.navItem} ${view === 'scan' ? styles.active : ''}`}
-                onClick={() => setView('scan')}
+                onClick={() => handleViewChange('scan')}
               >
                 <FolderSearch className={styles.navIcon} size={18} />
                 Scanner
               </button>
               <button
                 className={`${styles.navItem} ${view === 'posters' ? styles.active : ''}`}
-                onClick={() => setView('posters')}
+                onClick={() => handleViewChange('posters')}
               >
                 <ImageIcon className={styles.navIcon} size={18} />
                 Affiches
@@ -177,7 +202,7 @@ export default function AdminPageV2() {
               <p className={styles.navGroupLabel}>Performance</p>
               <button
                 className={`${styles.navItem} ${view === 'transcode' ? styles.active : ''}`}
-                onClick={() => setView('transcode')}
+                onClick={() => handleViewChange('transcode')}
               >
                 <Film className={styles.navIcon} size={18} />
                 Transcodage
@@ -192,14 +217,14 @@ export default function AdminPageV2() {
               <p className={styles.navGroupLabel}>Activité</p>
               <button
                 className={`${styles.navItem} ${view === 'stats' ? styles.active : ''}`}
-                onClick={() => setView('stats')}
+                onClick={() => handleViewChange('stats')}
               >
                 <BarChart3 className={styles.navIcon} size={18} />
                 Statistiques
               </button>
               <button
                 className={`${styles.navItem} ${view === 'activity' ? styles.active : ''}`}
-                onClick={() => setView('activity')}
+                onClick={() => handleViewChange('activity')}
               >
                 <Activity className={styles.navIcon} size={18} />
                 Activité
