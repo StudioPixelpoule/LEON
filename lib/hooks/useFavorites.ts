@@ -1,11 +1,13 @@
 /**
  * Hook React pour gérer les favoris
  * Permet d'ajouter/supprimer des favoris et de vérifier le statut
+ * Gère les favoris par utilisateur connecté
  */
 
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface UseFavoritesOptions {
   mediaId: string
@@ -13,6 +15,7 @@ interface UseFavoritesOptions {
 }
 
 export function useFavorites({ mediaId, mediaType = 'movie' }: UseFavoritesOptions) {
+  const { user } = useAuth()
   const [isFavorite, setIsFavorite] = useState(false)
   const [loading, setLoading] = useState(true)
 
@@ -25,9 +28,12 @@ export function useFavorites({ mediaId, mediaType = 'movie' }: UseFavoritesOptio
 
     const checkFavorite = async () => {
       try {
-        const response = await fetch(
-          `/api/favorites/check?mediaId=${encodeURIComponent(mediaId)}&mediaType=${mediaType}`
-        )
+        let url = `/api/favorites/check?mediaId=${encodeURIComponent(mediaId)}&mediaType=${mediaType}`
+        if (user?.id) {
+          url += `&userId=${encodeURIComponent(user.id)}`
+        }
+        
+        const response = await fetch(url)
         
         if (response.ok) {
           const data = await response.json()
@@ -41,7 +47,7 @@ export function useFavorites({ mediaId, mediaType = 'movie' }: UseFavoritesOptio
     }
 
     checkFavorite()
-  }, [mediaId, mediaType])
+  }, [mediaId, mediaType, user?.id])
 
   // Toggle favori
   const toggleFavorite = useCallback(async () => {
@@ -52,10 +58,12 @@ export function useFavorites({ mediaId, mediaType = 'movie' }: UseFavoritesOptio
     try {
       if (isFavorite) {
         // Supprimer des favoris
-        const response = await fetch(
-          `/api/favorites?mediaId=${encodeURIComponent(mediaId)}&mediaType=${mediaType}`,
-          { method: 'DELETE' }
-        )
+        let url = `/api/favorites?mediaId=${encodeURIComponent(mediaId)}&mediaType=${mediaType}`
+        if (user?.id) {
+          url += `&userId=${encodeURIComponent(user.id)}`
+        }
+        
+        const response = await fetch(url, { method: 'DELETE' })
         
         if (response.ok) {
           setIsFavorite(false)
@@ -66,7 +74,11 @@ export function useFavorites({ mediaId, mediaType = 'movie' }: UseFavoritesOptio
         const response = await fetch('/api/favorites', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mediaId, mediaType })
+          body: JSON.stringify({ 
+            mediaId, 
+            mediaType,
+            userId: user?.id || null
+          })
         })
         
         if (response.ok) {
@@ -79,7 +91,7 @@ export function useFavorites({ mediaId, mediaType = 'movie' }: UseFavoritesOptio
     } finally {
       setLoading(false)
     }
-  }, [mediaId, mediaType, isFavorite])
+  }, [mediaId, mediaType, isFavorite, user?.id])
 
   return {
     isFavorite,
@@ -92,6 +104,7 @@ export function useFavorites({ mediaId, mediaType = 'movie' }: UseFavoritesOptio
  * Hook pour récupérer la liste complète des favoris
  */
 export function useFavoritesList(mediaType: 'movie' | 'series' = 'movie') {
+  const { user } = useAuth()
   const [favorites, setFavorites] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshKey, setRefreshKey] = useState(0)
@@ -104,7 +117,12 @@ export function useFavoritesList(mediaType: 'movie' | 'series' = 'movie') {
     const fetchFavorites = async () => {
       try {
         setLoading(true)
-        const response = await fetch(`/api/favorites?type=${mediaType}`)
+        let url = `/api/favorites?type=${mediaType}`
+        if (user?.id) {
+          url += `&userId=${encodeURIComponent(user.id)}`
+        }
+        
+        const response = await fetch(url)
         
         if (response.ok) {
           const data = await response.json()
@@ -118,7 +136,7 @@ export function useFavoritesList(mediaType: 'movie' | 'series' = 'movie') {
     }
 
     fetchFavorites()
-  }, [mediaType, refreshKey])
+  }, [mediaType, refreshKey, user?.id])
 
   return {
     favorites,
@@ -126,19 +144,3 @@ export function useFavoritesList(mediaType: 'movie' | 'series' = 'movie') {
     refresh
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

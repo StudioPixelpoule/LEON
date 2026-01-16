@@ -8,11 +8,14 @@
 import { useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { User, Settings, LogOut, Shield } from 'lucide-react'
+import { User, Settings, LogOut, Shield, Heart } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import HeaderSearch from './HeaderSearch'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
 import styles from './Header.module.css'
+
+// Liste des emails admin (doit correspondre à middleware.ts)
+const ADMIN_EMAILS = ['theboxoflio@gmail.com']
 
 interface HeaderProps {
   movies?: GroupedMedia[]
@@ -66,9 +69,6 @@ export default function Header({ movies, onMovieClick, series, onSeriesClick, on
   // Extraire le nom affiché de l'utilisateur
   const displayName = user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'Utilisateur'
   const userEmail = user?.email || ''
-  
-  // Liste des emails admin (doit correspondre à middleware.ts)
-  const ADMIN_EMAILS = ['theboxoflio@gmail.com']
   const isAdmin = userEmail && ADMIN_EMAILS.includes(userEmail.toLowerCase())
   
   return (
@@ -91,6 +91,9 @@ export default function Header({ movies, onMovieClick, series, onSeriesClick, on
             </Link>
             <Link href="/series" className={pathname === '/series' ? styles.navLinkActive : styles.navLink}>
               Séries
+            </Link>
+            <Link href="/ma-liste" className={pathname === '/ma-liste' ? styles.navLinkActive : styles.navLink}>
+              Ma liste
             </Link>
           </nav>
         </div>
@@ -129,17 +132,25 @@ export default function Header({ movies, onMovieClick, series, onSeriesClick, on
 
                 <div className={styles.dropdownDivider} />
 
-                {isAdmin && (
-                  <button className={styles.menuItem} onClick={handleAdminAccess}>
-                    <Shield size={18} />
-                    <span>Administration</span>
-                  </button>
-                )}
+                <Link href="/ma-liste" className={styles.menuItem} onClick={() => setMenuOpen(false)}>
+                  <Heart size={18} />
+                  <span>Ma liste</span>
+                </Link>
 
                 <button className={styles.menuItem} onClick={handleSettings}>
                   <Settings size={18} />
                   <span>Paramètres</span>
                 </button>
+
+                {isAdmin && (
+                  <>
+                    <div className={styles.dropdownDivider} />
+                    <button className={styles.menuItem} onClick={handleAdminAccess}>
+                      <Shield size={18} />
+                      <span>Administration</span>
+                    </button>
+                  </>
+                )}
 
                 <div className={styles.dropdownDivider} />
 

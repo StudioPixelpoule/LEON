@@ -1,6 +1,7 @@
 /**
  * FavoritesRow - Carrousel "Ma liste" des films favoris
  * Style identique aux autres carrousels pour harmonie visuelle
+ * Gère les favoris par utilisateur connecté
  */
 
 'use client'
@@ -8,6 +9,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import Image from 'next/image'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { useAuth } from '@/contexts/AuthContext'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
 import styles from './FavoritesRow.module.css'
 
@@ -17,6 +19,7 @@ interface FavoritesRowProps {
 }
 
 export default function FavoritesRow({ onMovieClick, refreshKey = 0 }: FavoritesRowProps) {
+  const { user } = useAuth()
   const [favorites, setFavorites] = useState<GroupedMedia[]>([])
   const [loading, setLoading] = useState(true)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -33,7 +36,12 @@ export default function FavoritesRow({ onMovieClick, refreshKey = 0 }: Favorites
   useEffect(() => {
     const fetchFavorites = async () => {
       try {
-        const response = await fetch('/api/favorites?type=movie')
+        let url = '/api/favorites?type=movie'
+        if (user?.id) {
+          url += `&userId=${encodeURIComponent(user.id)}`
+        }
+        
+        const response = await fetch(url)
         
         if (response.ok) {
           const data = await response.json()
@@ -47,7 +55,7 @@ export default function FavoritesRow({ onMovieClick, refreshKey = 0 }: Favorites
     }
 
     fetchFavorites()
-  }, [refreshKey])
+  }, [refreshKey, user?.id])
 
   useEffect(() => {
     checkScrollability()

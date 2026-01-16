@@ -3,6 +3,8 @@
  * GET - Récupérer les favoris
  * POST - Ajouter un favori
  * DELETE - Supprimer un favori
+ * 
+ * Supporte le tracking multi-utilisateurs via user_id
  */
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -19,18 +21,28 @@ export async function GET(request: NextRequest) {
     const supabase = createSupabaseClient()
     const searchParams = request.nextUrl.searchParams
     const mediaType = searchParams.get('type') || 'movie'
+    const userId = searchParams.get('userId')
     
-    // Récupérer les favoris avec jointure sur media
-    const { data: favorites, error } = await supabase
+    // Construire la requête de base
+    let query = supabase
       .from('favorites')
       .select(`
         id,
         media_id,
         media_type,
+        user_id,
         created_at
       `)
       .eq('media_type', mediaType)
-      .order('created_at', { ascending: false })
+    
+    // Filtrer par utilisateur
+    if (userId) {
+      query = query.eq('user_id', userId)
+    } else {
+      query = query.is('user_id', null)
+    }
+    
+    const { data: favorites, error } = await query.order('created_at', { ascending: false })
     
     if (error) {
       console.error('[API] Erreur récupération favoris:', error)
@@ -87,7 +99,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { mediaId, mediaType = 'movie' } = body
+    const { mediaId, mediaType = 'movie', userId } = body
     
     if (!mediaId) {
       return NextResponse.json(
@@ -98,13 +110,20 @@ export async function POST(request: NextRequest) {
     
     const supabase = createSupabaseClient()
     
-    // Vérifier si déjà en favori
-    const { data: existing } = await supabase
+    // Vérifier si déjà en favori pour cet utilisateur
+    let existingQuery = supabase
       .from('favorites')
       .select('id')
       .eq('media_id', mediaId)
       .eq('media_type', mediaType)
-      .single()
+    
+    if (userId) {
+      existingQuery = existingQuery.eq('user_id', userId)
+    } else {
+      existingQuery = existingQuery.is('user_id', null)
+    }
+    
+    const { data: existing } = await existingQuery.single()
     
     if (existing) {
       return NextResponse.json({
@@ -114,14 +133,19 @@ export async function POST(request: NextRequest) {
       })
     }
     
-    // Ajouter aux favoris (user_id null pour mode sans auth)
+    // Ajouter aux favoris
+    const insertData: Record<string, unknown> = {
+      media_id: mediaId,
+      media_type: mediaType
+    }
+    
+    if (userId) {
+      insertData.user_id = userId
+    }
+    
     const { data, error } = await supabase
       .from('favorites')
-      .insert({
-        media_id: mediaId,
-        media_type: mediaType,
-        user_id: null // Mode sans authentification
-      })
+      .insert(insertData)
       .select()
       .single()
     
@@ -130,7 +154,7 @@ export async function POST(request: NextRequest) {
       throw error
     }
     
-    console.log(`[FAVORITES] ❤️ Ajouté aux favoris: ${mediaId}`)
+    console.log(`[FAVORITES] ❤️ Ajouté aux favoris: ${mediaId} (user: ${userId || 'anonymous'})`)
     
     return NextResponse.json({
       success: true,
@@ -154,6 +178,7 @@ export async function DELETE(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const mediaId = searchParams.get('mediaId')
     const mediaType = searchParams.get('mediaType') || 'movie'
+    const userId = searchParams.get('userId')
     
     if (!mediaId) {
       return NextResponse.json(
@@ -164,18 +189,26 @@ export async function DELETE(request: NextRequest) {
     
     const supabase = createSupabaseClient()
     
-    const { error } = await supabase
+    let deleteQuery = supabase
       .from('favorites')
       .delete()
       .eq('media_id', mediaId)
       .eq('media_type', mediaType)
+    
+    if (userId) {
+      deleteQuery = deleteQuery.eq('user_id', userId)
+    } else {
+      deleteQuery = deleteQuery.is('user_id', null)
+    }
+    
+    const { error } = await deleteQuery
     
     if (error) {
       console.error('[API] Erreur suppression favori:', error)
       throw error
     }
     
-    console.log(`[FAVORITES] 💔 Retiré des favoris: ${mediaId}`)
+    console.log(`[FAVORITES] 💔 Retiré des favoris: ${mediaId} (user: ${userId || 'anonymous'})`)
     
     return NextResponse.json({
       success: true,
@@ -189,19 +222,3 @@ export async function DELETE(request: NextRequest) {
     )
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
