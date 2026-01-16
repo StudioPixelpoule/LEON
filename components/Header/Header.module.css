@@ -251,25 +251,118 @@
 
 /* Mobile */
 @media (max-width: 768px) {
+  .header {
+    /* Support safe area pour iPhone avec notch */
+    padding-top: env(safe-area-inset-top, 0);
+  }
+  
   .container {
-    padding: var(--spacing-sm) var(--spacing-md);
+    padding: 8px 12px;
+    gap: 8px;
+  }
+  
+  .leftSection {
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
   }
   
   .logo {
-    font-size: var(--font-size-xl);
+    font-size: 1.1rem;
+    letter-spacing: 0.1em;
+    flex-shrink: 0;
+  }
+  
+  .recordingDot {
+    width: 16px;
+    height: 16px;
+  }
+  
+  .recordingIndicator {
+    font-size: 0.6rem;
   }
   
   .nav {
-    gap: var(--spacing-md);
+    gap: 12px;
+    margin-left: 8px;
   }
   
-  .navLink {
-    font-size: var(--font-size-sm);
+  .navLink,
+  .navLinkActive {
+    font-size: 13px;
+    padding-bottom: 1px;
+  }
+  
+  .rightSection {
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .avatar {
+    padding: 6px;
+  }
+  
+  .avatar svg {
+    width: 24px;
+    height: 24px;
   }
 
   .dropdown {
-    right: -8px;
-    min-width: 220px;
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    min-width: 100%;
+    border-radius: 16px 16px 0 0;
+    padding: 12px;
+    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0));
+    animation: dropdownSlideUp 0.25s ease-out;
+  }
+  
+  @keyframes dropdownSlideUp {
+    from {
+      opacity: 0;
+      transform: translateY(100%);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  .dropdownHeader {
+    padding: 16px 12px;
+  }
+  
+  .menuItem {
+    padding: 14px 12px;
+    font-size: 15px;
+  }
+}
+
+/* Très petits écrans (iPhone SE) */
+@media (max-width: 375px) {
+  .container {
+    padding: 6px 10px;
+  }
+  
+  .logo {
+    font-size: 1rem;
+  }
+  
+  .nav {
+    gap: 8px;
+    margin-left: 6px;
+  }
+  
+  .navLink,
+  .navLinkActive {
+    font-size: 12px;
+  }
+  
+  .recordingDot {
+    display: none;
   }
 }
 

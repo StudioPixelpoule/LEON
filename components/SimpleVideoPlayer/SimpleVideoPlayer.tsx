@@ -2240,7 +2240,6 @@ export default function SimpleVideoPlayer({
         className={styles.video}
         poster={poster}
         playsInline
-        // @ts-expect-error - webkit-playsinline est nécessaire pour Safari iOS
         webkit-playsinline="true"
         onDoubleClick={handleFullscreen}
       />

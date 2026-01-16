@@ -60,8 +60,27 @@ export default function HeaderSearch({ movies, onMovieClick, isSeries = false, o
     }
   }
 
+  // Fermer la recherche sur mobile
+  function closeSearch() {
+    setIsOpen(false)
+    setQuery('')
+  }
+
   return (
     <div className={`${styles.search} ${isOpen ? styles.open : ''}`} ref={searchRef}>
+      {/* Bouton fermer sur mobile (en overlay) */}
+      {isOpen && (
+        <button 
+          className={styles.closeButton}
+          onClick={closeSearch}
+          aria-label="Fermer la recherche"
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+            <path d="M18 6L6 18M6 6L18 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+      )}
+      
       <div className={styles.inputWrapper}>
         <button 
           className={styles.searchButton}
