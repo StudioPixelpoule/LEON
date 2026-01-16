@@ -5,6 +5,14 @@ import type { NextRequest } from 'next/server'
 // Routes publiques (accessibles sans authentification)
 const publicRoutes = ['/login', '/register']
 
+// Routes admin (nécessitent le rôle admin)
+const adminRoutes = ['/admin', '/api/admin']
+
+// Liste des emails admin
+const ADMIN_EMAILS = [
+  'theboxoflio@gmail.com',
+]
+
 export async function middleware(req: NextRequest) {
   let res = NextResponse.next({
     request: {
@@ -88,20 +96,32 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(loginUrl)
   }
   
+  // Routes admin - vérifier si l'utilisateur est admin
+  if (adminRoutes.some(route => pathname.startsWith(route))) {
+    const userEmail = session.user?.email?.toLowerCase()
+    const isAdmin = userEmail && ADMIN_EMAILS.includes(userEmail)
+    
+    if (!isAdmin) {
+      // Pour les API, retourner 403
+      if (pathname.startsWith('/api/')) {
+        return NextResponse.json({ error: 'Accès non autorisé' }, { status: 403 })
+      }
+      // Pour les pages, rediriger vers l'accueil
+      return NextResponse.redirect(new URL('/films', req.url))
+    }
+  }
+  
   return res
 }
 
 export const config = {
   matcher: [
     /*
-     * Match all request paths except:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public folder
-     * - API routes
+     * Match:
+     * - Toutes les pages (sauf static)
+     * - /api/admin/* (routes admin protégées)
      */
-    '/((?!_next/static|_next/image|favicon.ico|public|api|placeholder).*)',
+    '/((?!_next/static|_next/image|favicon.ico|public|placeholder|api(?!/admin)).*)',
   ],
 }
 
