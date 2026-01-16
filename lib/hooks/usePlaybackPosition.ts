@@ -13,6 +13,7 @@ interface UsePlaybackPositionOptions {
   duration: number
   enabled?: boolean // Activer/désactiver la sauvegarde
   mediaType?: 'movie' | 'episode' // Type de média
+  userId?: string | null // ID de l'utilisateur pour le tracking multi-users
 }
 
 const SAVE_INTERVAL = 10000 // Sauvegarder toutes les 10 secondes
@@ -23,7 +24,8 @@ export function usePlaybackPosition({
   currentTime,
   duration,
   enabled = true,
-  mediaType = 'movie'
+  mediaType = 'movie',
+  userId
 }: UsePlaybackPositionOptions) {
   const lastSavedTimeRef = useRef<number>(0)
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -44,7 +46,9 @@ export function usePlaybackPosition({
 
     const loadPosition = async () => {
       try {
-        const response = await fetch(`/api/playback-position?mediaId=${encodeURIComponent(mediaId)}`)
+        const params = new URLSearchParams({ mediaId })
+        if (userId) params.append('userId', userId)
+        const response = await fetch(`/api/playback-position?${params.toString()}`)
         
         if (!response.ok) {
           return
@@ -113,13 +117,14 @@ export function usePlaybackPosition({
             mediaId,
             position: Math.floor(time),
             duration: dur > 0 ? Math.floor(dur) : null,
-            media_type: mediaType
+            media_type: mediaType,
+            userId
           })
         })
 
         if (response.ok) {
           lastSavedTimeRef.current = time
-          console.log(`[PLAYBACK] ✅ Position sauvegardée: ${Math.floor(time)}s / ${Math.floor(dur)}s`)
+          console.log(`[PLAYBACK] ✅ Position sauvegardée: ${Math.floor(time)}s / ${Math.floor(dur)}s (user: ${userId})`)
         }
       } catch (error) {
         console.error('[PLAYBACK] ❌ Erreur sauvegarde position:', error)
@@ -153,7 +158,7 @@ export function usePlaybackPosition({
         }
         
         // Sauvegarde finale (fire and forget)
-        console.log(`[PLAYBACK] 💾 Sauvegarde finale au démontage: ${Math.floor(time)}s`)
+        console.log(`[PLAYBACK] 💾 Sauvegarde finale au démontage: ${Math.floor(time)}s (user: ${userId})`)
         fetch('/api/playback-position', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -161,14 +166,15 @@ export function usePlaybackPosition({
             mediaId,
             position: Math.floor(time),
             duration: dur > 0 ? Math.floor(dur) : null,
-            media_type: mediaType
+            media_type: mediaType,
+            userId
           })
         }).catch(() => {
           // Ignorer les erreurs au démontage
         })
       }
     }
-  }, [enabled, mediaId]) // Dépendre uniquement de enabled et mediaId
+  }, [enabled, mediaId, userId]) // Dépendre uniquement de enabled, mediaId et userId
 
   // Fonction pour marquer comme terminé
   const markAsFinished = useCallback(async () => {
@@ -182,14 +188,15 @@ export function usePlaybackPosition({
           mediaId,
           position: 0,
           duration: 0,
-          media_type: mediaType
+          media_type: mediaType,
+          userId
         })
       })
-      console.log(`[PLAYBACK] Marqué comme terminé: ${mediaId}`)
+      console.log(`[PLAYBACK] Marqué comme terminé: ${mediaId} (user: ${userId})`)
     } catch (error) {
       console.error('[PLAYBACK] Erreur marquage terminé:', error)
     }
-  }, [mediaId, enabled, mediaType])
+  }, [mediaId, enabled, mediaType, userId])
 
   return { initialPosition, markAsFinished }
 }

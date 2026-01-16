@@ -9,6 +9,7 @@ import { SegmentPreloader } from '@/lib/segment-preloader'
 import { usePlaybackPosition } from '@/lib/hooks/usePlaybackPosition'
 import { useNetworkResilience } from '@/lib/hooks/useNetworkResilience'
 import { HLS_BASE_CONFIG, selectHlsConfig } from '@/lib/hls-config'
+import { useAuth } from '@/contexts/AuthContext'
 
 // 🔧 Utilitaires Fullscreen compatibles Safari
 interface ExtendedDocument extends Document {
@@ -121,6 +122,9 @@ export default function SimpleVideoPlayer({
   nextEpisode,
   onNextEpisode
 }: SimpleVideoPlayerProps) {
+  const { user } = useAuth()
+  const userId = user?.id
+  
   const videoRef = useRef<HTMLVideoElement>(null)
   const progressRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -226,7 +230,8 @@ export default function SimpleVideoPlayer({
     currentTime,
     duration: realDurationRef.current || duration,
     enabled: !!mediaId, // Activer seulement si mediaId est fourni
-    mediaType
+    mediaType,
+    userId
   })
 
   // 🔧 PHASE 3: Restaurer la position initiale une fois que la vidéo est prête (UNE SEULE FOIS)

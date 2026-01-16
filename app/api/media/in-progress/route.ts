@@ -1,26 +1,38 @@
 /**
  * API Route: Médias en cours de visionnage (films + épisodes)
- * GET /api/media/in-progress
- * Retourne les films ET épisodes avec position sauvegardée
+ * GET /api/media/in-progress?userId=xxx
+ * Retourne les films ET épisodes avec position sauvegardée pour un utilisateur
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
 import { createSupabaseClient } from '@/lib/supabase'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const supabase = createSupabaseClient()
+    const { searchParams } = new URL(request.url)
+    const userId = searchParams.get('userId')
     
-    // 1. Récupérer les positions de lecture
-    const { data: positions, error: posError } = await supabase
+    // 1. Récupérer les positions de lecture (filtrées par utilisateur si fourni)
+    let query = supabase
       .from('playback_positions')
       .select('*')
       .gt('position', 30) // Au moins 30s regardées
       .order('updated_at', { ascending: false })
       .limit(20)
+    
+    // Filtrer par utilisateur
+    if (userId) {
+      query = query.eq('user_id', userId)
+    } else {
+      // Si pas d'userId, ne retourner que les positions sans user_id (legacy)
+      query = query.is('user_id', null)
+    }
+    
+    const { data: positions, error: posError } = await query
 
     if (posError) {
       throw posError

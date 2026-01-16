@@ -8,6 +8,7 @@
 import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import { X } from 'lucide-react'
+import { useAuth } from '@/contexts/AuthContext'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
 import styles from './ContinueWatchingRow.module.css'
 
@@ -42,21 +43,27 @@ export default function ContinueWatchingRow({
 }: ContinueWatchingRowProps) {
   const [media, setMedia] = useState<MediaWithProgress[]>([])
   const [loading, setLoading] = useState(true)
+  const { user } = useAuth()
+  const userId = user?.id
 
   useEffect(() => {
-    loadInProgressMedia()
+    if (userId) {
+      loadInProgressMedia()
+    }
     
     const intervalId = setInterval(() => {
-      loadInProgressMedia(true)
+      if (userId) loadInProgressMedia(true)
     }, 30000)
     
     return () => clearInterval(intervalId)
-  }, [refreshKey])
+  }, [refreshKey, userId])
 
   async function loadInProgressMedia(silent = false) {
+    if (!userId) return
+    
     try {
       if (!silent) setLoading(true)
-      const response = await fetch('/api/media/in-progress')
+      const response = await fetch(`/api/media/in-progress?userId=${encodeURIComponent(userId)}`)
       const data = await response.json()
       
       if (data.success) {
@@ -80,14 +87,17 @@ export default function ContinueWatchingRow({
     event.stopPropagation()
     event.preventDefault()
     
-    console.log(`[REMOVE] Suppression de ${mediaId} (type: ${mediaType})`)
+    console.log(`[REMOVE] Suppression de ${mediaId} (type: ${mediaType}) pour user ${userId}`)
     
     // 🔧 FIX: Mettre à jour l'état local IMMÉDIATEMENT pour feedback utilisateur
     setMedia(prev => prev.filter(m => m.id !== mediaId))
     
     try {
       // Utiliser DELETE qui est plus fiable que POST avec position=0
-      const response = await fetch(`/api/playback-position?mediaId=${encodeURIComponent(mediaId)}`, {
+      const params = new URLSearchParams({ mediaId })
+      if (userId) params.append('userId', userId)
+      
+      const response = await fetch(`/api/playback-position?${params.toString()}`, {
         method: 'DELETE',
       })
       
