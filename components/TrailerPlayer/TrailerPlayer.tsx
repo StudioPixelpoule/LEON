@@ -40,6 +40,7 @@ interface TrailerPlayerProps {
 // Exposer les méthodes pour contrôle externe
 export interface TrailerPlayerRef {
   toggleMute: () => void
+  mute: () => void
   isMuted: () => boolean
 }
 
@@ -152,29 +153,33 @@ const TrailerPlayer = forwardRef<TrailerPlayerRef, TrailerPlayerProps>(({
 
   // 🔊 Toggle mute/unmute
   const toggleMute = useCallback(() => {
-    console.log('🔊 toggleMute appelé, playerRef:', playerRef.current, 'isMuted:', isMuted)
-    if (!playerRef.current) {
-      console.log('❌ playerRef.current est null')
-      return
-    }
+    if (!playerRef.current) return
     
     const newMutedState = !isMuted
-    console.log('🔊 Nouveau state:', newMutedState ? 'MUTED' : 'UNMUTED')
     if (newMutedState) {
       playerRef.current.mute()
     } else {
       playerRef.current.unMute()
-      playerRef.current.setVolume(50) // Volume à 50%
+      playerRef.current.setVolume(50)
     }
     setIsMuted(newMutedState)
     onMuteChange?.(newMutedState)
   }, [isMuted, onMuteChange])
 
+  // 🔇 Forcer le mute (pour quand une modal s'ouvre)
+  const forceMute = useCallback(() => {
+    if (!playerRef.current) return
+    playerRef.current.mute()
+    setIsMuted(true)
+    onMuteChange?.(true)
+  }, [onMuteChange])
+
   // Exposer les méthodes pour contrôle externe via ref
   useImperativeHandle(ref, () => ({
     toggleMute,
+    mute: forceMute,
     isMuted: () => isMuted
-  }), [toggleMute, isMuted])
+  }), [toggleMute, forceMute, isMuted])
 
   // Si pas de trailer, afficher juste l'image
   if (!youtubeKey) {

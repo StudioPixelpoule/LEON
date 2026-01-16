@@ -275,6 +275,7 @@ export default function FilmsPage() {
                 movie={{ ...heroMovie, trailerKey: heroTrailerKey }} 
                 onPlayClick={() => setSelectedMovie(heroMovie)}
                 onInfoClick={() => setSelectedMovie(heroMovie)}
+                forceMute={!!selectedMovie}
               />
             )}
             

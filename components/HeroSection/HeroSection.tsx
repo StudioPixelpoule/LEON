@@ -21,9 +21,10 @@ type HeroSectionProps = {
   onPlayClick?: () => void
   onInfoClick: () => void
   showPlayButton?: boolean
+  forceMute?: boolean // Forcer le mute quand une modal est ouverte
 }
 
-export default function HeroSection({ movie, onPlayClick, onInfoClick, showPlayButton = true }: HeroSectionProps) {
+export default function HeroSection({ movie, onPlayClick, onInfoClick, showPlayButton = true, forceMute = false }: HeroSectionProps) {
   const backdropUrl = movie.backdrop_url || movie.poster_url || '/placeholder-backdrop.png'
   const [showOverview, setShowOverview] = useState(true)
   const [trailerEnded, setTrailerEnded] = useState(false)
@@ -43,6 +44,14 @@ export default function HeroSection({ movie, onPlayClick, onInfoClick, showPlayB
   useEffect(() => {
     setTrailerEnded(false)
   }, [movie.id])
+
+  // 🔇 Forcer le mute quand forceMute devient true (modal ouverte)
+  useEffect(() => {
+    if (forceMute && trailerRef.current) {
+      trailerRef.current.mute()
+      setTrailerMuted(true)
+    }
+  }, [forceMute])
   
   return (
     <section className={styles.hero}>
