@@ -137,7 +137,7 @@ export async function GET(request: NextRequest) {
           episode_number: e.episode_number,
           series_id: e.series_id,
           series_title: series?.title,
-          series_poster: series?.poster_url || null
+          series_poster: series?.poster_url
         })
       })
     }
