@@ -11,6 +11,8 @@ import HeroSection from '@/components/HeroSection/HeroSection'
 import MovieRow from '@/components/MovieRow/MovieRow'
 import SeriesModal from '@/components/SeriesModal/SeriesModal'
 import ContinueWatchingRow from '@/components/ContinueWatchingRow/ContinueWatchingRow'
+import SearchResultsGrid from '@/components/SearchResultsGrid/SearchResultsGrid'
+import { normalizeString, similarity } from '@/components/SmartSearch/searchUtils'
 import styles from './series.module.css'
 
 interface SeriesData {
@@ -34,6 +36,8 @@ export default function SeriesPage() {
   const [heroSeries, setHeroSeries] = useState<SeriesData | null>(null)
   const [heroTrailerKey, setHeroTrailerKey] = useState<string | null>(null) // 🎬 Trailer YouTube
   const [refreshKey, setRefreshKey] = useState(0)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filteredSeries, setFilteredSeries] = useState<SeriesData[]>([])
   
   useEffect(() => {
     async function loadSeries() {
@@ -104,6 +108,57 @@ export default function SeriesPage() {
     }
     return shuffled
   }
+
+  // Recherche intelligente (Titre, Genre)
+  function handleSearch(query: string) {
+    setSearchQuery(query)
+    
+    if (!query || query.length < 2) {
+      setFilteredSeries([])
+      return
+    }
+
+    const normalizedQuery = normalizeString(query)
+    const queryWords = normalizedQuery.split(/\s+/)
+
+    const scoredResults = series.map(serie => {
+      let score = 0
+
+      // 1. Titre (Priorité absolue)
+      const normalizedTitle = normalizeString(serie.title)
+      const titleSimilarity = similarity(normalizedQuery, normalizedTitle)
+      if (titleSimilarity > 0.6) score += titleSimilarity * 20
+      if (normalizedTitle.includes(normalizedQuery)) score += 15
+
+      // 2. Mots clés dans le titre
+      queryWords.forEach(word => {
+        if (word.length >= 3 && normalizedTitle.includes(word)) score += 5
+      })
+
+      // 3. Genre
+      if (serie.genres && Array.isArray(serie.genres)) {
+        serie.genres.forEach((genre: string) => {
+          const normalizedGenre = normalizeString(genre)
+          if (normalizedGenre.includes(normalizedQuery)) score += 5
+        })
+      }
+
+      // 4. Année
+      if (serie.first_air_date) {
+        const year = new Date(serie.first_air_date).getFullYear().toString()
+        if (year === normalizedQuery) score += 10
+      }
+
+      return { serie, score }
+    })
+
+    const filtered = scoredResults
+      .filter(r => r.score > 1)
+      .sort((a, b) => b.score - a.score)
+      .map(r => r.serie)
+
+    setFilteredSeries(filtered)
+  }
   
   const validSeries = series.filter(s => s.title)
   
@@ -167,9 +222,32 @@ export default function SeriesPage() {
   
   return (
     <>
-      <Header series={validSeries as any} onSeriesClick={setSelectedSeries as any} />
+      <Header 
+        series={validSeries as any} 
+        onSeriesClick={setSelectedSeries as any}
+        onSearch={handleSearch}
+      />
       
       <main className={styles.main}>
+        {searchQuery.length >= 2 ? (
+          <SearchResultsGrid 
+            movies={filteredSeries.map(s => ({
+              ...s,
+              tmdb_id: s.tmdb_id || 0,
+              original_title: s.title,
+              release_date: s.first_air_date,
+              pcloud_fileid: null,
+              created_at: s.created_at || '',
+              year: s.first_air_date ? new Date(s.first_air_date).getFullYear() : undefined
+            })) as any}
+            query={searchQuery}
+            onMovieClick={(movie) => {
+              const serie = series.find(s => s.id === movie.id)
+              if (serie) setSelectedSeries(serie)
+            }}
+          />
+        ) : (
+          <>
         {heroSeries && (
           <HeroSection 
             movie={{
@@ -309,6 +387,8 @@ export default function SeriesPage() {
             )}
           </div>
         </div>
+          </>
+        )}
         
         {selectedSeries && (
           <SeriesModal
