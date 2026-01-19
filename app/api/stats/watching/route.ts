@@ -122,8 +122,8 @@ export async function GET() {
           season_number: e.season_number,
           episode_number: e.episode_number,
           series_id: e.series_id,
-          series_title: series?.title,
-          series_poster: series?.poster_url
+          series_title: series?.title ?? undefined,
+          series_poster: series?.poster_url ?? undefined
         })
       })
     }
