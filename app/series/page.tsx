@@ -5,7 +5,7 @@
 
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Header from '@/components/Header/Header'
 import HeroSection from '@/components/HeroSection/HeroSection'
 import MovieRow from '@/components/MovieRow/MovieRow'
@@ -160,41 +160,54 @@ export default function SeriesPage() {
     setFilteredSeries(filtered)
   }
   
-  const validSeries = series.filter(s => s.title)
+  const validSeries = useMemo(() => series.filter(s => s.title), [series])
   
   // Séries VRAIMENT récemment ajoutées (par created_at)
   // Tri par date de création décroissante (les plus récentes d'abord)
-  const recentSeries = [...validSeries]
-    .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
-    .slice(0, 30)
+  const recentSeries = useMemo(() => 
+    [...validSeries]
+      .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
+      .slice(0, 30),
+    [validSeries]
+  )
   
-  // Séries les mieux notées
-  const topRated = shuffleArray(
-    [...validSeries].filter(s => s.rating && s.rating >= 7).sort((a, b) => (b.rating || 0) - (a.rating || 0)).slice(0, 40)
-  ).slice(0, 30)
+  // Séries les mieux notées (mélangées une seule fois)
+  const topRated = useMemo(() => {
+    const sorted = [...validSeries]
+      .filter(s => s.rating && s.rating >= 7)
+      .sort((a, b) => (b.rating || 0) - (a.rating || 0))
+      .slice(0, 40)
+    return shuffleArray(sorted).slice(0, 30)
+  }, [validSeries])
   
-  // Grouper par genres
-  const genreGroups: Record<string, SeriesData[]> = {}
-  validSeries.forEach(serie => {
-    if (serie.genres && Array.isArray(serie.genres)) {
-      serie.genres.forEach(genre => {
-        if (!genreGroups[genre]) {
-          genreGroups[genre] = []
-        }
-        genreGroups[genre].push(serie)
-      })
-    }
-  })
+  // Grouper par genres (mémorisé)
+  const genreGroups = useMemo(() => {
+    const groups: Record<string, SeriesData[]> = {}
+    validSeries.forEach(serie => {
+      if (serie.genres && Array.isArray(serie.genres)) {
+        serie.genres.forEach(genre => {
+          if (!groups[genre]) {
+            groups[genre] = []
+          }
+          groups[genre].push(serie)
+        })
+      }
+    })
+    return groups
+  }, [validSeries])
   
-  // Mélanger et sélectionner les top genres
-  const topGenres = Object.entries(genreGroups)
-    .filter(([_, series]) => series.length >= 3)
-    .sort((a, b) => b[1].length - a[1].length)
-    .slice(0, 10)
-    .map(([genre, seriesList]) => ({
-      genre,
-      series: shuffleArray(seriesList).slice(0, 30)
-    }))
+  // Mélanger et sélectionner les top genres (mémorisé)
+  const topGenres = useMemo(() => 
+    Object.entries(genreGroups)
+      .filter(([_, seriesList]) => seriesList.length >= 3)
+      .sort((a, b) => b[1].length - a[1].length)
+      .slice(0, 10)
+      .map(([genre, seriesList]) => ({
+        genre,
+        series: shuffleArray(seriesList).slice(0, 30)
+      })),
+    [genreGroups]
+  )
   
   if (loading) {
     return (
