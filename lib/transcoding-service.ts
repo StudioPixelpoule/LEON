@@ -1168,6 +1168,113 @@ class TranscodingService {
   }
 
   /**
+   * Déplacer un job vers le haut dans la queue (plus prioritaire)
+   */
+  async moveJobUp(jobId: string): Promise<boolean> {
+    const index = this.queue.findIndex(j => j.id === jobId)
+    if (index <= 0) return false // Déjà en haut ou non trouvé
+    
+    // Échanger avec le job précédent
+    const temp = this.queue[index - 1]
+    this.queue[index - 1] = this.queue[index]
+    this.queue[index] = temp
+    
+    await this.saveState()
+    console.log(`⬆️ Job déplacé: ${this.queue[index - 1].filename}`)
+    return true
+  }
+
+  /**
+   * Déplacer un job vers le bas dans la queue (moins prioritaire)
+   */
+  async moveJobDown(jobId: string): Promise<boolean> {
+    const index = this.queue.findIndex(j => j.id === jobId)
+    if (index === -1 || index >= this.queue.length - 1) return false // En bas ou non trouvé
+    
+    // Échanger avec le job suivant
+    const temp = this.queue[index + 1]
+    this.queue[index + 1] = this.queue[index]
+    this.queue[index] = temp
+    
+    await this.saveState()
+    console.log(`⬇️ Job déplacé: ${this.queue[index + 1].filename}`)
+    return true
+  }
+
+  /**
+   * Déplacer un job en première position (prochaine à transcoder)
+   */
+  async moveJobToTop(jobId: string): Promise<boolean> {
+    const index = this.queue.findIndex(j => j.id === jobId)
+    if (index <= 0) return false // Déjà en haut ou non trouvé
+    
+    const job = this.queue.splice(index, 1)[0]
+    this.queue.unshift(job)
+    
+    await this.saveState()
+    console.log(`⏫ Job en tête: ${job.filename}`)
+    return true
+  }
+
+  /**
+   * Réordonner la queue complète (nouvelle liste d'IDs dans l'ordre souhaité)
+   */
+  async reorderQueue(jobIds: string[]): Promise<boolean> {
+    // Créer une map des jobs existants
+    const jobMap = new Map(this.queue.map(j => [j.id, j]))
+    
+    // Vérifier que tous les IDs sont valides
+    for (const id of jobIds) {
+      if (!jobMap.has(id)) {
+        console.error(`❌ Job non trouvé: ${id}`)
+        return false
+      }
+    }
+    
+    // Réordonner selon la nouvelle liste
+    const newQueue: TranscodeJob[] = []
+    for (const id of jobIds) {
+      const job = jobMap.get(id)
+      if (job) {
+        newQueue.push(job)
+        jobMap.delete(id)
+      }
+    }
+    
+    // Ajouter les jobs restants (au cas où certains IDs manquent)
+    for (const job of jobMap.values()) {
+      newQueue.push(job)
+    }
+    
+    this.queue = newQueue
+    await this.saveState()
+    console.log(`🔀 Queue réordonnée: ${this.queue.length} jobs`)
+    return true
+  }
+
+  /**
+   * Supprimer plusieurs jobs de la queue
+   */
+  async removeJobs(jobIds: string[]): Promise<number> {
+    let removedCount = 0
+    
+    for (const id of jobIds) {
+      const index = this.queue.findIndex(j => j.id === id)
+      if (index !== -1) {
+        this.queue.splice(index, 1)
+        removedCount++
+      }
+    }
+    
+    if (removedCount > 0) {
+      await this.saveState()
+      console.log(`🗑️ ${removedCount} jobs supprimés de la queue`)
+    }
+    
+    return removedCount
+  }
+
+  /**
    * Obtenir les statistiques
    */
   // Cache pour diskUsage (évite le du -sh lent)

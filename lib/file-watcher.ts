@@ -15,6 +15,7 @@ import path from 'path'
 
 // Chemins DANS le conteneur Docker
 const MEDIA_DIR = process.env.MEDIA_DIR || '/leon/media/films'
+const SERIES_DIR = process.env.PCLOUD_SERIES_PATH || '/leon/media/series'
 const TRANSCODED_DIR = process.env.TRANSCODED_DIR || '/leon/transcoded'
 const WATCHER_STATE_FILE = path.join(TRANSCODED_DIR, 'watcher-state.json')
 
@@ -80,7 +81,7 @@ class FileWatcher {
   }
 
   /**
-   * Démarrer la surveillance du répertoire media
+   * Démarrer la surveillance du répertoire media (films + séries)
    */
   async start(): Promise<void> {
     if (this.isWatching) {
@@ -88,14 +89,26 @@ class FileWatcher {
       return
     }
 
-    console.log(`👁️ Démarrage surveillance: ${MEDIA_DIR}`)
+    console.log(`👁️ Démarrage surveillance:`)
+    console.log(`   📁 Films: ${MEDIA_DIR}`)
+    console.log(`   📁 Séries: ${SERIES_DIR}`)
     
     try {
       // Scanner d'abord pour connaître les fichiers existants
       await this.initialScan()
       
-      // Puis surveiller récursivement
+      // Surveiller le dossier films
       await this.watchRecursively(MEDIA_DIR)
+      
+      // Surveiller le dossier séries
+      try {
+        await stat(SERIES_DIR)
+        await this.watchRecursively(SERIES_DIR)
+        console.log(`📺 Surveillance séries activée`)
+      } catch {
+        console.log(`⚠️ Dossier séries non accessible: ${SERIES_DIR}`)
+      }
+      
       this.isWatching = true
       console.log(`✅ Surveillance active (${this.watchedDirs.size} dossiers, ${this.knownFiles.size} fichiers connus)`)
     } catch (error) {
@@ -104,7 +117,7 @@ class FileWatcher {
   }
 
   /**
-   * Scan initial pour connaître les fichiers existants
+   * Scan initial pour connaître les fichiers existants (films + séries)
    */
   private async initialScan(): Promise<void> {
     const scanDir = async (dir: string) => {
@@ -128,7 +141,17 @@ class FileWatcher {
       }
     }
 
+    // Scanner les films
     await scanDir(MEDIA_DIR)
+    
+    // Scanner les séries (si le dossier existe)
+    try {
+      await stat(SERIES_DIR)
+      await scanDir(SERIES_DIR)
+    } catch {
+      // Le dossier séries n'existe pas encore
+    }
+    
     await this.saveState()
   }
 
@@ -225,12 +248,23 @@ class FileWatcher {
 
       const filename = path.basename(filepath)
       const fileSize = (stats.size / (1024*1024*1024)).toFixed(2)
-      console.log(`🆕 Nouveau fichier détecté: ${filename} (${fileSize} GB)`)
+      
+      // Détecter si c'est un épisode de série (fichier dans SERIES_DIR ou contient SxxExx)
+      const isSeriesEpisode = filepath.startsWith(SERIES_DIR) || /S\d{1,2}E\d{1,2}/i.test(filename)
+      
+      if (isSeriesEpisode) {
+        console.log(`📺 Nouvel épisode détecté: ${filename} (${fileSize} GB)`)
+        
+        // Déclencher un scan de la série
+        await this.importSeriesEpisode(filepath)
+      } else {
+        console.log(`🎬 Nouveau film détecté: ${filename} (${fileSize} GB)`)
+        
+        // IMPORTER DANS LA BASE AVEC MÉTADONNÉES TMDB
+        await this.importToDatabase(filepath, stats.size)
+      }
 
-      // 1. IMPORTER DANS LA BASE AVEC MÉTADONNÉES TMDB
-      await this.importToDatabase(filepath, stats.size)
-
-      // 2. Ajouter à la queue de transcodage
+      // Ajouter à la queue de transcodage (films et séries)
       const transcodingServiceModule = await import('./transcoding-service')
       const transcodingService = transcodingServiceModule.default
       
@@ -250,6 +284,175 @@ class FileWatcher {
       // Le fichier n'existe peut-être plus (supprimé ou renommé)
       console.log(`⚠️ Fichier non accessible: ${path.basename(filepath)}`)
     }
+  }
+
+  /**
+   * Importer un épisode de série (déclenche un scan de la série parente)
+   */
+  private async importSeriesEpisode(filepath: string): Promise<void> {
+    try {
+      const filename = path.basename(filepath)
+      
+      // Extraire le numéro de saison/épisode
+      const episodeMatch = filename.match(/S(\d+)E(\d+)/i)
+      if (!episodeMatch) {
+        console.log(`⚠️ Pattern SxxExx non trouvé dans: ${filename}`)
+        return
+      }
+      
+      const seasonNumber = parseInt(episodeMatch[1])
+      const episodeNumber = parseInt(episodeMatch[2])
+      
+      // Trouver le dossier de la série (parent ou grand-parent)
+      // Structure possible: /series/NomSerie/Season X/fichier.mkv
+      // ou: /series/NomSerie/fichier.mkv
+      let seriesPath = path.dirname(filepath)
+      let seriesName = path.basename(seriesPath)
+      
+      // Si on est dans un dossier "Season X", remonter d'un niveau
+      if (/^Season\s*\d+$/i.test(seriesName) || /^Saison\s*\d+$/i.test(seriesName) || /^S\d+$/i.test(seriesName)) {
+        seriesPath = path.dirname(seriesPath)
+        seriesName = path.basename(seriesPath)
+      }
+      
+      console.log(`📺 Série détectée: ${seriesName} (S${seasonNumber}E${episodeNumber})`)
+      
+      // Import dynamique pour éviter les dépendances circulaires
+      const { supabase } = await import('./supabase')
+      
+      // Chercher la série existante par chemin local
+      const { data: existingSeries } = await supabase
+        .from('series')
+        .select('id, title, tmdb_id')
+        .eq('local_folder_path', seriesPath)
+        .single()
+      
+      if (existingSeries) {
+        console.log(`📁 Série trouvée: ${existingSeries.title} (ID: ${existingSeries.id})`)
+        
+        // Vérifier si l'épisode existe déjà
+        const { data: existingEp } = await supabase
+          .from('episodes')
+          .select('id')
+          .eq('series_id', existingSeries.id)
+          .eq('season_number', seasonNumber)
+          .eq('episode_number', episodeNumber)
+          .single()
+        
+        if (existingEp) {
+          console.log(`⏭️ Épisode déjà en base: S${seasonNumber}E${episodeNumber}`)
+          return
+        }
+        
+        // Ajouter l'épisode
+        const cleanTitle = this.cleanEpisodeTitle(filename, seriesName)
+        const { error: epError } = await supabase.from('episodes').insert({
+          series_id: existingSeries.id,
+          tmdb_series_id: existingSeries.tmdb_id,
+          season_number: seasonNumber,
+          episode_number: episodeNumber,
+          title: cleanTitle,
+          filepath: filepath
+        })
+        
+        if (epError) {
+          console.error(`❌ Erreur ajout épisode:`, epError.message)
+        } else {
+          console.log(`✅ Épisode ajouté: ${seriesName} S${seasonNumber}E${episodeNumber} - ${cleanTitle}`)
+        }
+      } else {
+        // Série pas encore en base - déclencher un scan complet
+        console.log(`🔍 Série non trouvée, déclenchement du scan...`)
+        
+        // Appeler l'API de scan (via fetch interne ou directement)
+        try {
+          // On va simplement créer la série sans métadonnées pour l'instant
+          // Un scan manuel pourra enrichir les données plus tard
+          const { data: newSeries, error: insertError } = await supabase
+            .from('series')
+            .insert({
+              title: seriesName,
+              local_folder_path: seriesPath
+            })
+            .select('id')
+            .single()
+          
+          if (insertError || !newSeries) {
+            console.error(`❌ Erreur création série:`, insertError?.message)
+            return
+          }
+          
+          console.log(`✅ Série créée: ${seriesName} (ID: ${newSeries.id})`)
+          
+          // Ajouter l'épisode
+          const cleanTitle = this.cleanEpisodeTitle(filename, seriesName)
+          await supabase.from('episodes').insert({
+            series_id: newSeries.id,
+            season_number: seasonNumber,
+            episode_number: episodeNumber,
+            title: cleanTitle,
+            filepath: filepath
+          })
+          
+          console.log(`✅ Épisode ajouté: ${seriesName} S${seasonNumber}E${episodeNumber}`)
+        } catch (scanError) {
+          console.error(`❌ Erreur lors du scan:`, scanError)
+        }
+      }
+    } catch (error) {
+      console.error(`❌ Erreur import épisode:`, error)
+    }
+  }
+
+  /**
+   * Nettoyer le titre d'un épisode
+   */
+  private cleanEpisodeTitle(filename: string, seriesName: string): string {
+    let title = filename
+    
+    // 1. Retirer l'extension
+    title = title.replace(/\.(mkv|mp4|avi|mov|m4v)$/i, '')
+    
+    // 2. Retirer les infos de codec/release
+    title = title.replace(/[\[\(]?x26[45][\]\)]?/gi, '')
+    title = title.replace(/[\[\(]?HEVC[\]\)]?/gi, '')
+    title = title.replace(/[\[\(]?10bit[\]\)]?/gi, '')
+    title = title.replace(/[\[\(]?HDR[\]\)]?/gi, '')
+    title = title.replace(/[\[\(]?WEB-?DL[\]\)]?/gi, '')
+    title = title.replace(/[\[\(]?BluRay[\]\)]?/gi, '')
+    title = title.replace(/[\[\(]?1080p[\]\)]?/gi, '')
+    title = title.replace(/[\[\(]?720p[\]\)]?/gi, '')
+    title = title.replace(/[\[\(]?2160p[\]\)]?/gi, '')
+    title = title.replace(/[\[\(]?4K[\]\)]?/gi, '')
+    
+    // 3. Retirer les noms de release groups
+    title = title.replace(/-[A-Za-z0-9]+$/g, '')
+    title = title.replace(/\[.*?\]/g, '')
+    
+    // 4. Retirer le pattern SxxExx
+    title = title.replace(/S\d+E\d+/gi, '')
+    
+    // 5. Retirer le nom de la série
+    const seriesNameClean = seriesName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    title = title.replace(new RegExp(`^${seriesNameClean}[\\s.-]*`, 'i'), '')
+    title = title.replace(new RegExp(`[\\s.-]+${seriesNameClean}[\\s.-]*`, 'i'), '')
+    
+    // 6. Nettoyer
+    title = title.replace(/^[\s._-]+/, '')
+    title = title.replace(/[\s._-]+$/, '')
+    title = title.replace(/\s{2,}/g, ' ')
+    
+    // 7. Si vide, utiliser un format par défaut
+    if (!title.trim()) {
+      const match = filename.match(/S(\d+)E(\d+)/i)
+      if (match) {
+        title = `Épisode ${parseInt(match[2])}`
+      } else {
+        title = filename.replace(/\.(mkv|mp4|avi|mov|m4v)$/i, '')
+      }
+    }
+    
+    return title.trim()
   }
 
   /**
