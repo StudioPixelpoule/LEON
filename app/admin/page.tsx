@@ -164,7 +164,8 @@ const ToastContext = createContext<{
   addToast: (type: ToastType, title: string, message?: string) => string
 } | null>(null)
 
-export const useAdminToast = () => {
+// Hook interne (pas d'export car Next.js n'autorise que le default export dans page.tsx)
+const useAdminToast = () => {
   const ctx = useContext(ToastContext)
   if (!ctx) throw new Error('useAdminToast must be used within AdminPageV2')
   return ctx
