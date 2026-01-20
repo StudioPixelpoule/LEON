@@ -2049,6 +2049,11 @@
   background: rgba(59,130,246,0.1);
 }
 
+.queueItemModifying {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
 .queueItemCheckbox {
   flex-shrink: 0;
 }

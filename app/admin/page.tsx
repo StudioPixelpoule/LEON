@@ -1765,19 +1765,23 @@ function TranscodeView() {
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [showTranscoded, setShowTranscoded] = useState(false)
   
-  // Ref pour éviter les requêtes en double
+  // État pour bloquer le polling pendant les modifications
+  const [isModifying, setIsModifying] = useState(false)
   const isLoadingRef = useRef(false)
+  const modifyTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
+  // Polling avec blocage pendant modifications
   useEffect(() => {
     loadStats(true)
-    // Polling adaptatif : 3s si transcodage actif, 8s sinon
-    const getInterval = () => stats?.isRunning && !stats?.isPaused ? 3000 : 8000
-    const interval = setInterval(() => loadStats(true), getInterval())
+    const getInterval = () => stats?.isRunning && !stats?.isPaused ? 4000 : 10000
+    const interval = setInterval(() => {
+      if (!isModifying) loadStats(true)
+    }, getInterval())
     return () => clearInterval(interval)
-  }, [stats?.isRunning, stats?.isPaused])
+  }, [stats?.isRunning, stats?.isPaused, isModifying])
 
   const loadStats = useCallback(async (quick: boolean = true) => {
-    if (isLoadingRef.current) return
+    if (isLoadingRef.current || isModifying) return
     isLoadingRef.current = true
     
     try {
@@ -1793,7 +1797,7 @@ function TranscodeView() {
       setLoading(false)
       isLoadingRef.current = false
     }
-  }, [])
+  }, [isModifying])
 
   async function performAction(action: string) {
     setActionLoading(action)
@@ -1804,7 +1808,6 @@ function TranscodeView() {
         body: JSON.stringify({ action })
       })
       
-      // Feedback via toast
       const messages: Record<string, { title: string; type: ToastType }> = {
         'start': { title: 'Transcodage démarré', type: 'success' },
         'pause': { title: 'Transcodage en pause', type: 'info' },
@@ -1839,49 +1842,69 @@ function TranscodeView() {
     }
   }
 
-  // Fonctions de gestion de la queue
-  async function moveJob(jobId: string, action: 'move-up' | 'move-down' | 'move-to-top' | 'remove') {
+  // Gestion optimiste de la queue
+  async function moveJobToTop(jobId: string) {
+    // Bloquer le polling
+    setIsModifying(true)
+    if (modifyTimeoutRef.current) clearTimeout(modifyTimeoutRef.current)
+    
+    // Mise à jour optimiste immédiate
+    const jobIndex = queue.findIndex(j => j.id === jobId)
+    if (jobIndex > 0) {
+      const newQueue = [...queue]
+      const [job] = newQueue.splice(jobIndex, 1)
+      newQueue.unshift(job)
+      setQueue(newQueue)
+    }
+    
     try {
       await fetch('/api/admin/transcode-queue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, jobId })
+        body: JSON.stringify({ action: 'move-to-top', jobId })
       })
-      
-      if (action === 'remove') {
-        addToast('info', 'Élément retiré de la file')
-      } else if (action === 'move-to-top') {
-        addToast('success', 'Placé en tête de file')
-      }
-      
-      await loadStats(true)
+      addToast('success', 'Placé en priorité')
     } catch (error) {
-      console.error(`Erreur ${action}:`, error)
-      addToast('error', 'Erreur', `Action échouée`)
+      console.error('Erreur move-to-top:', error)
+      addToast('error', 'Erreur', 'Déplacement échoué')
+      await loadStats(true) // Resync en cas d'erreur
     }
+    
+    // Débloquer le polling après 2s
+    modifyTimeoutRef.current = setTimeout(() => {
+      setIsModifying(false)
+      loadStats(true)
+    }, 2000)
   }
   
-  // Nettoyer les doublons
-  async function cleanupDuplicates() {
+  async function removeFromQueue(jobId: string, filename: string) {
+    if (!confirm(`Retirer "${filename}" de la file ?`)) return
+    
+    // Bloquer le polling
+    setIsModifying(true)
+    if (modifyTimeoutRef.current) clearTimeout(modifyTimeoutRef.current)
+    
+    // Mise à jour optimiste immédiate
+    setQueue(prev => prev.filter(j => j.id !== jobId))
+    
     try {
-      const res = await fetch('/api/admin/transcode-queue', {
+      await fetch('/api/admin/transcode-queue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'remove-duplicates' })
+        body: JSON.stringify({ action: 'remove', jobId })
       })
-      const data = await res.json()
-      
-      if (data.success) {
-        addToast('success', 'Nettoyage effectué', data.message)
-      } else {
-        addToast('warning', 'Aucun doublon trouvé')
-      }
-      
-      await loadStats(true)
+      addToast('info', 'Retiré de la file')
     } catch (error) {
-      console.error('Erreur nettoyage:', error)
-      addToast('error', 'Erreur nettoyage')
+      console.error('Erreur remove:', error)
+      addToast('error', 'Erreur', 'Suppression échouée')
+      await loadStats(true) // Resync en cas d'erreur
     }
+    
+    // Débloquer le polling après 2s
+    modifyTimeoutRef.current = setTimeout(() => {
+      setIsModifying(false)
+      loadStats(true)
+    }, 2000)
   }
 
   function formatTime(seconds: number): string {
@@ -2036,7 +2059,7 @@ function TranscodeView() {
         </div>
       </div>
 
-      {/* Queue - Design Pro */}
+      {/* Queue - Design Pro Simplifié */}
       <div className={styles.queueContainer}>
         <div className={styles.queueHeader}>
           <div className={styles.queueHeaderLeft}>
@@ -2046,19 +2069,10 @@ function TranscodeView() {
             <div>
               <h3 className={styles.queueTitle}>File d&apos;attente</h3>
               <p className={styles.queueSubtitle}>
-                {queue.length} fichier{queue.length > 1 ? 's' : ''} en attente de transcodage
+                {queue.length} fichier{queue.length > 1 ? 's' : ''} en attente
+                {isModifying && <span style={{ marginLeft: 8, color: '#fbbf24' }}>• Modification...</span>}
               </p>
             </div>
-          </div>
-          <div className={styles.queueHeaderActions}>
-            <button 
-              className={styles.btnCleanup}
-              onClick={cleanupDuplicates}
-              title="Supprimer les doublons"
-            >
-              <Trash2 size={14} />
-              Nettoyer doublons
-            </button>
           </div>
         </div>
         
@@ -2068,7 +2082,7 @@ function TranscodeView() {
               {queue.slice(0, 50).map((job, i) => (
                 <div 
                   key={job.id} 
-                  className={styles.queueItem}
+                  className={`${styles.queueItem} ${isModifying ? styles.queueItemModifying : ''}`}
                 >
                   <div className={styles.queueItemPosition}>{i + 1}</div>
                   
@@ -2081,47 +2095,27 @@ function TranscodeView() {
                           {(job.fileSize / (1024 * 1024 * 1024)).toFixed(1)} Go
                         </span>
                       )}
-                      {job.mtime && (
-                        <span>
-                          <Clock size={12} />
-                          {formatDate(job.mtime)}
-                        </span>
-                      )}
                     </div>
                   </div>
                   
                   <div className={styles.queueItemActions}>
+                    {/* Priorité : seulement si pas en première position */}
                     {i > 0 && (
                       <button 
                         className={`${styles.queueActionBtn} ${styles.primary}`}
-                        onClick={() => moveJob(job.id, 'move-to-top')} 
-                        title="Placer en tête de file"
+                        onClick={() => moveJobToTop(job.id)} 
+                        title="Passer en priorité"
+                        disabled={isModifying}
                       >
                         <ChevronsUp size={16} />
                       </button>
                     )}
-                    {i > 0 && (
-                      <button 
-                        className={styles.queueActionBtn}
-                        onClick={() => moveJob(job.id, 'move-up')} 
-                        title="Monter d'une place"
-                      >
-                        <ArrowUp size={16} />
-                      </button>
-                    )}
-                    {i < queue.length - 1 && (
-                      <button 
-                        className={styles.queueActionBtn}
-                        onClick={() => moveJob(job.id, 'move-down')} 
-                        title="Descendre d'une place"
-                      >
-                        <ArrowDown size={16} />
-                      </button>
-                    )}
+                    {/* Supprimer */}
                     <button 
                       className={`${styles.queueActionBtn} ${styles.danger}`}
-                      onClick={() => moveJob(job.id, 'remove')} 
+                      onClick={() => removeFromQueue(job.id, job.filename)} 
                       title="Retirer de la file"
+                      disabled={isModifying}
                     >
                       <X size={16} />
                     </button>
