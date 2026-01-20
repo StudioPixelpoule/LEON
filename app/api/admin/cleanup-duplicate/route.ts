@@ -4,14 +4,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
 
 export async function DELETE(request: NextRequest) {
   const seriesId = request.nextUrl.searchParams.get('seriesId')
@@ -21,6 +16,8 @@ export async function DELETE(request: NextRequest) {
   }
   
   try {
+    const supabase = createSupabaseAdmin()
+    
     // Supprimer les épisodes d'abord
     const { error: delEpError } = await supabase
       .from('episodes')
