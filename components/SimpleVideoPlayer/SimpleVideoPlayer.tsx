@@ -119,6 +119,13 @@ interface NextEpisodeInfo {
   thumbnail?: string
 }
 
+// Préférences à conserver entre épisodes
+export interface PlayerPreferences {
+  audioTrackIndex?: number
+  subtitleTrackIndex?: number | null
+  wasFullscreen?: boolean
+}
+
 interface SimpleVideoPlayerProps {
   src: string
   title?: string
@@ -128,7 +135,8 @@ interface SimpleVideoPlayerProps {
   mediaId?: string // ID du film/épisode pour sauvegarder la position
   mediaType?: 'movie' | 'episode' // Type de média
   nextEpisode?: NextEpisodeInfo // Épisode suivant (pour les séries)
-  onNextEpisode?: () => void // Callback pour passer à l'épisode suivant
+  onNextEpisode?: (preferences: PlayerPreferences) => void // Callback pour passer à l'épisode suivant (avec préférences)
+  initialPreferences?: PlayerPreferences // Préférences de l'épisode précédent
 }
 
 interface AudioTrack {
@@ -178,7 +186,8 @@ export default function SimpleVideoPlayer({
   mediaId,
   mediaType = 'movie',
   nextEpisode,
-  onNextEpisode
+  onNextEpisode,
+  initialPreferences
 }: SimpleVideoPlayerProps) {
   const { user } = useAuth()
   const userId = user?.id
@@ -228,8 +237,9 @@ export default function SimpleVideoPlayer({
   
   // États pour l'épisode suivant (style Netflix)
   const [showNextEpisodeUI, setShowNextEpisodeUI] = useState(false)
-  const [nextEpisodeCountdown, setNextEpisodeCountdown] = useState(10) // Temps réel restant
+  const [nextEpisodeCountdown, setNextEpisodeCountdown] = useState(10) // Compte à rebours 10 secondes
   const [isNextEpisodeCancelled, setIsNextEpisodeCancelled] = useState(false) // Si l'utilisateur a annulé
+  const nextEpisodeTimerRef = useRef<NodeJS.Timeout | null>(null) // Timer pour le compte à rebours
   
   // Refs pour la gestion d'état
   const hideControlsTimeout = useRef<NodeJS.Timeout>()
@@ -374,9 +384,18 @@ export default function SimpleVideoPlayer({
         setAudioTracks(data.audioTracks || [])
         setSubtitleTracks(data.subtitleTracks || [])
         
-        // Sélectionner la première piste audio par défaut
-        if (data.audioTracks?.length > 0) {
+        // 🎬 Appliquer les préférences initiales si fournies (enchaînement d'épisodes)
+        if (initialPreferences?.audioTrackIndex !== undefined && data.audioTracks?.length > initialPreferences.audioTrackIndex) {
+          setSelectedAudio(initialPreferences.audioTrackIndex)
+          console.log('[PLAYER] 🔊 Préférence audio restaurée:', initialPreferences.audioTrackIndex)
+        } else if (data.audioTracks?.length > 0) {
+          // Sélectionner la première piste audio par défaut
           setSelectedAudio(0)
+        }
+        
+        if (initialPreferences?.subtitleTrackIndex !== undefined) {
+          setSelectedSubtitle(initialPreferences.subtitleTrackIndex)
+          console.log('[PLAYER] 📝 Préférence sous-titres restaurée:', initialPreferences.subtitleTrackIndex)
         }
       })
       .catch(err => {
@@ -537,7 +556,7 @@ export default function SimpleVideoPlayer({
     }
   }, [isPlaying])
 
-  // 🎬 FIX: Gestion de la fin de vidéo - auto-play épisode suivant
+  // 🎬 FIX: Gestion de la fin de vidéo
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
@@ -550,16 +569,80 @@ export default function SimpleVideoPlayer({
         markAsFinished()
       }
       
-      // Si épisode suivant disponible et pas annulé par l'utilisateur, le lancer
-      if (nextEpisode && onNextEpisode && !isNextEpisodeCancelled) {
-        console.log('[PLAYER] ➡️ Passage automatique à l\'épisode suivant:', nextEpisode.title)
-        onNextEpisode()
+      // Note: L'épisode suivant est maintenant géré par le compte à rebours de 10s
+      // Si on arrive ici et que le UI n'est pas affiché (vidéo courte), lancer l'épisode suivant
+      if (nextEpisode && onNextEpisode && !isNextEpisodeCancelled && !showNextEpisodeUI) {
+        console.log('[PLAYER] ➡️ Vidéo terminée, passage direct à l\'épisode suivant:', nextEpisode.title)
+        const preferences: PlayerPreferences = {
+          audioTrackIndex: selectedAudio,
+          subtitleTrackIndex: selectedSubtitle,
+          wasFullscreen: isFullscreen
+        }
+        onNextEpisode(preferences)
       }
     }
 
     video.addEventListener('ended', handleVideoEnded)
     return () => video.removeEventListener('ended', handleVideoEnded)
-  }, [mediaId, nextEpisode, onNextEpisode, markAsFinished, isNextEpisodeCancelled])
+  }, [mediaId, nextEpisode, onNextEpisode, markAsFinished, isNextEpisodeCancelled, showNextEpisodeUI, selectedAudio, selectedSubtitle, isFullscreen])
+
+  // 🎬 Netflix: Compte à rebours de 10 secondes pour l'épisode suivant
+  useEffect(() => {
+    // Nettoyer le timer précédent
+    if (nextEpisodeTimerRef.current) {
+      clearInterval(nextEpisodeTimerRef.current)
+      nextEpisodeTimerRef.current = null
+    }
+
+    // Si l'UI n'est pas affichée ou annulée, ne rien faire
+    if (!showNextEpisodeUI || isNextEpisodeCancelled || !nextEpisode || !onNextEpisode) {
+      return
+    }
+
+    console.log('[PLAYER] ⏱️ Démarrage du compte à rebours 10s')
+    
+    // Démarrer le compte à rebours
+    nextEpisodeTimerRef.current = setInterval(() => {
+      setNextEpisodeCountdown((prev) => {
+        if (prev <= 1) {
+          // Compte à rebours terminé - lancer l'épisode suivant
+          console.log('[PLAYER] ⏱️ Compte à rebours terminé, lancement épisode suivant')
+          
+          // Nettoyer le timer
+          if (nextEpisodeTimerRef.current) {
+            clearInterval(nextEpisodeTimerRef.current)
+            nextEpisodeTimerRef.current = null
+          }
+          
+          // Récupérer les préférences actuelles
+          const preferences: PlayerPreferences = {
+            audioTrackIndex: selectedAudio,
+            subtitleTrackIndex: selectedSubtitle,
+            wasFullscreen: isFullscreen
+          }
+          
+          // Marquer l'épisode actuel comme terminé
+          if (mediaId) {
+            markAsFinished()
+          }
+          
+          // Lancer l'épisode suivant avec les préférences
+          onNextEpisode(preferences)
+          
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+
+    // Cleanup
+    return () => {
+      if (nextEpisodeTimerRef.current) {
+        clearInterval(nextEpisodeTimerRef.current)
+        nextEpisodeTimerRef.current = null
+      }
+    }
+  }, [showNextEpisodeUI, isNextEpisodeCancelled, nextEpisode, onNextEpisode, selectedAudio, selectedSubtitle, isFullscreen, mediaId, markAsFinished])
 
   // 🔧 FIX #3: Gérer spécifiquement le fullscreen (compatible Safari et iOS)
   useEffect(() => {
@@ -578,6 +661,24 @@ export default function SimpleVideoPlayer({
     const cleanup = addFullscreenChangeListener(handleFullscreenChange, videoRef.current || undefined)
     return cleanup
   }, [])
+
+  // 🎬 Netflix: Restaurer le plein écran entre épisodes
+  useEffect(() => {
+    if (initialPreferences?.wasFullscreen && containerRef.current && videoRef.current) {
+      // Attendre un peu que la vidéo soit prête avant de passer en plein écran
+      const restoreFullscreen = async () => {
+        await new Promise(resolve => setTimeout(resolve, 500))
+        try {
+          await requestFullscreen(containerRef.current!, videoRef.current || undefined)
+          setIsFullscreen(true)
+          console.log('[PLAYER] 📺 Plein écran restauré depuis l\'épisode précédent')
+        } catch (err) {
+          console.log('[PLAYER] ⚠️ Impossible de restaurer le plein écran:', err)
+        }
+      }
+      restoreFullscreen()
+    }
+  }, [initialPreferences?.wasFullscreen]) // Ne s'exécute qu'au montage
 
   // 🔧 FIX #3b: Masquer automatiquement les contrôles quand la vidéo joue
   useEffect(() => {
@@ -1063,18 +1164,23 @@ export default function SimpleVideoPlayer({
       if (nextEpisode && onNextEpisode && !isNextEpisodeCancelled && totalDuration > 0) {
         const timeRemaining = Math.max(0, totalDuration - currentPos)
         
-        // Afficher l'UI 30s avant la fin
+        // Afficher l'UI 30s avant la fin (déclenche le compte à rebours de 10s)
         if (timeRemaining <= 30 && timeRemaining > 0) {
           if (!showNextEpisodeUI) {
             setShowNextEpisodeUI(true)
+            setNextEpisodeCountdown(10) // Réinitialiser le compte à rebours
           }
-          // Mettre à jour le countdown avec le temps réel restant (arrondi)
-          setNextEpisodeCountdown(Math.ceil(timeRemaining))
         }
         
         // Masquer si on recule avant les 30 dernières secondes
         if (timeRemaining > 30 && showNextEpisodeUI) {
           setShowNextEpisodeUI(false)
+          setNextEpisodeCountdown(10) // Réinitialiser
+          // Annuler le timer si on recule
+          if (nextEpisodeTimerRef.current) {
+            clearInterval(nextEpisodeTimerRef.current)
+            nextEpisodeTimerRef.current = null
+          }
         }
       }
     }
@@ -2337,7 +2443,22 @@ export default function SimpleVideoPlayer({
             <button 
               className={styles.nextEpisodePlay}
               onClick={() => {
-                onNextEpisode()
+                // Nettoyer le timer
+                if (nextEpisodeTimerRef.current) {
+                  clearInterval(nextEpisodeTimerRef.current)
+                  nextEpisodeTimerRef.current = null
+                }
+                // Marquer comme terminé
+                if (mediaId) {
+                  markAsFinished()
+                }
+                // Lancer avec préférences
+                const preferences: PlayerPreferences = {
+                  audioTrackIndex: selectedAudio,
+                  subtitleTrackIndex: selectedSubtitle,
+                  wasFullscreen: isFullscreen
+                }
+                onNextEpisode(preferences)
               }}
             >
               <svg viewBox="0 0 24 24" width="20" height="20">
@@ -2348,6 +2469,11 @@ export default function SimpleVideoPlayer({
             <button 
               className={styles.nextEpisodeCancel}
               onClick={() => {
+                // Nettoyer le timer
+                if (nextEpisodeTimerRef.current) {
+                  clearInterval(nextEpisodeTimerRef.current)
+                  nextEpisodeTimerRef.current = null
+                }
                 setShowNextEpisodeUI(false)
                 setIsNextEpisodeCancelled(true) // Empêche le passage auto à la fin
               }}

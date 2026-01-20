@@ -353,8 +353,26 @@
   transition: width 200ms ease;
 }
 
+/* Barre de progression visible sous chaque épisode */
+.episodeProgressBar {
+  width: 100%;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+
+.episodeProgressFill {
+  height: 100%;
+  background: #e50914;
+  border-radius: 2px;
+  transition: width 200ms ease;
+}
+
 /* Numéro d'épisode (fallback sans thumbnail) */
 .episodeNumber {
+  position: relative;
   width: 160px;
   height: 90px;
   display: flex;
@@ -365,6 +383,7 @@
   font-size: 2rem;
   font-weight: 700;
   color: rgba(255, 255, 255, 0.3);
+  overflow: hidden;
 }
 
 /* Info épisode */

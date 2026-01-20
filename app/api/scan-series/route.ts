@@ -31,7 +31,49 @@ interface Episode {
   seriesName: string
 }
 
+interface TmdbEpisodeData {
+  name: string
+  overview: string
+  still_path: string | null
+  air_date: string | null
+  vote_average: number
+  runtime: number | null
+}
+
 const VIDEO_EXTENSIONS = ['.mkv', '.mp4', '.avi', '.mov', '.m4v']
+const TMDB_API_KEY = process.env.TMDB_API_KEY
+const TMDB_BASE_URL = 'https://api.themoviedb.org/3'
+
+/**
+ * Récupérer les métadonnées d'un épisode depuis TMDB
+ */
+async function fetchTmdbEpisode(
+  tmdbSeriesId: number,
+  seasonNumber: number,
+  episodeNumber: number
+): Promise<TmdbEpisodeData | null> {
+  if (!TMDB_API_KEY) return null
+  
+  try {
+    // Essayer d'abord en français
+    const response = await fetch(
+      `${TMDB_BASE_URL}/tv/${tmdbSeriesId}/season/${seasonNumber}/episode/${episodeNumber}?api_key=${TMDB_API_KEY}&language=fr-FR`
+    )
+    
+    if (!response.ok) {
+      // Fallback en anglais
+      const responseEn = await fetch(
+        `${TMDB_BASE_URL}/tv/${tmdbSeriesId}/season/${seasonNumber}/episode/${episodeNumber}?api_key=${TMDB_API_KEY}&language=en-US`
+      )
+      if (!responseEn.ok) return null
+      return await responseEn.json()
+    }
+    
+    return await response.json()
+  } catch {
+    return null
+  }
+}
 
 /**
  * Nettoyer le titre d'un épisode
@@ -342,22 +384,42 @@ export async function POST() {
           .single()
 
         if (!existingEp) {
-          const cleanTitle = cleanEpisodeTitle(ep.filename, seriesName)
-          const { error: epError } = await supabase.from('episodes').insert({
+          // 🎬 Récupérer les métadonnées TMDB de l'épisode
+          const tmdbEpisode = tmdbData?.id 
+            ? await fetchTmdbEpisode(tmdbData.id, ep.season, ep.episode)
+            : null
+          
+          const episodeData: Record<string, unknown> = {
             series_id: seriesId,
-            tmdb_series_id: tmdbData.id,
+            tmdb_series_id: tmdbData?.id || null,
             season_number: ep.season,
             episode_number: ep.episode,
-            title: cleanTitle,
+            title: tmdbEpisode?.name || cleanEpisodeTitle(ep.filename, seriesName),
             filepath: ep.filepath
-          })
+          }
+          
+          // Ajouter les données TMDB si disponibles
+          if (tmdbEpisode) {
+            if (tmdbEpisode.overview) episodeData.overview = tmdbEpisode.overview
+            if (tmdbEpisode.still_path) episodeData.still_url = `https://image.tmdb.org/t/p/w500${tmdbEpisode.still_path}`
+            if (tmdbEpisode.air_date) episodeData.air_date = tmdbEpisode.air_date
+            if (tmdbEpisode.vote_average) episodeData.rating = tmdbEpisode.vote_average
+            if (tmdbEpisode.runtime) episodeData.runtime = tmdbEpisode.runtime
+          }
+          
+          const { error: epError } = await supabase.from('episodes').insert(episodeData)
           
           if (epError) {
             console.error(`   ❌ Erreur épisode S${ep.season}E${ep.episode}:`, epError.message)
           } else {
+            const hasMetadata = tmdbEpisode ? '✨' : ''
+            console.log(`      ${hasMetadata} S${ep.season}E${ep.episode}: ${episodeData.title}`)
             stats.newEpisodes++
             episodesSaved++
           }
+          
+          // Petite pause pour éviter le rate limiting TMDB
+          if (tmdbData?.id) await new Promise(r => setTimeout(r, 50))
         }
       }
       

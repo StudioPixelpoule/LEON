@@ -10,8 +10,9 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import Image from 'next/image'
 import { Play, Check } from 'lucide-react'
 import styles from './SeriesModal.module.css'
-import SimpleVideoPlayer from '@/components/SimpleVideoPlayer/SimpleVideoPlayer'
+import SimpleVideoPlayer, { PlayerPreferences } from '@/components/SimpleVideoPlayer/SimpleVideoPlayer'
 import TrailerPlayer, { TrailerPlayerRef, IconVolumeOff, IconVolumeOn } from '@/components/TrailerPlayer/TrailerPlayer'
+import { useAuth } from '@/contexts/AuthContext'
 
 interface Episode {
   id: string
@@ -56,6 +57,7 @@ interface SeriesModalProps {
 }
 
 export default function SeriesModal({ series, onClose }: SeriesModalProps) {
+  const { user } = useAuth()
   const [seriesDetails, setSeriesDetails] = useState<SeriesDetails | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedSeason, setSelectedSeason] = useState(1)
@@ -67,6 +69,7 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
   const [trailerEnded, setTrailerEnded] = useState(false)
   const [trailerMuted, setTrailerMuted] = useState(true) // 🔊 État du son du trailer
   const trailerRef = useRef<TrailerPlayerRef>(null)
+  const [playerPreferences, setPlayerPreferences] = useState<PlayerPreferences | undefined>(undefined) // 🎬 Préférences conservées entre épisodes
 
   // Charger la progression de visionnage
   const loadProgress = useCallback(async (episodes: Episode[]) => {
@@ -76,7 +79,11 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
       // Charger la progression pour chaque épisode (en parallèle pour plus de rapidité)
       const progressPromises = episodes.map(async (ep) => {
         try {
-          const response = await fetch(`/api/playback-position?mediaId=${ep.id}`)
+          // Passer le userId si l'utilisateur est connecté
+          const url = user?.id 
+            ? `/api/playback-position?mediaId=${ep.id}&userId=${user.id}`
+            : `/api/playback-position?mediaId=${ep.id}`
+          const response = await fetch(url)
           if (response.ok) {
             const data = await response.json()
             // L'API retourne currentTime, duration, etc.
@@ -127,7 +134,7 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
     } catch (error) {
       console.error('Erreur chargement progression:', error)
     }
-  }, [])
+  }, [user?.id])
 
   useEffect(() => {
     loadSeriesDetails()
@@ -215,7 +222,11 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
     return runtime ? `${runtime} min` : ''
   }
 
-  function handlePlayEpisode(episode: Episode) {
+  function handlePlayEpisode(episode: Episode, preferences?: PlayerPreferences) {
+    // Stocker les préférences si fournies (pour les enchaînements d'épisodes)
+    if (preferences) {
+      setPlayerPreferences(preferences)
+    }
     setCurrentEpisode(episode)
     setShowPlayer(true)
   }
@@ -312,11 +323,12 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
             ? `/api/proxy-image?url=${encodeURIComponent(nextEp.still_url)}`
             : undefined
         } : undefined}
-        onNextEpisode={nextEp ? () => {
-          // Passer à l'épisode suivant
-          console.log('[SERIES] ➡️ Passage à l\'épisode suivant:', nextEp.title)
-          handlePlayEpisode(nextEp)
+        onNextEpisode={nextEp ? (preferences: PlayerPreferences) => {
+          // Passer à l'épisode suivant avec les préférences (audio, sous-titres, fullscreen)
+          console.log('[SERIES] ➡️ Passage à l\'épisode suivant:', nextEp.title, 'avec préférences:', preferences)
+          handlePlayEpisode(nextEp, preferences)
         } : undefined}
+        initialPreferences={playerPreferences}
         onClose={() => {
           setShowPlayer(false)
           setCurrentEpisode(null)
@@ -529,6 +541,16 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
                             </span>
                           )}
                         </div>
+                        
+                        {/* Barre de progression visible sous l'épisode */}
+                        {progressPercent > 0 && (
+                          <div className={styles.episodeProgressBar}>
+                            <div 
+                              className={styles.episodeProgressFill} 
+                              style={{ width: `${progressPercent}%` }}
+                            />
+                          </div>
+                        )}
                       </div>
                     </div>
                   )
