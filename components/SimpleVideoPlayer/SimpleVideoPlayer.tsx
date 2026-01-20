@@ -235,6 +235,9 @@ export default function SimpleVideoPlayer({
   const [isDownloadingSubtitles, setIsDownloadingSubtitles] = useState(false)
   const [subtitleOffset, setSubtitleOffset] = useState<number>(0) // Décalage en secondes pour synchroniser les sous-titres
   
+  // État fullscreen
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  
   // États pour l'épisode suivant (style Netflix)
   const [showNextEpisodeUI, setShowNextEpisodeUI] = useState(false)
   const [nextEpisodeCountdown, setNextEpisodeCountdown] = useState(10) // Compte à rebours 10 secondes
@@ -647,7 +650,10 @@ export default function SimpleVideoPlayer({
   // 🔧 FIX #3: Gérer spécifiquement le fullscreen (compatible Safari et iOS)
   useEffect(() => {
     const handleFullscreenChange = () => {
-      if (isVideoFullscreen(videoRef.current || undefined)) {
+      const fullscreen = isVideoFullscreen(videoRef.current || undefined)
+      setIsFullscreen(fullscreen)
+      
+      if (fullscreen) {
         // En fullscreen : forcer la disparition des contrôles après 3s
         setTimeout(() => {
           const video = videoRef.current
