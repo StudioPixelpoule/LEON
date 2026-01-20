@@ -1840,70 +1840,135 @@ function TranscodeView() {
         </div>
       </div>
 
-      {/* Queue */}
-      {queue.length > 0 && (
-        <div className={styles.card}>
-          <div className={styles.cardHeader}>
-            <div className={styles.cardIcon}><Clock size={20} /></div>
-            <h3 className={styles.cardTitle}>File d&apos;attente ({queue.length})</h3>
+      {/* Queue - Design Pro */}
+      <div className={styles.queueContainer}>
+        <div className={styles.queueHeader}>
+          <div className={styles.queueHeaderLeft}>
+            <div className={styles.queueIcon}>
+              <Clock size={20} />
+            </div>
+            <div>
+              <h3 className={styles.queueTitle}>File d&apos;attente</h3>
+              <p className={styles.queueSubtitle}>
+                {queue.length} fichier{queue.length > 1 ? 's' : ''} en attente de transcodage
+              </p>
+            </div>
           </div>
-          <div className={styles.list}>
-            {queue.slice(0, 20).map((job, i) => (
-              <div key={job.id} className={styles.listItem} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span className={styles.listIndex}>{i + 1}</span>
-                <div className={styles.listContent} style={{ flex: 1 }}>
-                  <span className={styles.listTitle}>{job.filename}</span>
-                  {job.mtime && <span className={styles.listMeta}>Ajouté le {formatDate(job.mtime)}</span>}
-                </div>
-                <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                  {/* Bouton monter en tête */}
-                  {i > 0 && (
-                    <button 
-                      onClick={() => moveJob(job.id, 'move-to-top')} 
-                      title="En tête de file"
-                      style={{ background: 'rgba(59,130,246,0.15)', border: 'none', borderRadius: 4, padding: 6, cursor: 'pointer', color: '#3b82f6', display: 'flex' }}
-                    >
-                      <ChevronsUp size={14} />
-                    </button>
-                  )}
-                  {/* Bouton monter */}
-                  {i > 0 && (
-                    <button 
-                      onClick={() => moveJob(job.id, 'move-up')} 
-                      title="Monter"
-                      style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 4, padding: 6, cursor: 'pointer', color: 'rgba(255,255,255,0.7)', display: 'flex' }}
-                    >
-                      <ArrowUp size={14} />
-                    </button>
-                  )}
-                  {/* Bouton descendre */}
-                  {i < queue.length - 1 && (
-                    <button 
-                      onClick={() => moveJob(job.id, 'move-down')} 
-                      title="Descendre"
-                      style={{ background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 4, padding: 6, cursor: 'pointer', color: 'rgba(255,255,255,0.7)', display: 'flex' }}
-                    >
-                      <ArrowDown size={14} />
-                    </button>
-                  )}
-                  {/* Bouton supprimer */}
-                  <button 
-                    onClick={() => moveJob(job.id, 'remove')} 
-                    title="Retirer de la file"
-                    style={{ background: 'rgba(239,68,68,0.15)', border: 'none', borderRadius: 4, padding: 6, cursor: 'pointer', color: '#ef4444', display: 'flex' }}
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-                <span className={`${styles.listBadge} ${job.status === 'failed' ? styles.error : styles.pending}`}>
-                  {job.status === 'pending' ? 'Attente' : 'Retry'}
-                </span>
-              </div>
-            ))}
-            {queue.length > 20 && <p style={{ textAlign: 'center', fontSize: 13, color: 'rgba(255,255,255,0.5)', padding: '8px 0' }}>...et {queue.length - 20} autres</p>}
+          <div className={styles.queueHeaderActions}>
+            <button 
+              className={styles.btnCleanup}
+              onClick={async () => {
+                try {
+                  const res = await fetch('/api/admin/transcode-queue', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'remove-duplicates' })
+                  })
+                  const data = await res.json()
+                  if (data.message) alert(data.message)
+                  await loadStats(true)
+                } catch (e) {
+                  console.error(e)
+                }
+              }}
+              title="Supprimer les doublons"
+            >
+              <Trash2 size={14} />
+              Nettoyer doublons
+            </button>
           </div>
         </div>
-      )}
+        
+        {queue.length > 0 ? (
+          <>
+            <div className={styles.queueList}>
+              {queue.slice(0, 50).map((job, i) => (
+                <div 
+                  key={job.id} 
+                  className={styles.queueItem}
+                >
+                  <div className={styles.queueItemPosition}>{i + 1}</div>
+                  
+                  <div className={styles.queueItemContent}>
+                    <div className={styles.queueItemTitle}>{job.filename}</div>
+                    <div className={styles.queueItemMeta}>
+                      {job.fileSize && (
+                        <span>
+                          <HardDrive size={12} />
+                          {(job.fileSize / (1024 * 1024 * 1024)).toFixed(1)} Go
+                        </span>
+                      )}
+                      {job.mtime && (
+                        <span>
+                          <Clock size={12} />
+                          {formatDate(job.mtime)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className={styles.queueItemActions}>
+                    {i > 0 && (
+                      <button 
+                        className={`${styles.queueActionBtn} ${styles.primary}`}
+                        onClick={() => moveJob(job.id, 'move-to-top')} 
+                        title="Placer en tête de file"
+                      >
+                        <ChevronsUp size={16} />
+                      </button>
+                    )}
+                    {i > 0 && (
+                      <button 
+                        className={styles.queueActionBtn}
+                        onClick={() => moveJob(job.id, 'move-up')} 
+                        title="Monter d'une place"
+                      >
+                        <ArrowUp size={16} />
+                      </button>
+                    )}
+                    {i < queue.length - 1 && (
+                      <button 
+                        className={styles.queueActionBtn}
+                        onClick={() => moveJob(job.id, 'move-down')} 
+                        title="Descendre d'une place"
+                      >
+                        <ArrowDown size={16} />
+                      </button>
+                    )}
+                    <button 
+                      className={`${styles.queueActionBtn} ${styles.danger}`}
+                      onClick={() => moveJob(job.id, 'remove')} 
+                      title="Retirer de la file"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                  
+                  <span className={`${styles.queueItemStatus} ${job.status === 'failed' ? styles.failed : styles.pending}`}>
+                    {job.status === 'pending' ? 'Attente' : 'Échec'}
+                  </span>
+                </div>
+              ))}
+            </div>
+            
+            {queue.length > 50 && (
+              <div className={styles.queueFooter}>
+                <span>Affichage des 50 premiers sur {queue.length}</span>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className={styles.queueEmpty}>
+            <div className={styles.queueEmptyIcon}>
+              <Check size={32} />
+            </div>
+            <p className={styles.queueEmptyTitle}>File d&apos;attente vide</p>
+            <p className={styles.queueEmptyText}>
+              Tous les fichiers ont été transcodés ou aucun nouveau fichier détecté
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* Transcodés */}
       <div className={styles.card}>
