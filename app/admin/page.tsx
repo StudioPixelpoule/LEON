@@ -1741,6 +1741,8 @@ interface TranscodeJob {
   error?: string
   mtime?: string
   priority?: number
+  fileSize?: number
+  filepath?: string
 }
 
 interface TranscodedFile {
