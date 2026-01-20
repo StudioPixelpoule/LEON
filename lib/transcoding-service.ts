@@ -165,22 +165,24 @@ class TranscodingService {
       this.completedJobs = state.completedJobs || []
       this.isPaused = state.isPaused || false
 
-      // NETTOYAGE AUTOMATIQUE DES DOUBLONS AU CHARGEMENT
-      const seenFilenames = new Map<string, TranscodeJob>()
+      // NETTOYAGE ULTRA-STRICT AU CHARGEMENT (insensible à la casse)
+      const seenFilenames = new Set<string>()
       const cleanQueue: TranscodeJob[] = []
       let duplicatesRemoved = 0
       
       for (const job of this.queue) {
-        if (!seenFilenames.has(job.filename)) {
-          seenFilenames.set(job.filename, job)
+        const normalizedName = job.filename.toLowerCase().trim()
+        if (!seenFilenames.has(normalizedName)) {
+          seenFilenames.add(normalizedName)
           cleanQueue.push(job)
         } else {
           duplicatesRemoved++
+          console.log(`🗑️ Doublon supprimé au chargement: ${job.filename}`)
         }
       }
       
       if (duplicatesRemoved > 0) {
-        console.log(`🧹 Nettoyage auto: ${duplicatesRemoved} doublons supprimés au chargement`)
+        console.log(`🧹 Nettoyage auto: ${duplicatesRemoved} doublon(s) supprimé(s) au chargement`)
       }
       
       this.queue = cleanQueue
@@ -200,6 +202,10 @@ class TranscodingService {
    */
   async saveState(): Promise<void> {
     try {
+      // NETTOYAGE SYSTÉMATIQUE AVANT SAUVEGARDE
+      // Garantit qu'on ne sauvegarde jamais de doublons
+      this.cleanDuplicatesSync()
+      
       const state: QueueState = {
         queue: this.queue,
         completedJobs: this.completedJobs.slice(-100), // Garder les 100 derniers
@@ -212,6 +218,32 @@ class TranscodingService {
       await writeFile(STATE_FILE, JSON.stringify(state, null, 2))
     } catch (error) {
       console.error('❌ Erreur sauvegarde état:', error)
+    }
+  }
+  
+  /**
+   * Nettoyage synchrone des doublons (utilisé avant chaque sauvegarde)
+   */
+  private cleanDuplicatesSync(): void {
+    const seenFilenames = new Set<string>()
+    const cleanQueue: TranscodeJob[] = []
+    let removed = 0
+    
+    for (const job of this.queue) {
+      // Normaliser le nom de fichier (lower case pour éviter les variations)
+      const normalizedName = job.filename.toLowerCase().trim()
+      
+      if (!seenFilenames.has(normalizedName)) {
+        seenFilenames.add(normalizedName)
+        cleanQueue.push(job)
+      } else {
+        removed++
+      }
+    }
+    
+    if (removed > 0) {
+      console.log(`🧹 Nettoyage auto: ${removed} doublon(s) supprimé(s)`)
+      this.queue = cleanQueue
     }
   }
 
@@ -1117,15 +1149,15 @@ class TranscodingService {
    * Ajouter un fichier à la queue avec haute priorité (nouveau fichier)
    */
   async addToQueue(filepath: string, highPriority: boolean = false): Promise<TranscodeJob | null> {
-    // Normaliser le chemin pour éviter les doublons dûs aux variations
+    // Normaliser le chemin et le nom pour éviter les doublons
     const normalizedPath = path.normalize(filepath)
     const filename = path.basename(filepath)
+    const normalizedFilename = filename.toLowerCase().trim() // Comparaison insensible à la casse
     
-    // VÉRIFICATION STRICTE DES DOUBLONS PAR FILENAME
-    // Car le même fichier peut avoir des chemins légèrement différents
-    const existingByFilename = this.queue.find(j => j.filename === filename)
+    // VÉRIFICATION ULTRA-STRICTE DES DOUBLONS PAR FILENAME (insensible à la casse)
+    const existingByFilename = this.queue.find(j => j.filename.toLowerCase().trim() === normalizedFilename)
     if (existingByFilename) {
-      console.log(`⏭️ Fichier déjà dans la queue (même nom): ${filename}`)
+      console.log(`⏭️ [DOUBLON] Fichier déjà dans la queue: ${filename}`)
       if (highPriority) {
         existingByFilename.priority = Date.now()
         this.queue.sort((a, b) => b.priority - a.priority)
@@ -1137,6 +1169,7 @@ class TranscodingService {
     // Vérifier aussi par chemin complet (double sécurité)
     const existingByPath = this.queue.find(j => path.normalize(j.filepath) === normalizedPath)
     if (existingByPath) {
+      console.log(`⏭️ [DOUBLON] Chemin déjà dans la queue: ${filename}`)
       if (highPriority) {
         existingByPath.priority = Date.now()
         this.queue.sort((a, b) => b.priority - a.priority)
@@ -1145,16 +1178,22 @@ class TranscodingService {
       return existingByPath
     }
     
-    // Vérifier si c'est le job en cours
-    if (this.currentJob && (this.currentJob.filename === filename || path.normalize(this.currentJob.filepath) === normalizedPath)) {
-      console.log(`⏭️ Fichier déjà en cours de transcodage: ${filename}`)
+    // Vérifier si c'est le job en cours (insensible à la casse)
+    if (this.currentJob && (
+      this.currentJob.filename.toLowerCase().trim() === normalizedFilename || 
+      path.normalize(this.currentJob.filepath) === normalizedPath
+    )) {
+      console.log(`⏭️ [DOUBLON] Fichier en cours de transcodage: ${filename}`)
       return this.currentJob
     }
     
-    // Vérifier si déjà complété récemment (par filename aussi)
-    const recentlyCompleted = this.completedJobs.find(j => j.filename === filename || path.normalize(j.filepath) === normalizedPath)
+    // Vérifier si déjà complété récemment (insensible à la casse)
+    const recentlyCompleted = this.completedJobs.find(j => 
+      j.filename.toLowerCase().trim() === normalizedFilename || 
+      path.normalize(j.filepath) === normalizedPath
+    )
     if (recentlyCompleted) {
-      console.log(`✅ Fichier déjà transcodé: ${filename}`)
+      console.log(`✅ [DOUBLON] Fichier déjà transcodé: ${filename}`)
       return null
     }
 
@@ -1228,13 +1267,12 @@ class TranscodingService {
    * Garde le premier job pour chaque fichier unique
    */
   async removeDuplicates(): Promise<number> {
-    // Utiliser le FILENAME comme clé (pas le chemin complet)
-    // Car le même fichier peut avoir des chemins légèrement différents
+    // Utiliser le FILENAME NORMALISÉ comme clé (insensible à la casse)
     const seenByFilename = new Map<string, TranscodeJob>()
     const duplicateIds: string[] = []
     
     for (const job of this.queue) {
-      const key = job.filename // Utiliser le nom de fichier comme clé
+      const key = job.filename.toLowerCase().trim() // Clé normalisée
       
       if (seenByFilename.has(key)) {
         // Garder celui avec la plus haute priorité ou le premier
@@ -1243,9 +1281,11 @@ class TranscodingService {
           // Le nouveau a plus de priorité, supprimer l'ancien
           duplicateIds.push(existing.id)
           seenByFilename.set(key, job)
+          console.log(`🗑️ Doublon supprimé (priorité inférieure): ${existing.filename}`)
         } else {
           // L'ancien a plus de priorité, supprimer le nouveau
           duplicateIds.push(job.id)
+          console.log(`🗑️ Doublon supprimé: ${job.filename}`)
         }
       } else {
         seenByFilename.set(key, job)
@@ -1255,7 +1295,7 @@ class TranscodingService {
     if (duplicateIds.length > 0) {
       this.queue = this.queue.filter(j => !duplicateIds.includes(j.id))
       await this.saveState()
-      console.log(`🧹 ${duplicateIds.length} doublons supprimés de la queue`)
+      console.log(`🧹 ${duplicateIds.length} doublon(s) supprimé(s) de la queue`)
     }
     
     return duplicateIds.length

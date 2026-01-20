@@ -1769,6 +1769,10 @@ function TranscodeView() {
   const [isModifying, setIsModifying] = useState(false)
   const isLoadingRef = useRef(false)
   const modifyTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  
+  // Drag and drop
+  const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null)
 
   // Polling avec blocage pendant modifications
   useEffect(() => {
@@ -1900,6 +1904,103 @@ function TranscodeView() {
       await loadStats(true) // Resync en cas d'erreur
     }
     
+    // Débloquer le polling après 2s
+    modifyTimeoutRef.current = setTimeout(() => {
+      setIsModifying(false)
+      loadStats(true)
+    }, 2000)
+  }
+
+  // Nettoyage des doublons
+  async function cleanupDuplicates() {
+    setIsModifying(true)
+    try {
+      const response = await fetch('/api/admin/transcode-queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'remove-duplicates' })
+      })
+      const data = await response.json()
+      if (data.success) {
+        addToast('success', 'Nettoyage terminé', data.message)
+        await loadStats(true)
+      } else {
+        addToast('error', 'Erreur', 'Nettoyage échoué')
+      }
+    } catch (error) {
+      console.error('Erreur nettoyage:', error)
+      addToast('error', 'Erreur', 'Nettoyage échoué')
+    } finally {
+      setIsModifying(false)
+    }
+  }
+
+  // Drag and Drop handlers
+  function handleDragStart(e: React.DragEvent, index: number) {
+    setDraggedIndex(index)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', index.toString())
+    // Style de l'élément draggé
+    const target = e.target as HTMLElement
+    target.style.opacity = '0.5'
+  }
+
+  function handleDragEnd(e: React.DragEvent) {
+    const target = e.target as HTMLElement
+    target.style.opacity = '1'
+    setDraggedIndex(null)
+    setDragOverIndex(null)
+  }
+
+  function handleDragOver(e: React.DragEvent, index: number) {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (dragOverIndex !== index) {
+      setDragOverIndex(index)
+    }
+  }
+
+  function handleDragLeave() {
+    setDragOverIndex(null)
+  }
+
+  async function handleDrop(e: React.DragEvent, dropIndex: number) {
+    e.preventDefault()
+    
+    if (draggedIndex === null || draggedIndex === dropIndex) {
+      setDraggedIndex(null)
+      setDragOverIndex(null)
+      return
+    }
+
+    // Bloquer le polling
+    setIsModifying(true)
+    if (modifyTimeoutRef.current) clearTimeout(modifyTimeoutRef.current)
+
+    // Mise à jour optimiste immédiate
+    const newQueue = [...queue]
+    const [draggedItem] = newQueue.splice(draggedIndex, 1)
+    newQueue.splice(dropIndex, 0, draggedItem)
+    setQueue(newQueue)
+
+    // Envoyer le nouvel ordre au serveur
+    const newOrder = newQueue.map(j => j.id)
+    try {
+      await fetch('/api/admin/transcode-queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reorder', jobIds: newOrder })
+      })
+      addToast('success', 'Ordre modifié')
+    } catch (error) {
+      console.error('Erreur reorder:', error)
+      addToast('error', 'Erreur', 'Réorganisation échouée')
+      await loadStats(true) // Resync en cas d'erreur
+    }
+
+    setDraggedIndex(null)
+    setDragOverIndex(null)
+
     // Débloquer le polling après 2s
     modifyTimeoutRef.current = setTimeout(() => {
       setIsModifying(false)
@@ -2074,6 +2175,17 @@ function TranscodeView() {
               </p>
             </div>
           </div>
+          <div className={styles.queueHeaderActions}>
+            <button
+              className={styles.btnCleanup}
+              onClick={cleanupDuplicates}
+              disabled={isModifying || queue.length === 0}
+              title="Nettoyer les doublons"
+            >
+              <RefreshCw size={14} />
+              Nettoyer doublons
+            </button>
+          </div>
         </div>
         
         {queue.length > 0 ? (
@@ -2082,8 +2194,17 @@ function TranscodeView() {
               {queue.slice(0, 50).map((job, i) => (
                 <div 
                   key={job.id} 
-                  className={`${styles.queueItem} ${isModifying ? styles.queueItemModifying : ''}`}
+                  className={`${styles.queueItem} ${isModifying ? styles.queueItemModifying : ''} ${draggedIndex === i ? styles.queueItemDragging : ''} ${dragOverIndex === i ? styles.queueItemDragOver : ''}`}
+                  draggable={!isModifying}
+                  onDragStart={(e) => handleDragStart(e, i)}
+                  onDragEnd={handleDragEnd}
+                  onDragOver={(e) => handleDragOver(e, i)}
+                  onDragLeave={handleDragLeave}
+                  onDrop={(e) => handleDrop(e, i)}
                 >
+                  <div className={styles.queueItemDragHandle} title="Glisser pour réorganiser">
+                    <span>⋮⋮</span>
+                  </div>
                   <div className={styles.queueItemPosition}>{i + 1}</div>
                   
                   <div className={styles.queueItemContent}>

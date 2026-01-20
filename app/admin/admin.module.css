@@ -1950,6 +1950,36 @@
   gap: 12px;
 }
 
+.queueHeaderActions {
+  display: flex;
+  gap: 8px;
+}
+
+.btnCleanup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  background: rgba(251, 191, 36, 0.1);
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  border-radius: 6px;
+  color: #fbbf24;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btnCleanup:hover:not(:disabled) {
+  background: rgba(251, 191, 36, 0.2);
+  border-color: rgba(251, 191, 36, 0.5);
+}
+
+.btnCleanup:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .queueIcon {
   width: 40px;
   height: 40px;
@@ -2052,6 +2082,46 @@
 .queueItemModifying {
   opacity: 0.7;
   pointer-events: none;
+}
+
+/* Drag and Drop */
+.queueItemDragHandle {
+  cursor: grab;
+  color: rgba(255,255,255,0.3);
+  font-size: 14px;
+  letter-spacing: -2px;
+  padding: 4px 8px;
+  margin-left: -8px;
+  transition: color 0.15s ease;
+  user-select: none;
+}
+
+.queueItemDragHandle:hover {
+  color: rgba(255,255,255,0.6);
+}
+
+.queueItemDragHandle:active {
+  cursor: grabbing;
+}
+
+.queueItem[draggable="true"] {
+  cursor: grab;
+}
+
+.queueItem[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.queueItemDragging {
+  opacity: 0.5;
+  background: rgba(59,130,246,0.1);
+  border: 1px dashed rgba(59,130,246,0.5);
+}
+
+.queueItemDragOver {
+  background: rgba(34,197,94,0.1);
+  border-top: 2px solid #22c55e;
+  transform: translateY(2px);
 }
 
 .queueItemCheckbox {
