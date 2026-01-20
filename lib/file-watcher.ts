@@ -309,8 +309,17 @@ class FileWatcher {
       let seriesPath = path.dirname(filepath)
       let seriesName = path.basename(seriesPath)
       
-      // Si on est dans un dossier "Season X", remonter d'un niveau
-      if (/^Season\s*\d+$/i.test(seriesName) || /^Saison\s*\d+$/i.test(seriesName) || /^S\d+$/i.test(seriesName)) {
+      // Si on est dans un dossier de saison, remonter d'un niveau
+      // Patterns: "Season 1", "Saison 1", "S01", "S1", "NomSerie S01", "NomSerie S1", etc.
+      const seasonPatterns = [
+        /^Season\s*\d+$/i,           // Season 1, Season01
+        /^Saison\s*\d+$/i,           // Saison 1, Saison01
+        /^S\d{1,2}$/i,               // S01, S1
+        /\sS\d{1,2}$/i,              // "Industry S03" → se termine par S + chiffres
+        /^Specials?$/i,              // Specials
+      ]
+      
+      if (seasonPatterns.some(pattern => pattern.test(seriesName))) {
         seriesPath = path.dirname(seriesPath)
         seriesName = path.basename(seriesPath)
       }
