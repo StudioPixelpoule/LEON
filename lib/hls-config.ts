@@ -9,43 +9,43 @@ type HlsConfig = ConstructorParameters<typeof Hls>[0]
 
 /**
  * Configuration de base optimisée pour le streaming
+ * Priorité : stabilité et fluidité > démarrage rapide
  */
 export const HLS_BASE_CONFIG: Partial<HlsConfig> = {
   debug: false,
   enableWorker: true,
   
-  // 🚀 DÉMARRAGE RAPIDE
+  // 🚀 DÉMARRAGE
   startPosition: -1, // Démarrer au début du buffer disponible
   startLevel: -1, // Auto-sélection du niveau de qualité
   
-  // 📦 BUFFER OPTIMISÉ pour transcodage temps réel
-  // Plus petit buffer = démarrage plus rapide
-  // Mais assez grand pour absorber les variations de transcodage
-  maxBufferLength: 15, // 15s de buffer max (7-8 segments de 2s)
-  maxMaxBufferLength: 30, // 30s max absolu
-  maxBufferSize: 30 * 1000 * 1000, // 30MB max
-  backBufferLength: 10, // Garder 10s en arrière (pour retour rapide)
+  // 📦 BUFFER OPTIMISÉ - Plus grand pour éviter les micro-lags
+  // Compromis : démarrage légèrement plus lent mais lecture fluide
+  maxBufferLength: 30, // 30s de buffer (au lieu de 15)
+  maxMaxBufferLength: 60, // 60s max absolu
+  maxBufferSize: 60 * 1000 * 1000, // 60MB max
+  backBufferLength: 30, // Garder 30s en arrière (pour retour rapide)
   
-  // 🔧 TOLÉRANCE aux imperfections
-  maxBufferHole: 0.5, // Accepter des trous de 500ms
-  nudgeOffset: 0.2, // Décalage de nudge 200ms
-  nudgeMaxRetry: 5, // 5 tentatives de nudge
+  // 🔧 TOLÉRANCE aux imperfections - Plus permissif
+  maxBufferHole: 1.0, // Accepter des trous de 1s
+  nudgeOffset: 0.3, // Décalage de nudge 300ms
+  nudgeMaxRetry: 8, // 8 tentatives de nudge
   
-  // ⏳ TIMEOUTS adaptés au transcodage
-  manifestLoadingTimeOut: 20000, // 20s pour le manifest (FFmpeg peut être lent au démarrage)
-  manifestLoadingMaxRetry: 3,
-  manifestLoadingRetryDelay: 1500,
+  // ⏳ TIMEOUTS adaptés au transcodage NAS
+  manifestLoadingTimeOut: 30000, // 30s pour le manifest
+  manifestLoadingMaxRetry: 5,
+  manifestLoadingRetryDelay: 1000,
   
-  levelLoadingTimeOut: 20000,
-  levelLoadingMaxRetry: 3,
-  levelLoadingRetryDelay: 1500,
+  levelLoadingTimeOut: 30000,
+  levelLoadingMaxRetry: 5,
+  levelLoadingRetryDelay: 1000,
   
-  fragLoadingTimeOut: 25000, // 25s pour les fragments (transcodage en cours)
-  fragLoadingMaxRetry: 8, // Plus de retries pour les fragments
-  fragLoadingRetryDelay: 800, // Retry rapide
+  fragLoadingTimeOut: 30000, // 30s pour les fragments
+  fragLoadingMaxRetry: 10, // Plus de retries
+  fragLoadingRetryDelay: 500, // Retry rapide
   
-  // 🎯 ABR (Adaptive Bitrate) - Désactivé car single quality
-  abrEwmaDefaultEstimate: 5000000, // Estimation initiale 5 Mbps
+  // 🎯 ABR (Adaptive Bitrate)
+  abrEwmaDefaultEstimate: 8000000, // Estimation initiale 8 Mbps
   abrBandWidthFactor: 0.95,
   abrBandWidthUpFactor: 0.7,
   
@@ -55,18 +55,18 @@ export const HLS_BASE_CONFIG: Partial<HlsConfig> = {
   startFragPrefetch: true, // Précharger le premier fragment
   
   // 🛡️ RÉCUPÉRATION D'ERREURS
-  levelLoadingMaxRetryTimeout: 64000,
-  fragLoadingMaxRetryTimeout: 64000,
+  levelLoadingMaxRetryTimeout: 90000,
+  fragLoadingMaxRetryTimeout: 90000,
 }
 
 /**
  * Configuration pour démarrage rapide (premier lancement)
- * Buffer plus petit pour démarrer vite
+ * Compromis entre vitesse et stabilité
  */
 export const HLS_FAST_START_CONFIG: Partial<HlsConfig> = {
   ...HLS_BASE_CONFIG,
-  maxBufferLength: 8, // Démarrer avec moins de buffer
-  maxMaxBufferLength: 15,
+  maxBufferLength: 15, // 15s au lieu de 8 pour plus de stabilité
+  maxMaxBufferLength: 30,
   startFragPrefetch: true,
 }
 

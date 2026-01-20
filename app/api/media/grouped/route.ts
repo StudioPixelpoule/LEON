@@ -1,5 +1,6 @@
 /**
  * API Route: Récupération des médias (films uniquement)
+ * Optimisé avec cache côté serveur
  */
 
 import { NextResponse } from 'next/server'
@@ -36,16 +37,51 @@ export interface GroupedMedia {
   episode_count?: number | null
 }
 
+// Cache en mémoire côté serveur (5 minutes)
+let cachedMovies: GroupedMedia[] | null = null
+let cacheTimestamp = 0
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url)
-    const sortBy = searchParams.get('sort') || 'recent' // 'recent', 'rating', 'title'
+    const sortBy = searchParams.get('sort') || 'recent'
     const limit = parseInt(searchParams.get('limit') || '0', 10)
+    const noCache = searchParams.get('nocache') === 'true'
     
-    // Récupérer TOUS les films (même sans poster)
+    const now = Date.now()
+    
+    // Utiliser le cache si valide
+    if (!noCache && cachedMovies && (now - cacheTimestamp) < CACHE_DURATION) {
+      let results = [...cachedMovies]
+      
+      // Trier si nécessaire
+      if (sortBy === 'rating') {
+        results.sort((a, b) => (b.rating || 0) - (a.rating || 0))
+      } else if (sortBy === 'title') {
+        results.sort((a, b) => a.title.localeCompare(b.title))
+      }
+      
+      if (limit > 0) {
+        results = results.slice(0, limit)
+      }
+      
+      return NextResponse.json({
+        success: true,
+        count: results.length,
+        media: results,
+        cached: true
+      }, {
+        headers: {
+          'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60'
+        }
+      })
+    }
+    
+    // Requête optimisée : seulement les colonnes nécessaires pour l'affichage
     const query = supabase
       .from('media')
-      .select('*')
+      .select('id, title, original_title, year, poster_url, backdrop_url, overview, rating, tmdb_id, release_date, genres, pcloud_fileid, duration, formatted_runtime, movie_cast, director, subtitles, quality, created_at')
     
     if (sortBy === 'recent') {
       query.order('created_at', { ascending: false })
@@ -91,10 +127,28 @@ export async function GET(request: Request) {
       created_at: movie.created_at,
     })) || []
     
+    // Mettre à jour le cache (trié par date récente par défaut)
+    cachedMovies = results.sort((a, b) => {
+      const dateA = new Date(a.created_at || 0).getTime()
+      const dateB = new Date(b.created_at || 0).getTime()
+      return dateB - dateA
+    })
+    cacheTimestamp = now
+    
+    let finalResults = [...results]
+    if (limit > 0) {
+      finalResults = finalResults.slice(0, limit)
+    }
+    
     return NextResponse.json({
       success: true,
-      count: results.length,
-      media: results,
+      count: finalResults.length,
+      media: finalResults,
+      cached: false
+    }, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60'
+      }
     })
     
   } catch (error) {
