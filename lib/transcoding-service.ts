@@ -165,6 +165,26 @@ class TranscodingService {
       this.completedJobs = state.completedJobs || []
       this.isPaused = state.isPaused || false
 
+      // NETTOYAGE AUTOMATIQUE DES DOUBLONS AU CHARGEMENT
+      const seenFilenames = new Map<string, TranscodeJob>()
+      const cleanQueue: TranscodeJob[] = []
+      let duplicatesRemoved = 0
+      
+      for (const job of this.queue) {
+        if (!seenFilenames.has(job.filename)) {
+          seenFilenames.set(job.filename, job)
+          cleanQueue.push(job)
+        } else {
+          duplicatesRemoved++
+        }
+      }
+      
+      if (duplicatesRemoved > 0) {
+        console.log(`🧹 Nettoyage auto: ${duplicatesRemoved} doublons supprimés au chargement`)
+      }
+      
+      this.queue = cleanQueue
+
       // Re-trier par priorité (date de modification)
       this.queue.sort((a, b) => b.priority - a.priority)
 
@@ -1099,33 +1119,46 @@ class TranscodingService {
   async addToQueue(filepath: string, highPriority: boolean = false): Promise<TranscodeJob | null> {
     // Normaliser le chemin pour éviter les doublons dûs aux variations
     const normalizedPath = path.normalize(filepath)
+    const filename = path.basename(filepath)
     
-    // Vérifier si déjà dans la queue
-    const existing = this.queue.find(j => path.normalize(j.filepath) === normalizedPath)
-    if (existing) {
+    // VÉRIFICATION STRICTE DES DOUBLONS PAR FILENAME
+    // Car le même fichier peut avoir des chemins légèrement différents
+    const existingByFilename = this.queue.find(j => j.filename === filename)
+    if (existingByFilename) {
+      console.log(`⏭️ Fichier déjà dans la queue (même nom): ${filename}`)
       if (highPriority) {
-        existing.priority = Date.now()
+        existingByFilename.priority = Date.now()
         this.queue.sort((a, b) => b.priority - a.priority)
         await this.saveState()
       }
-      return existing
+      return existingByFilename
+    }
+    
+    // Vérifier aussi par chemin complet (double sécurité)
+    const existingByPath = this.queue.find(j => path.normalize(j.filepath) === normalizedPath)
+    if (existingByPath) {
+      if (highPriority) {
+        existingByPath.priority = Date.now()
+        this.queue.sort((a, b) => b.priority - a.priority)
+        await this.saveState()
+      }
+      return existingByPath
     }
     
     // Vérifier si c'est le job en cours
-    if (this.currentJob && path.normalize(this.currentJob.filepath) === normalizedPath) {
-      console.log(`⏭️ Fichier déjà en cours de transcodage: ${path.basename(filepath)}`)
+    if (this.currentJob && (this.currentJob.filename === filename || path.normalize(this.currentJob.filepath) === normalizedPath)) {
+      console.log(`⏭️ Fichier déjà en cours de transcodage: ${filename}`)
       return this.currentJob
     }
     
-    // Vérifier si déjà complété récemment
-    const recentlyCompleted = this.completedJobs.find(j => path.normalize(j.filepath) === normalizedPath)
+    // Vérifier si déjà complété récemment (par filename aussi)
+    const recentlyCompleted = this.completedJobs.find(j => j.filename === filename || path.normalize(j.filepath) === normalizedPath)
     if (recentlyCompleted) {
-      console.log(`✅ Fichier déjà transcodé: ${path.basename(filepath)}`)
+      console.log(`✅ Fichier déjà transcodé: ${filename}`)
       return null
     }
 
     const outputDir = this.getOutputDir(filepath)
-    const filename = path.basename(filepath)
     
     // Vérifier si déjà transcodé sur le disque
     if (await this.isAlreadyTranscoded(outputDir)) {
@@ -1195,25 +1228,37 @@ class TranscodingService {
    * Garde le premier job pour chaque fichier unique
    */
   async removeDuplicates(): Promise<number> {
-    const seen = new Map<string, TranscodeJob>()
-    const duplicates: string[] = []
+    // Utiliser le FILENAME comme clé (pas le chemin complet)
+    // Car le même fichier peut avoir des chemins légèrement différents
+    const seenByFilename = new Map<string, TranscodeJob>()
+    const duplicateIds: string[] = []
     
     for (const job of this.queue) {
-      const normalizedPath = path.normalize(job.filepath)
-      if (seen.has(normalizedPath)) {
-        duplicates.push(job.id)
+      const key = job.filename // Utiliser le nom de fichier comme clé
+      
+      if (seenByFilename.has(key)) {
+        // Garder celui avec la plus haute priorité ou le premier
+        const existing = seenByFilename.get(key)!
+        if (job.priority > existing.priority) {
+          // Le nouveau a plus de priorité, supprimer l'ancien
+          duplicateIds.push(existing.id)
+          seenByFilename.set(key, job)
+        } else {
+          // L'ancien a plus de priorité, supprimer le nouveau
+          duplicateIds.push(job.id)
+        }
       } else {
-        seen.set(normalizedPath, job)
+        seenByFilename.set(key, job)
       }
     }
     
-    if (duplicates.length > 0) {
-      this.queue = this.queue.filter(j => !duplicates.includes(j.id))
+    if (duplicateIds.length > 0) {
+      this.queue = this.queue.filter(j => !duplicateIds.includes(j.id))
       await this.saveState()
-      console.log(`🧹 ${duplicates.length} doublons supprimés de la queue`)
+      console.log(`🧹 ${duplicateIds.length} doublons supprimés de la queue`)
     }
     
-    return duplicates.length
+    return duplicateIds.length
   }
 
   /**
