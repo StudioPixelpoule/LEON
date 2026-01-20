@@ -138,6 +138,12 @@ export async function POST(request: Request) {
         message = 'Transcodage arrêté'
         break
         
+      case 'remove-duplicates':
+        const removedCount = await transcodingService.removeDuplicates()
+        success = true
+        message = `${removedCount} doublon(s) supprimé(s)`
+        break
+        
       default:
         return NextResponse.json(
           { error: `Action inconnue: ${action}` },

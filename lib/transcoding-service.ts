@@ -1097,7 +1097,11 @@ class TranscodingService {
    * Ajouter un fichier à la queue avec haute priorité (nouveau fichier)
    */
   async addToQueue(filepath: string, highPriority: boolean = false): Promise<TranscodeJob | null> {
-    const existing = this.queue.find(j => j.filepath === filepath)
+    // Normaliser le chemin pour éviter les doublons dûs aux variations
+    const normalizedPath = path.normalize(filepath)
+    
+    // Vérifier si déjà dans la queue
+    const existing = this.queue.find(j => path.normalize(j.filepath) === normalizedPath)
     if (existing) {
       if (highPriority) {
         existing.priority = Date.now()
@@ -1106,9 +1110,28 @@ class TranscodingService {
       }
       return existing
     }
+    
+    // Vérifier si c'est le job en cours
+    if (this.currentJob && path.normalize(this.currentJob.filepath) === normalizedPath) {
+      console.log(`⏭️ Fichier déjà en cours de transcodage: ${path.basename(filepath)}`)
+      return this.currentJob
+    }
+    
+    // Vérifier si déjà complété récemment
+    const recentlyCompleted = this.completedJobs.find(j => path.normalize(j.filepath) === normalizedPath)
+    if (recentlyCompleted) {
+      console.log(`✅ Fichier déjà transcodé: ${path.basename(filepath)}`)
+      return null
+    }
 
     const outputDir = this.getOutputDir(filepath)
     const filename = path.basename(filepath)
+    
+    // Vérifier si déjà transcodé sur le disque
+    if (await this.isAlreadyTranscoded(outputDir)) {
+      console.log(`✅ Fichier déjà transcodé (sur disque): ${filename}`)
+      return null
+    }
 
     // Obtenir les stats du fichier
     let fileSize = 0
@@ -1165,6 +1188,32 @@ class TranscodingService {
     }
 
     return false
+  }
+
+  /**
+   * Supprimer les doublons de la queue
+   * Garde le premier job pour chaque fichier unique
+   */
+  async removeDuplicates(): Promise<number> {
+    const seen = new Map<string, TranscodeJob>()
+    const duplicates: string[] = []
+    
+    for (const job of this.queue) {
+      const normalizedPath = path.normalize(job.filepath)
+      if (seen.has(normalizedPath)) {
+        duplicates.push(job.id)
+      } else {
+        seen.set(normalizedPath, job)
+      }
+    }
+    
+    if (duplicates.length > 0) {
+      this.queue = this.queue.filter(j => !duplicates.includes(j.id))
+      await this.saveState()
+      console.log(`🧹 ${duplicates.length} doublons supprimés de la queue`)
+    }
+    
+    return duplicates.length
   }
 
   /**
