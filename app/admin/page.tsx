@@ -11,7 +11,7 @@
 
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef, memo } from 'react'
 import Image from 'next/image'
 import Header from '@/components/Header/Header'
 import { 
@@ -44,9 +44,95 @@ import {
   Menu,
   ArrowUp,
   ArrowDown,
-  ChevronsUp
+  ChevronsUp,
+  CheckCircle,
+  XCircle,
+  Info,
+  AlertTriangle
 } from 'lucide-react'
 import styles from './admin.module.css'
+
+// ============================================
+// SYSTÈME DE NOTIFICATIONS TOAST
+// ============================================
+type ToastType = 'success' | 'error' | 'info' | 'warning'
+
+interface Toast {
+  id: string
+  type: ToastType
+  title: string
+  message?: string
+  leaving?: boolean
+}
+
+function useToast() {
+  const [toasts, setToasts] = useState<Toast[]>([])
+  
+  const addToast = useCallback((type: ToastType, title: string, message?: string) => {
+    const id = Math.random().toString(36).substring(7)
+    setToasts(prev => [...prev, { id, type, title, message }])
+    
+    // Auto-remove après 4s
+    setTimeout(() => {
+      setToasts(prev => prev.map(t => t.id === id ? { ...t, leaving: true } : t))
+      setTimeout(() => {
+        setToasts(prev => prev.filter(t => t.id !== id))
+      }, 250)
+    }, 4000)
+    
+    return id
+  }, [])
+  
+  const removeToast = useCallback((id: string) => {
+    setToasts(prev => prev.map(t => t.id === id ? { ...t, leaving: true } : t))
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id))
+    }, 250)
+  }, [])
+  
+  return { toasts, addToast, removeToast }
+}
+
+const ToastIcon = ({ type }: { type: ToastType }) => {
+  switch (type) {
+    case 'success': return <CheckCircle size={18} />
+    case 'error': return <XCircle size={18} />
+    case 'warning': return <AlertTriangle size={18} />
+    default: return <Info size={18} />
+  }
+}
+
+const ToastContainer = memo(function ToastContainer({ 
+  toasts, 
+  removeToast 
+}: { 
+  toasts: Toast[]
+  removeToast: (id: string) => void 
+}) {
+  if (toasts.length === 0) return null
+  
+  return (
+    <div className={styles.toastContainer}>
+      {toasts.map(toast => (
+        <div 
+          key={toast.id} 
+          className={`${styles.toast} ${styles[toast.type]} ${toast.leaving ? styles.leaving : ''}`}
+        >
+          <div className={styles.toastIcon}>
+            <ToastIcon type={toast.type} />
+          </div>
+          <div className={styles.toastContent}>
+            <p className={styles.toastTitle}>{toast.title}</p>
+            {toast.message && <p className={styles.toastMessage}>{toast.message}</p>}
+          </div>
+          <button className={styles.toastClose} onClick={() => removeToast(toast.id)}>
+            <X size={14} />
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+})
 
 // Types
 type AdminView = 'dashboard' | 'scan' | 'posters' | 'transcode' | 'stats' | 'activity'
@@ -72,6 +158,18 @@ interface DashboardStats {
 // COMPOSANT PRINCIPAL
 // ============================================
 
+// Context pour partager le toast entre composants
+import { createContext, useContext } from 'react'
+const ToastContext = createContext<{
+  addToast: (type: ToastType, title: string, message?: string) => string
+} | null>(null)
+
+export const useAdminToast = () => {
+  const ctx = useContext(ToastContext)
+  if (!ctx) throw new Error('useAdminToast must be used within AdminPageV2')
+  return ctx
+}
+
 export default function AdminPageV2() {
   const [view, setView] = useState<AdminView>('dashboard')
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -83,27 +181,42 @@ export default function AdminPageV2() {
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null)
   const [loading, setLoading] = useState(true)
   
+  // Système de toast
+  const { toasts, addToast, removeToast } = useToast()
+  
+  // Ref pour éviter les requêtes en double
+  const isLoadingRef = useRef(false)
+  const lastLoadRef = useRef(0)
+  
   // Fermer le menu mobile quand on change de vue
   const handleViewChange = (newView: AdminView) => {
     setView(newView)
     setMobileMenuOpen(false)
   }
 
-  // Charger les données initiales
-  useEffect(() => {
-    loadDashboardData()
-    const interval = setInterval(loadDashboardData, 10000)
-    return () => clearInterval(interval)
-  }, [])
-
-  async function loadDashboardData() {
+  // Charger les données avec throttling intelligent
+  const loadDashboardData = useCallback(async (force = false) => {
+    // Éviter les requêtes trop rapprochées (min 2s entre chaque)
+    const now = Date.now()
+    if (!force && (isLoadingRef.current || now - lastLoadRef.current < 2000)) {
+      return
+    }
+    
+    isLoadingRef.current = true
+    lastLoadRef.current = now
+    
     try {
-      // Charger les stats en parallèle
+      // Charger les stats en parallèle avec AbortController pour timeout
+      const controller = new AbortController()
+      const timeout = setTimeout(() => controller.abort(), 8000)
+      
       const [transcodeRes, statsRes, watchingRes] = await Promise.all([
-        fetch('/api/transcode?quick=true'),
-        fetch('/api/stats/dashboard'),
-        fetch('/api/stats/watching')
+        fetch('/api/transcode?quick=true', { signal: controller.signal }),
+        fetch('/api/stats/dashboard', { signal: controller.signal }),
+        fetch('/api/stats/watching', { signal: controller.signal })
       ])
+      
+      clearTimeout(timeout)
 
       const transcodeData = await transcodeRes.json()
       const statsData = await statsRes.json()
@@ -130,14 +243,34 @@ export default function AdminPageV2() {
         activeViewers: watchingData.activeSessions?.filter((s: { isActive: boolean }) => s.isActive).length || 0
       })
     } catch (error) {
-      console.error('Erreur chargement dashboard:', error)
+      if ((error as Error).name !== 'AbortError') {
+        console.error('Erreur chargement dashboard:', error)
+      }
     } finally {
       setLoading(false)
+      isLoadingRef.current = false
     }
-  }
+  }, [])
+
+  // Polling intelligent : plus rapide si transcodage actif
+  useEffect(() => {
+    loadDashboardData(true)
+    
+    // Polling adaptatif : 5s si actif, 15s sinon
+    const getInterval = () => status.transcodingActive ? 5000 : 15000
+    
+    let interval = setInterval(() => loadDashboardData(), getInterval())
+    
+    // Re-créer l'intervalle si le status change
+    return () => clearInterval(interval)
+  }, [loadDashboardData, status.transcodingActive])
 
   return (
+    <ToastContext.Provider value={{ addToast }}>
     <div className={styles.container}>
+      {/* Notifications Toast */}
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
+      
       <Header />
       
       {/* Bouton menu mobile */}
@@ -258,6 +391,7 @@ export default function AdminPageV2() {
         </main>
       </div>
     </div>
+    </ToastContext.Provider>
   )
 }
 
@@ -1619,6 +1753,7 @@ interface TranscodedFile {
 }
 
 function TranscodeView() {
+  const { addToast } = useAdminToast()
   const [stats, setStats] = useState<TranscodeStats | null>(null)
   const [queue, setQueue] = useState<TranscodeJob[]>([])
   const [transcoded, setTranscoded] = useState<TranscodedFile[]>([])
@@ -1626,14 +1761,22 @@ function TranscodeView() {
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [showTranscoded, setShowTranscoded] = useState(false)
+  
+  // Ref pour éviter les requêtes en double
+  const isLoadingRef = useRef(false)
 
   useEffect(() => {
-    loadStats(true) // Mode rapide au démarrage
-    const interval = setInterval(() => loadStats(true), 5000) // Polling toutes les 5s
+    loadStats(true)
+    // Polling adaptatif : 3s si transcodage actif, 8s sinon
+    const getInterval = () => stats?.isRunning && !stats?.isPaused ? 3000 : 8000
+    const interval = setInterval(() => loadStats(true), getInterval())
     return () => clearInterval(interval)
-  }, [])
+  }, [stats?.isRunning, stats?.isPaused])
 
-  async function loadStats(quick: boolean = true) {
+  const loadStats = useCallback(async (quick: boolean = true) => {
+    if (isLoadingRef.current) return
+    isLoadingRef.current = true
+    
     try {
       const response = await fetch(`/api/transcode${quick ? '?quick=true' : ''}`)
       const data = await response.json()
@@ -1645,8 +1788,9 @@ function TranscodeView() {
       console.error('Erreur chargement stats:', error)
     } finally {
       setLoading(false)
+      isLoadingRef.current = false
     }
-  }
+  }, [])
 
   async function performAction(action: string) {
     setActionLoading(action)
@@ -1656,9 +1800,25 @@ function TranscodeView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action })
       })
-      await loadStats(true) // Mode rapide après action
+      
+      // Feedback via toast
+      const messages: Record<string, { title: string; type: ToastType }> = {
+        'start': { title: 'Transcodage démarré', type: 'success' },
+        'pause': { title: 'Transcodage en pause', type: 'info' },
+        'resume': { title: 'Transcodage repris', type: 'success' },
+        'stop': { title: 'Transcodage arrêté', type: 'warning' },
+        'scan': { title: 'Scan terminé', type: 'success' },
+        'start-watcher': { title: 'Watcher activé', type: 'success' },
+        'stop-watcher': { title: 'Watcher désactivé', type: 'info' }
+      }
+      
+      const msg = messages[action]
+      if (msg) addToast(msg.type, msg.title)
+      
+      await loadStats(true)
     } catch (error) {
       console.error(`Erreur action ${action}:`, error)
+      addToast('error', 'Erreur', `Action "${action}" échouée`)
     } finally {
       setActionLoading(null)
     }
@@ -1668,9 +1828,11 @@ function TranscodeView() {
     if (!confirm(`Supprimer "${name}" ?`)) return
     try {
       await fetch(`/api/transcode?folder=${encodeURIComponent(folder)}`, { method: 'DELETE' })
+      addToast('success', 'Supprimé', name)
       await loadStats(false)
     } catch (error) {
       console.error('Erreur suppression:', error)
+      addToast('error', 'Erreur suppression')
     }
   }
 
@@ -1682,9 +1844,40 @@ function TranscodeView() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, jobId })
       })
+      
+      if (action === 'remove') {
+        addToast('info', 'Élément retiré de la file')
+      } else if (action === 'move-to-top') {
+        addToast('success', 'Placé en tête de file')
+      }
+      
       await loadStats(true)
     } catch (error) {
       console.error(`Erreur ${action}:`, error)
+      addToast('error', 'Erreur', `Action échouée`)
+    }
+  }
+  
+  // Nettoyer les doublons
+  async function cleanupDuplicates() {
+    try {
+      const res = await fetch('/api/admin/transcode-queue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'remove-duplicates' })
+      })
+      const data = await res.json()
+      
+      if (data.success) {
+        addToast('success', 'Nettoyage effectué', data.message)
+      } else {
+        addToast('warning', 'Aucun doublon trouvé')
+      }
+      
+      await loadStats(true)
+    } catch (error) {
+      console.error('Erreur nettoyage:', error)
+      addToast('error', 'Erreur nettoyage')
     }
   }
 
@@ -1857,20 +2050,7 @@ function TranscodeView() {
           <div className={styles.queueHeaderActions}>
             <button 
               className={styles.btnCleanup}
-              onClick={async () => {
-                try {
-                  const res = await fetch('/api/admin/transcode-queue', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'remove-duplicates' })
-                  })
-                  const data = await res.json()
-                  if (data.message) alert(data.message)
-                  await loadStats(true)
-                } catch (e) {
-                  console.error(e)
-                }
-              }}
+              onClick={cleanupDuplicates}
               title="Supprimer les doublons"
             >
               <Trash2 size={14} />
