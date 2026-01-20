@@ -153,16 +153,35 @@ export async function POST() {
       if (!tmdbData) {
         console.log(`   ❌ Non trouvé sur TMDB, création sans métadonnées...`)
         
-        // Créer quand même une entrée sans métadonnées
-        const { data: existingSeries, error: checkError } = await supabase
+        // Chercher d'abord par chemin local (plus fiable)
+        let existingSeriesNoTmdb: { id: string } | null = null
+        
+        const { data: seriesByPath } = await supabase
           .from('series')
           .select('id')
-          .eq('title', seriesName)
+          .eq('local_folder_path', seriesPath)
           .single()
+        
+        if (seriesByPath) {
+          existingSeriesNoTmdb = seriesByPath
+          console.log(`   📁 Série trouvée par chemin local (ID: ${seriesByPath.id})`)
+        } else {
+          // Sinon chercher par titre
+          const { data: seriesByTitle } = await supabase
+            .from('series')
+            .select('id')
+            .eq('title', seriesName)
+            .single()
+          
+          if (seriesByTitle) {
+            existingSeriesNoTmdb = seriesByTitle
+            console.log(`   📝 Série trouvée par titre (ID: ${seriesByTitle.id})`)
+          }
+        }
         
         let seriesId: string
         
-        if (!existingSeries) {
+        if (!existingSeriesNoTmdb) {
           const { data: newSeries, error: insertError } = await supabase
             .from('series')
             .insert({
@@ -180,8 +199,10 @@ export async function POST() {
           
           console.log(`   ✅ Série créée (ID: ${newSeries.id})`)
           seriesId = newSeries.id
+          stats.newSeries++
         } else {
-          seriesId = existingSeries.id
+          seriesId = existingSeriesNoTmdb.id
+          console.log(`   ✅ Série existante utilisée (ID: ${seriesId})`)
         }
         
         // Sauvegarder les épisodes
@@ -223,11 +244,32 @@ export async function POST() {
 
       // 4. Sauvegarder la série
       console.log(`   💾 Sauvegarde dans la base...`)
-      const { data: existingSeries, error: checkError } = await supabase
+      
+      // Chercher d'abord par chemin local (plus fiable pour les rescans)
+      let existingSeries: { id: string } | null = null
+      
+      const { data: seriesByPath } = await supabase
         .from('series')
         .select('id')
-        .eq('tmdb_id', tmdbData.id)
+        .eq('local_folder_path', seriesPath)
         .single()
+      
+      if (seriesByPath) {
+        existingSeries = seriesByPath
+        console.log(`   📁 Série trouvée par chemin local (ID: ${seriesByPath.id})`)
+      } else {
+        // Sinon chercher par tmdb_id
+        const { data: seriesByTmdb } = await supabase
+          .from('series')
+          .select('id')
+          .eq('tmdb_id', tmdbData.id)
+          .single()
+        
+        if (seriesByTmdb) {
+          existingSeries = seriesByTmdb
+          console.log(`   🎬 Série trouvée par TMDB ID (ID: ${seriesByTmdb.id})`)
+        }
+      }
 
       let seriesId: string
 
