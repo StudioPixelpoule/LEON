@@ -138,6 +138,7 @@ interface SimpleVideoPlayerProps {
   nextEpisode?: NextEpisodeInfo // Épisode suivant (pour les séries)
   onNextEpisode?: (preferences: PlayerPreferences) => void // Callback pour passer à l'épisode suivant (avec préférences)
   initialPreferences?: PlayerPreferences // Préférences de l'épisode précédent
+  creditsStartTime?: number // Moment où le générique commence (en secondes) - si connu
 }
 
 interface AudioTrack {
@@ -188,7 +189,8 @@ export default function SimpleVideoPlayer({
   mediaType = 'movie',
   nextEpisode,
   onNextEpisode,
-  initialPreferences
+  initialPreferences,
+  creditsStartTime // Timing précis du générique si disponible (en secondes)
 }: SimpleVideoPlayerProps) {
   const { user } = useAuth()
   const userId = user?.id
@@ -244,7 +246,7 @@ export default function SimpleVideoPlayer({
   
   // États pour l'épisode suivant (style Netflix)
   const [showNextEpisodeUI, setShowNextEpisodeUI] = useState(false)
-  const [nextEpisodeCountdown, setNextEpisodeCountdown] = useState(10) // Compte à rebours 10 secondes
+  const [nextEpisodeCountdown, setNextEpisodeCountdown] = useState(5) // Compte à rebours 5 secondes (comme Netflix)
   const [isNextEpisodeCancelled, setIsNextEpisodeCancelled] = useState(false) // Si l'utilisateur a annulé
   const nextEpisodeTimerRef = useRef<NodeJS.Timeout | null>(null) // Timer pour le compte à rebours
   
@@ -362,7 +364,7 @@ export default function SimpleVideoPlayer({
   useEffect(() => {
     setShowNextEpisodeUI(false)
     setIsNextEpisodeCancelled(false)
-    setNextEpisodeCountdown(10)
+    setNextEpisodeCountdown(5) // 5s comme Netflix
   }, [src])
 
   // 🔧 FIX: Synchroniser les refs avec les valeurs de state (pour éviter closures stale)
@@ -647,6 +649,13 @@ export default function SimpleVideoPlayer({
   // 🎬 Netflix: Compte à rebours de 10 secondes pour l'épisode suivant
   // 🔧 FIX: Utilise les refs pour éviter les closures stale (le countdown ne redémarre plus)
   useEffect(() => {
+    console.log('[PLAYER] 🔄 useEffect countdown déclenché:', {
+      showNextEpisodeUI,
+      isNextEpisodeCancelled,
+      hasNextEpisode: !!nextEpisode,
+      hasOnNextEpisode: !!onNextEpisode
+    })
+    
     // Nettoyer le timer précédent
     if (nextEpisodeTimerRef.current) {
       clearInterval(nextEpisodeTimerRef.current)
@@ -655,47 +664,55 @@ export default function SimpleVideoPlayer({
 
     // Si l'UI n'est pas affichée ou annulée, ne rien faire
     if (!showNextEpisodeUI || isNextEpisodeCancelled || !nextEpisode || !onNextEpisode) {
+      console.log('[PLAYER] ⏹️ Countdown non démarré - conditions non remplies')
       return
     }
 
-    console.log('[PLAYER] ⏱️ Démarrage du compte à rebours 10s')
+    console.log('[PLAYER] ⏱️ Démarrage du compte à rebours 5s (style Netflix)')
+    
+    // Variable locale pour suivre le compteur (évite les problèmes de closure)
+    let currentCount = 5
+    setNextEpisodeCountdown(5)
     
     // Démarrer le compte à rebours
     nextEpisodeTimerRef.current = setInterval(() => {
-      setNextEpisodeCountdown((prev) => {
-        if (prev <= 1) {
-          // Compte à rebours terminé - lancer l'épisode suivant
-          console.log('[PLAYER] ⏱️ Compte à rebours terminé, lancement épisode suivant')
-          
-          // Nettoyer le timer
-          if (nextEpisodeTimerRef.current) {
-            clearInterval(nextEpisodeTimerRef.current)
-            nextEpisodeTimerRef.current = null
-          }
-          
-          // 🔧 FIX: Utiliser les refs pour avoir les valeurs actuelles (pas de closure stale)
-          const preferences: PlayerPreferences = {
-            audioTrackIndex: selectedAudioRef.current,
-            subtitleTrackIndex: selectedSubtitleRef.current,
-            wasFullscreen: isFullscreenRef.current
-          }
-          
-          // Marquer l'épisode actuel comme terminé
-          if (mediaId) {
-            markAsFinished()
-          }
-          
-          // Lancer l'épisode suivant avec les préférences
-          onNextEpisode(preferences)
-          
-          return 0
+      currentCount -= 1
+      console.log('[PLAYER] ⏱️ Countdown:', currentCount)
+      
+      if (currentCount <= 0) {
+        // Compte à rebours terminé - lancer l'épisode suivant
+        console.log('[PLAYER] ⏱️ Compte à rebours terminé, lancement épisode suivant')
+        
+        // Nettoyer le timer
+        if (nextEpisodeTimerRef.current) {
+          clearInterval(nextEpisodeTimerRef.current)
+          nextEpisodeTimerRef.current = null
         }
-        return prev - 1
-      })
+        
+        // 🔧 FIX: Utiliser les refs pour avoir les valeurs actuelles (pas de closure stale)
+        const preferences: PlayerPreferences = {
+          audioTrackIndex: selectedAudioRef.current,
+          subtitleTrackIndex: selectedSubtitleRef.current,
+          wasFullscreen: isFullscreenRef.current
+        }
+        
+        console.log('[PLAYER] 🎬 Préférences transmises:', preferences)
+        
+        // Marquer l'épisode actuel comme terminé
+        if (mediaId) {
+          markAsFinished()
+        }
+        
+        // Lancer l'épisode suivant avec les préférences
+        onNextEpisode(preferences)
+      } else {
+        setNextEpisodeCountdown(currentCount)
+      }
     }, 1000)
 
     // Cleanup
     return () => {
+      console.log('[PLAYER] 🧹 Cleanup countdown timer')
       if (nextEpisodeTimerRef.current) {
         clearInterval(nextEpisodeTimerRef.current)
         nextEpisodeTimerRef.current = null
@@ -1230,26 +1247,29 @@ export default function SimpleVideoPlayer({
         preloaderRef.current.updateCurrentSegment(currentSegmentIndex)
       }
       
-      // 🎬 Épisode suivant: Afficher le UI quand on arrive à la fin (30s avant la fin)
+      // 🎬 Épisode suivant: Afficher le UI quand on arrive au générique
       // 🔧 FIX: Fallback robuste pour la durée (API, vidéo native, puis state)
       const videoDuration = isFinite(video.duration) && video.duration > 0 ? video.duration : 0
       const totalDuration = realDurationRef.current || videoDuration || duration
       // Ne pas afficher l'UI pour les vidéos trop courtes (< 60s) ou si durée inconnue
       if (nextEpisode && onNextEpisode && !isNextEpisodeCancelled && totalDuration > 60) {
-        const timeRemaining = Math.max(0, totalDuration - currentPos)
+        // 🎯 Utiliser creditsStartTime si disponible, sinon fallback à 45s avant la fin
+        const triggerTime = creditsStartTime ?? (totalDuration - 45)
+        const shouldShowUI = currentPos >= triggerTime && currentPos < totalDuration
         
-        // Afficher l'UI 30s avant la fin (déclenche le compte à rebours de 10s)
-        if (timeRemaining <= 30 && timeRemaining > 0) {
+        // Afficher l'UI au début du générique (timing précis ou 45s avant la fin)
+        // Le countdown de 5s démarre automatiquement via useEffect
+        if (shouldShowUI) {
           if (!showNextEpisodeUI) {
             setShowNextEpisodeUI(true)
-            setNextEpisodeCountdown(10) // Réinitialiser le compte à rebours
+            // Ne pas réinitialiser ici - le useEffect gère le countdown
           }
         }
         
-        // Masquer si on recule avant les 30 dernières secondes
-        if (timeRemaining > 30 && showNextEpisodeUI) {
+        // Masquer si on recule avant le générique
+        if (!shouldShowUI && showNextEpisodeUI) {
           setShowNextEpisodeUI(false)
-          setNextEpisodeCountdown(10) // Réinitialiser
+          setNextEpisodeCountdown(5) // Reset à 5s
           // Annuler le timer si on recule
           if (nextEpisodeTimerRef.current) {
             clearInterval(nextEpisodeTimerRef.current)
