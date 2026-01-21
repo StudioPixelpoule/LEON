@@ -303,7 +303,8 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
     
     return (
       <SimpleVideoPlayer
-        key={currentEpisode.id} // 🔧 FIX: Forcer re-mount complet quand l'épisode change
+        // 🔧 FIX: PAS de key ici ! Garder le même composant pour préserver le fullscreen
+        // Le player gère déjà le changement de src via useEffect([src])
         src={videoUrl}
         title={seriesDetails.title}
         subtitle={`S${currentEpisode.season_number}E${currentEpisode.episode_number} · ${currentEpisode.title}`}
