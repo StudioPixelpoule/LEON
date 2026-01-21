@@ -67,6 +67,7 @@ export interface TranscodeStats {
 interface QueueState {
   queue: TranscodeJob[]
   completedJobs: TranscodeJob[]
+  interruptedJob?: TranscodeJob // Job interrompu à reprendre
   isRunning: boolean
   isPaused: boolean
   lastSaved: string
@@ -164,6 +165,27 @@ class TranscodingService {
       this.queue = state.queue.filter(j => j.status === 'pending')
       this.completedJobs = state.completedJobs || []
       this.isPaused = state.isPaused || false
+      
+      // REPRISE DU JOB INTERROMPU
+      // Si un job était en cours lors du dernier arrêt, le remettre en tête de queue
+      if (state.interruptedJob) {
+        const interruptedFilename = state.interruptedJob.filename.toLowerCase().trim()
+        const alreadyInQueue = this.queue.some(j => j.filename.toLowerCase().trim() === interruptedFilename)
+        
+        if (!alreadyInQueue) {
+          // Remettre le job interrompu en tête de queue avec haute priorité
+          const resumedJob: TranscodeJob = {
+            ...state.interruptedJob,
+            status: 'pending',
+            progress: 0,
+            priority: Date.now() // Haute priorité pour être traité en premier
+          }
+          this.queue.unshift(resumedJob)
+          console.log(`🔄 Job interrompu remis en tête de queue: ${state.interruptedJob.filename}`)
+        } else {
+          console.log(`⏭️ Job interrompu déjà dans la queue: ${state.interruptedJob.filename}`)
+        }
+      }
 
       // NETTOYAGE ULTRA-STRICT AU CHARGEMENT (insensible à la casse)
       const seenFilenames = new Set<string>()
@@ -209,6 +231,12 @@ class TranscodingService {
       const state: QueueState = {
         queue: this.queue,
         completedJobs: this.completedJobs.slice(-100), // Garder les 100 derniers
+        // Sauvegarder le job en cours pour reprise après redémarrage
+        interruptedJob: this.currentJob ? {
+          ...this.currentJob,
+          status: 'pending', // Remettre en pending pour reprise
+          progress: 0 // Réinitialiser la progression (FFmpeg doit recommencer)
+        } : undefined,
         isRunning: this.isRunning,
         isPaused: this.isPaused,
         lastSaved: new Date().toISOString(),
