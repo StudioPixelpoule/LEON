@@ -372,17 +372,36 @@ export default function SimpleVideoPlayer({
     isFullscreenRef.current = isFullscreen
   }, [selectedAudio, selectedSubtitle, isFullscreen])
 
-  // 🔧 Sauvegarder les préférences quand elles changent (localStorage)
+  // 🔧 Sauvegarder les préférences quand elles changent (localStorage) - avec debounce
+  const savePrefsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const initialLoadRef = useRef(true)
+  
   useEffect(() => {
-    // Ne sauvegarder que si les préférences ont été modifiées par l'utilisateur
-    // (pas au chargement initial)
+    // Ne pas sauvegarder au premier chargement
     if (!prefsLoaded) return
+    if (initialLoadRef.current) {
+      initialLoadRef.current = false
+      return
+    }
     
-    savePreferences({
-      audioTrackIndex: selectedAudio,
-      subtitleTrackIndex: selectedSubtitle,
-      volume
-    })
+    // Debounce de 500ms pour éviter les saves trop fréquents
+    if (savePrefsTimeoutRef.current) {
+      clearTimeout(savePrefsTimeoutRef.current)
+    }
+    
+    savePrefsTimeoutRef.current = setTimeout(() => {
+      savePreferences({
+        audioTrackIndex: selectedAudio,
+        subtitleTrackIndex: selectedSubtitle,
+        volume
+      })
+    }, 500)
+    
+    return () => {
+      if (savePrefsTimeoutRef.current) {
+        clearTimeout(savePrefsTimeoutRef.current)
+      }
+    }
   }, [selectedAudio, selectedSubtitle, volume, prefsLoaded, savePreferences])
 
   // Charger les infos des pistes et la durée

@@ -4,7 +4,7 @@
  * entre les sessions via localStorage
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useRef } from 'react'
 
 export interface PlayerPreferences {
   audioTrackIndex?: number
@@ -24,6 +24,10 @@ const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000 // 30 jours
 export function usePlayerPreferences(userId?: string) {
   const [preferences, setPreferences] = useState<PlayerPreferences | null>(null)
   const [isLoaded, setIsLoaded] = useState(false)
+  
+  // Utiliser un ref pour éviter les boucles infinies dans savePreferences
+  const preferencesRef = useRef<PlayerPreferences | null>(null)
+  preferencesRef.current = preferences
   
   const storageKey = `${STORAGE_KEY_PREFIX}-${userId || 'guest'}`
 
@@ -57,25 +61,27 @@ export function usePlayerPreferences(userId?: string) {
   }, [storageKey])
 
   /**
-   * Sauvegarder les préférences
+   * Sauvegarder les préférences (stable, pas de re-render en boucle)
    */
   const savePreferences = useCallback((prefs: Partial<PlayerPreferences>) => {
     if (typeof window === 'undefined') return
     
     try {
+      const current = preferencesRef.current
       const updated: PlayerPreferences = {
-        ...preferences,
+        ...current,
         ...prefs,
         lastUpdated: Date.now()
       }
       
       localStorage.setItem(storageKey, JSON.stringify(updated))
       setPreferences(updated)
-      console.log('[PREFERENCES] 💾 Préférences sauvegardées:', updated)
+      // Log désactivé pour éviter le spam
+      // console.log('[PREFERENCES] 💾 Préférences sauvegardées:', updated)
     } catch (error) {
       console.error('[PREFERENCES] ❌ Erreur sauvegarde:', error)
     }
-  }, [preferences, storageKey])
+  }, [storageKey]) // Plus de dépendance sur preferences !
 
   /**
    * Réinitialiser les préférences
