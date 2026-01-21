@@ -371,6 +371,12 @@ export default function SimpleVideoPlayer({
     // Sans ça, le player garde l'ancienne URL après changement d'épisode
     currentVideoUrl.current = src
     
+    // 🔧 FIX: Reset currentTime pour éviter que handleTimeUpdate déclenche
+    // l'UI "épisode suivant" immédiatement avec l'ancienne position
+    setCurrentTime(0)
+    lastTimeRef.current = 0
+    lastKnownPositionRef.current = 0
+    
     setShowNextEpisodeUI(false)
     setIsNextEpisodeCancelled(false)
     setNextEpisodeCountdown(5) // 5s comme Netflix
