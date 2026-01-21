@@ -254,7 +254,11 @@ export default function SimpleVideoPlayer({
   const selectedAudioRef = useRef(0)
   const selectedSubtitleRef = useRef<number | null>(null)
   const isFullscreenRef = useRef(false)
-  const showNextEpisodeUIRef = useRef(false) // 🆕 Pour handleTimeUpdate
+  const showNextEpisodeUIRef = useRef(false) // Pour handleTimeUpdate
+  // 🆕 Refs pour éviter que le countdown se réinitialise quand les props changent
+  const nextEpisodeRef = useRef(nextEpisode)
+  const onNextEpisodeRef = useRef(onNextEpisode)
+  const markAsFinishedRef = useRef<(() => Promise<void>) | null>(null)
   
   // Refs pour la gestion d'état
   const hideControlsTimeout = useRef<NodeJS.Timeout>()
@@ -368,13 +372,16 @@ export default function SimpleVideoPlayer({
     setNextEpisodeCountdown(5) // 5s comme Netflix
   }, [src])
 
-  // 🔧 FIX: Synchroniser les refs avec les valeurs de state (pour éviter closures stale)
+  // 🔧 FIX: Synchroniser les refs avec les valeurs de state et props (pour éviter closures stale)
   useEffect(() => {
     selectedAudioRef.current = selectedAudio
     selectedSubtitleRef.current = selectedSubtitle
     isFullscreenRef.current = isFullscreen
-    showNextEpisodeUIRef.current = showNextEpisodeUI // 🆕 Pour handleTimeUpdate
-  }, [selectedAudio, selectedSubtitle, isFullscreen, showNextEpisodeUI])
+    showNextEpisodeUIRef.current = showNextEpisodeUI
+    nextEpisodeRef.current = nextEpisode
+    onNextEpisodeRef.current = onNextEpisode
+    markAsFinishedRef.current = markAsFinished
+  }, [selectedAudio, selectedSubtitle, isFullscreen, showNextEpisodeUI, nextEpisode, onNextEpisode, markAsFinished])
 
   // 🔧 Sauvegarder les préférences quand elles changent (localStorage) - avec debounce
   const savePrefsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -648,14 +655,14 @@ export default function SimpleVideoPlayer({
     // 🔧 FIX: Retrait des valeurs de state des dépendances car on utilise les refs
   }, [mediaId, nextEpisode, onNextEpisode, markAsFinished, isNextEpisodeCancelled, showNextEpisodeUI])
 
-  // 🎬 Netflix: Compte à rebours de 10 secondes pour l'épisode suivant
-  // 🔧 FIX: Utilise les refs pour éviter les closures stale (le countdown ne redémarre plus)
+  // 🎬 Netflix: Compte à rebours de 5 secondes pour l'épisode suivant
+  // 🔧 FIX MAJEUR: Utilise UNIQUEMENT showNextEpisodeUI et isNextEpisodeCancelled comme dépendances
+  // Les autres valeurs (nextEpisode, onNextEpisode, markAsFinished) sont lues via refs
+  // pour éviter que le countdown se réinitialise quand ces props changent
   useEffect(() => {
     console.log('[PLAYER] 🔄 useEffect countdown déclenché:', {
       showNextEpisodeUI,
-      isNextEpisodeCancelled,
-      hasNextEpisode: !!nextEpisode,
-      hasOnNextEpisode: !!onNextEpisode
+      isNextEpisodeCancelled
     })
     
     // Nettoyer le timer précédent
@@ -665,7 +672,8 @@ export default function SimpleVideoPlayer({
     }
 
     // Si l'UI n'est pas affichée ou annulée, ne rien faire
-    if (!showNextEpisodeUI || isNextEpisodeCancelled || !nextEpisode || !onNextEpisode) {
+    // 🔧 FIX: Utiliser les refs pour nextEpisode et onNextEpisode
+    if (!showNextEpisodeUI || isNextEpisodeCancelled || !nextEpisodeRef.current || !onNextEpisodeRef.current) {
       console.log('[PLAYER] ⏹️ Countdown non démarré - conditions non remplies')
       return
     }
@@ -700,13 +708,15 @@ export default function SimpleVideoPlayer({
         
         console.log('[PLAYER] 🎬 Préférences transmises:', preferences)
         
-        // Marquer l'épisode actuel comme terminé
-        if (mediaId) {
-          markAsFinished()
+        // Marquer l'épisode actuel comme terminé (via ref)
+        if (mediaId && markAsFinishedRef.current) {
+          markAsFinishedRef.current()
         }
         
-        // Lancer l'épisode suivant avec les préférences
-        onNextEpisode(preferences)
+        // Lancer l'épisode suivant avec les préférences (via ref)
+        if (onNextEpisodeRef.current) {
+          onNextEpisodeRef.current(preferences)
+        }
       } else {
         setNextEpisodeCountdown(currentCount)
       }
@@ -720,9 +730,9 @@ export default function SimpleVideoPlayer({
         nextEpisodeTimerRef.current = null
       }
     }
-    // 🔧 FIX: Retrait de selectedAudio, selectedSubtitle, isFullscreen des dépendances
-    // car on utilise maintenant les refs (évite de redémarrer le countdown)
-  }, [showNextEpisodeUI, isNextEpisodeCancelled, nextEpisode, onNextEpisode, mediaId, markAsFinished])
+    // 🔧 FIX MAJEUR: UNIQUEMENT ces 2 dépendances !
+    // Les autres valeurs sont lues via refs pour éviter les re-renders qui réinitialisent le timer
+  }, [showNextEpisodeUI, isNextEpisodeCancelled, mediaId])
 
   // 🔧 FIX #3: Gérer spécifiquement le fullscreen (compatible Safari et iOS)
   useEffect(() => {
