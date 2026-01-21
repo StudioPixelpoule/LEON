@@ -835,6 +835,23 @@ class TranscodingService {
   }
 
   /**
+   * Détecter le codec vidéo source (pour savoir si HEVC)
+   */
+  private async detectVideoCodec(filepath: string): Promise<string> {
+    try {
+      const escapedPath = this.escapeFilePath(filepath)
+      const { stdout } = await execAsync(
+        `ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 '${escapedPath}'`,
+        { timeout: 30000 }
+      )
+      return stdout.trim().toLowerCase()
+    } catch (error) {
+      console.error('[TRANSCODE] Erreur détection codec:', error)
+      return 'unknown'
+    }
+  }
+
+  /**
    * Analyser un fichier pour obtenir les infos sur les pistes audio et sous-titres
    */
   private async probeStreams(filepath: string): Promise<{
@@ -1020,13 +1037,40 @@ class TranscodingService {
     // 📺 PASS 1: Encoder la VIDÉO (sans audio)
     console.log(`[TRANSCODE] 📺 Pass 1: Encodage vidéo...`)
     
-    // Filtre vidéo pour conversion 10-bit → 8-bit (requis pour HEVC 10-bit → H.264)
-    const videoFilter = hardware.acceleration === 'vaapi' 
-      ? 'format=nv12|vaapi,hwupload'
-      : 'format=yuv420p'  // Force 8-bit, gère aussi les sources 10-bit
+    // 🔍 Détecter le codec source pour adapter le décodage
+    const sourceCodec = await this.detectVideoCodec(job.filepath)
+    const isHEVC = sourceCodec === 'hevc' || sourceCodec === 'h265'
+    
+    if (isHEVC) {
+      console.log(`[TRANSCODE] ⚠️ Source HEVC détectée - décodage software (CPU) + encodage hardware (GPU)`)
+    }
+    
+    // Pour HEVC: ne pas utiliser le décodeur VAAPI (non supporté sur Celeron J3455)
+    // On utilise le décodeur software CPU puis on upload vers le GPU pour l'encodage
+    const useHardwareDecoder = hardware.acceleration === 'vaapi' && !isHEVC
+    
+    // Arguments de décodage adaptés
+    let decoderArgs: string[] = []
+    let videoFilter: string
+    
+    if (hardware.acceleration === 'vaapi') {
+      if (isHEVC) {
+        // HEVC: décodage CPU + init device VAAPI pour encodage
+        decoderArgs = ['-init_hw_device', 'vaapi=va:/dev/dri/renderD128', '-filter_hw_device', 'va']
+        videoFilter = 'format=nv12,hwupload'  // Convert puis upload vers GPU
+      } else {
+        // H.264: décodage + encodage VAAPI
+        decoderArgs = hardware.decoderArgs
+        videoFilter = 'format=nv12|vaapi,hwupload'
+      }
+    } else {
+      // CPU pur
+      decoderArgs = []
+      videoFilter = 'format=yuv420p'
+    }
     
     const videoArgs = [
-      ...hardware.decoderArgs,
+      ...decoderArgs,
       '-i', job.filepath,
       '-map', '0:v:0',
       '-an', // PAS D'AUDIO dans le flux vidéo
