@@ -1,6 +1,7 @@
 /**
  * API: Scanner les séries TV sur le NAS
- * POST /api/scan-series
+ * POST /api/scan-series - Lance le scan (arrière-plan si ?background=true)
+ * GET /api/scan-series - Récupère le statut du scan en cours
  * 
  * Structure attendue:
  * /leon/media/series/
@@ -40,9 +41,63 @@ interface TmdbEpisodeData {
   runtime: number | null
 }
 
+// État global du scan (persiste entre les requêtes)
+interface ScanState {
+  isRunning: boolean
+  startedAt: string | null
+  currentSeries: string | null
+  progress: {
+    totalSeries: number
+    processedSeries: number
+    currentEpisode: string | null
+  }
+  stats: {
+    totalSeries: number
+    totalEpisodes: number
+    newSeries: number
+    updatedSeries: number
+    newEpisodes: number
+    enrichedEpisodes: number
+  }
+  error: string | null
+  completedAt: string | null
+}
+
+// Singleton pour l'état du scan
+const scanState: ScanState = {
+  isRunning: false,
+  startedAt: null,
+  currentSeries: null,
+  progress: {
+    totalSeries: 0,
+    processedSeries: 0,
+    currentEpisode: null
+  },
+  stats: {
+    totalSeries: 0,
+    totalEpisodes: 0,
+    newSeries: 0,
+    updatedSeries: 0,
+    newEpisodes: 0,
+    enrichedEpisodes: 0
+  },
+  error: null,
+  completedAt: null
+}
+
 const VIDEO_EXTENSIONS = ['.mkv', '.mp4', '.avi', '.mov', '.m4v']
 const TMDB_API_KEY = process.env.TMDB_API_KEY
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3'
+
+/**
+ * GET: Récupérer le statut du scan en cours
+ */
+export async function GET() {
+  return NextResponse.json({
+    success: true,
+    scan: { ...scanState }
+  })
+}
 
 /**
  * Récupérer les métadonnées d'un épisode depuis TMDB
@@ -133,7 +188,67 @@ function cleanEpisodeTitle(filename: string, seriesName: string): string {
   return title.trim()
 }
 
-export async function POST() {
+export async function POST(request: Request) {
+  // Vérifier si un scan est déjà en cours
+  if (scanState.isRunning) {
+    return NextResponse.json({
+      success: false,
+      error: 'Un scan est déjà en cours',
+      scan: { ...scanState }
+    }, { status: 409 })
+  }
+
+  // Mode background via query param
+  const url = new URL(request.url)
+  const backgroundMode = url.searchParams.get('background') === 'true'
+
+  // Reset l'état
+  scanState.isRunning = true
+  scanState.startedAt = new Date().toISOString()
+  scanState.currentSeries = null
+  scanState.progress = { totalSeries: 0, processedSeries: 0, currentEpisode: null }
+  scanState.stats = { totalSeries: 0, totalEpisodes: 0, newSeries: 0, updatedSeries: 0, newEpisodes: 0, enrichedEpisodes: 0 }
+  scanState.error = null
+  scanState.completedAt = null
+
+  // Si mode background, lancer le scan et retourner immédiatement
+  if (backgroundMode) {
+    // Lancer le scan en arrière-plan (sans await)
+    runScanInBackground().catch(err => {
+      console.error('❌ Erreur scan background:', err)
+      scanState.error = err instanceof Error ? err.message : 'Erreur inconnue'
+      scanState.isRunning = false
+      scanState.completedAt = new Date().toISOString()
+    })
+
+    return NextResponse.json({
+      success: true,
+      message: 'Scan démarré en arrière-plan',
+      scan: { ...scanState }
+    })
+  }
+
+  // Mode synchrone (pour les appels locaux sans Cloudflare)
+  try {
+    await runScanInBackground()
+    return NextResponse.json({
+      success: true,
+      stats: scanState.stats
+    })
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue'
+    return NextResponse.json({
+      success: false,
+      error: errorMessage,
+      stats: scanState.stats
+    }, { status: 500 })
+  }
+}
+
+/**
+ * Exécute le scan des séries (peut être appelé en sync ou async)
+ */
+async function runScanInBackground() {
   try {
     const seriesBasePath = process.env.PCLOUD_SERIES_PATH || '/leon/media/series'
     
@@ -144,10 +259,7 @@ export async function POST() {
     try {
       await fs.access(seriesBasePath)
     } catch {
-      return NextResponse.json(
-        { error: `Dossier introuvable: ${seriesBasePath}. Vérifiez que le volume est monté.` },
-        { status: 404 }
-      )
+      throw new Error(`Dossier introuvable: ${seriesBasePath}. Vérifiez que le volume est monté.`)
     }
 
     // 1. Lister tous les dossiers de séries
@@ -157,17 +269,16 @@ export async function POST() {
       .map(dirent => dirent.name)
 
     console.log(`📁 ${seriesNames.length} séries trouvées`)
+    scanState.progress.totalSeries = seriesNames.length
 
-    const stats = {
-      totalSeries: 0,
-      totalEpisodes: 0,
-      newSeries: 0,
-      updatedSeries: 0,
-      newEpisodes: 0
-    }
+    const stats = scanState.stats
 
     // 2. Scanner chaque série
     for (const seriesName of seriesNames) {
+      // Mettre à jour l'état du scan
+      scanState.currentSeries = seriesName
+      scanState.progress.currentEpisode = null
+      
       console.log(`\n📺 Analyse: ${seriesName}`)
       
       const seriesPath = path.join(seriesBasePath, seriesName)
@@ -456,9 +567,15 @@ export async function POST() {
       }
       
       console.log(`   ✅ ${episodesSaved} nouveaux épisodes, ${episodesUpdated} enrichis`)
+      
+      // Mettre à jour les stats enrichies
+      stats.enrichedEpisodes = (stats.enrichedEpisodes || 0) + episodesUpdated
 
       stats.totalSeries++
       stats.totalEpisodes += episodes.length
+      
+      // Incrémenter le compteur de progression
+      scanState.progress.processedSeries++
     }
 
     console.log('\n📊 RÉSUMÉ DU SCAN SÉRIES')
@@ -467,11 +584,13 @@ export async function POST() {
     console.log(`   Mises à jour: ${stats.updatedSeries}`)
     console.log(`   Total épisodes: ${stats.totalEpisodes}`)
     console.log(`   Nouveaux épisodes: ${stats.newEpisodes}`)
+    console.log(`   Épisodes enrichis: ${stats.enrichedEpisodes}`)
 
-    return NextResponse.json({
-      success: true,
-      stats
-    })
+    // Marquer le scan comme terminé
+    scanState.isRunning = false
+    scanState.currentSeries = null
+    scanState.completedAt = new Date().toISOString()
+    console.log('✅ Scan terminé avec succès')
 
   } catch (error) {
     console.error('❌ Erreur scan séries:', error)
@@ -479,14 +598,12 @@ export async function POST() {
     const errorStack = error instanceof Error ? error.stack : ''
     console.error('Stack:', errorStack)
     
-    return NextResponse.json(
-      { 
-        error: 'Erreur lors du scan des séries',
-        details: errorMessage,
-        stack: process.env.NODE_ENV === 'development' ? errorStack : undefined
-      },
-      { status: 500 }
-    )
+    // Marquer l'erreur dans l'état
+    scanState.error = errorMessage
+    scanState.isRunning = false
+    scanState.completedAt = new Date().toISOString()
+    
+    throw error
   }
 }
 

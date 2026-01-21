@@ -420,9 +420,10 @@ function DashboardView({ status, stats, loading, onNavigate, onRefresh }: Dashbo
   async function quickScan() {
     setActionLoading('scan')
     try {
+      // Lancer les scans en mode background pour éviter les timeouts Cloudflare
       await Promise.all([
         fetch('/api/scan', { method: 'POST' }),
-        fetch('/api/scan-series', { method: 'POST' })
+        fetch('/api/scan-series?background=true', { method: 'POST' })
       ])
       onRefresh()
     } catch (error) {
@@ -659,8 +660,13 @@ function ScanView() {
   const [scanningSeries, setScanningSeries] = useState(false)
   const [cleaningUp, setCleaningUp] = useState(false)
   const [filmResult, setFilmResult] = useState<{ stats?: { total?: number; new?: number; updated?: number } } | null>(null)
-  const [seriesResult, setSeriesResult] = useState<{ stats?: { totalSeries?: number; newSeries?: number; totalEpisodes?: number; newEpisodes?: number } } | null>(null)
+  const [seriesResult, setSeriesResult] = useState<{ stats?: { totalSeries?: number; newSeries?: number; totalEpisodes?: number; newEpisodes?: number; enrichedEpisodes?: number } } | null>(null)
   const [cleanupResult, setCleanupResult] = useState<{ result?: { checked?: number; missing?: number; deleted?: number; details?: Array<{ title: string }> } } | null>(null)
+  const [seriesScanProgress, setSeriesScanProgress] = useState<{
+    currentSeries: string | null
+    processedSeries: number
+    totalSeries: number
+  } | null>(null)
   
   // Import
   const [showImport, setShowImport] = useState(false)
@@ -698,14 +704,52 @@ function ScanView() {
   async function handleScanSeries() {
     setScanningSeries(true)
     setSeriesResult(null)
+    setSeriesScanProgress(null)
+    
     try {
-      const response = await fetch('/api/scan-series', { method: 'POST' })
+      // Lancer le scan en mode background pour éviter le timeout Cloudflare
+      const response = await fetch('/api/scan-series?background=true', { method: 'POST' })
       const data = await response.json()
-      setSeriesResult(data)
+      
+      if (!data.success) {
+        throw new Error(data.error || 'Erreur lors du lancement du scan')
+      }
+      
+      // Polling pour suivre la progression
+      const pollInterval = setInterval(async () => {
+        try {
+          const statusResponse = await fetch('/api/scan-series')
+          const statusData = await statusResponse.json()
+          
+          if (statusData.scan) {
+            // Mettre à jour la progression
+            setSeriesScanProgress({
+              currentSeries: statusData.scan.currentSeries,
+              processedSeries: statusData.scan.progress?.processedSeries || 0,
+              totalSeries: statusData.scan.progress?.totalSeries || 0
+            })
+            
+            // Si le scan est terminé
+            if (!statusData.scan.isRunning) {
+              clearInterval(pollInterval)
+              setScanningSeries(false)
+              setSeriesScanProgress(null)
+              
+              if (statusData.scan.error) {
+                alert(`Erreur: ${statusData.scan.error}`)
+              } else {
+                setSeriesResult({ stats: statusData.scan.stats })
+              }
+            }
+          }
+        } catch (pollError) {
+          console.error('Erreur polling:', pollError)
+        }
+      }, 2000) // Poll toutes les 2 secondes
+      
     } catch (error) {
       console.error('Erreur scan séries:', error)
       alert('Erreur lors du scan des séries')
-    } finally {
       setScanningSeries(false)
     }
   }
@@ -888,6 +932,34 @@ function ScanView() {
           </button>
         </div>
 
+        {/* Progression du scan en temps réel */}
+        {scanningSeries && seriesScanProgress && (
+          <div style={{ marginTop: 16, padding: '12px 16px', background: 'rgba(255,255,255,0.05)', borderRadius: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 13, opacity: 0.7 }}>
+              <span>Progression</span>
+              <span>{seriesScanProgress.processedSeries} / {seriesScanProgress.totalSeries}</span>
+            </div>
+            <div style={{ height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 2, overflow: 'hidden' }}>
+              <div 
+                style={{ 
+                  height: '100%', 
+                  background: '#22c55e', 
+                  borderRadius: 2,
+                  width: seriesScanProgress.totalSeries > 0 
+                    ? `${(seriesScanProgress.processedSeries / seriesScanProgress.totalSeries) * 100}%` 
+                    : '0%',
+                  transition: 'width 0.3s ease'
+                }} 
+              />
+            </div>
+            {seriesScanProgress.currentSeries && (
+              <div style={{ marginTop: 8, fontSize: 12, opacity: 0.6, fontStyle: 'italic' }}>
+                {seriesScanProgress.currentSeries}
+              </div>
+            )}
+          </div>
+        )}
+
         {seriesResult && (
           <div className={styles.statsGrid} style={{ marginTop: 20 }}>
             <div className={styles.statBox}>
@@ -906,6 +978,12 @@ function ScanView() {
               <div className={styles.statValue}>{seriesResult.stats?.newEpisodes || 0}</div>
               <div className={styles.statLabel}>Nouveaux ép.</div>
             </div>
+            {(seriesResult.stats?.enrichedEpisodes || 0) > 0 && (
+              <div className={styles.statBox}>
+                <div className={styles.statValue}>{seriesResult.stats?.enrichedEpisodes || 0}</div>
+                <div className={styles.statLabel}>Enrichis</div>
+              </div>
+            )}
           </div>
         )}
       </div>
