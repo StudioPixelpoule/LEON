@@ -17,17 +17,19 @@ services:
     devices:
       - /dev/dri:/dev/dri
     group_add:
-      - video
+      - "937"  # GID du groupe videodriver sur Synology (pas "video")
 
     volumes:
       # Médias en lecture seule
       - /volume1/docker/leon/media/films:/leon/media/films:ro
       # Séries TV en lecture seule
       - /volume1/docker/leon/media/series:/leon/media/series:ro
-      # Cache de transcodage HLS
-      - /volume1/docker/leon/cache:/tmp/leon-hls
       # Pré-transcodage persistant
       - /volume1/docker/leon/transcoded:/leon/transcoded
+    
+    # RAM disk pour le cache HLS (ultra-rapide, pas d'I/O disque)
+    tmpfs:
+      - /tmp/leon-hls:size=2G,mode=1777
     
     env_file:
       - .env
@@ -37,12 +39,12 @@ services:
       - PCLOUD_SERIES_PATH=/leon/media/series
       - HLS_TEMP_DIR=/tmp/leon-hls
       - TRANSCODED_DIR=/leon/transcoded
-      - MAX_OLD_SPACE_SIZE=4096
+      - MAX_OLD_SPACE_SIZE=8192  # 8 Go pour Node.js avec 16 Go de RAM
     
     deploy:
       resources:
         limits:
-          memory: 4G
+          memory: 12G  # 12 Go pour le conteneur (laisse 4 Go au système)
     
     logging:
       driver: "json-file"

@@ -23,7 +23,7 @@ const TRANSCODED_DIR = process.env.TRANSCODED_DIR || '/leon/transcoded'
 const MEDIA_DIR = process.env.MEDIA_DIR || '/leon/media/films'
 const SERIES_DIR = process.env.PCLOUD_SERIES_PATH || '/leon/media/series'
 const STATE_FILE = path.join(TRANSCODED_DIR, 'queue-state.json')
-const MAX_CONCURRENT_TRANSCODES = 1
+const MAX_CONCURRENT_TRANSCODES = 2 // 🔧 2 en parallèle avec Quick Sync (le 3ème pour lecture temps réel)
 const SEGMENT_DURATION = 2
 const AUTO_SAVE_INTERVAL = 30000 // Sauvegarde toutes les 30 secondes
 
@@ -1047,11 +1047,14 @@ class TranscodingService {
     console.log(`[TRANSCODE] 📋 Video args: ffmpeg ${videoArgs.slice(0, 10).join(' ')} ...`)
 
     // Helper pour exécuter FFmpeg et suivre la progression
+    // 🔧 Utilise nice/ionice pour priorité basse (n'impacte pas la lecture)
     const runFFmpeg = (args: string[], label: string, progressWeight: number, progressOffset: number): Promise<void> => {
       return new Promise((resolve, reject) => {
-        console.log(`[TRANSCODE] 🔧 FFmpeg ${label}: ffmpeg`, args.join(' ').slice(0, 200) + '...')
+        console.log(`[TRANSCODE] 🔧 FFmpeg ${label}: nice -n 19 ffmpeg`, args.join(' ').slice(0, 200) + '...')
         
-        const ffmpeg = spawn('ffmpeg', args, {
+        // nice -n 19 = priorité CPU la plus basse
+        // ionice -c 3 = priorité I/O idle (seulement quand le disque est libre)
+        const ffmpeg = spawn('nice', ['-n', '19', 'ionice', '-c', '3', 'ffmpeg', ...args], {
           stdio: ['ignore', 'pipe', 'pipe']
         })
 

@@ -101,15 +101,14 @@ export async function detectHardwareCapabilities(): Promise<HardwareCapabilities
             encoderArgs: [
               '-vf', 'format=nv12|vaapi,hwupload', // Upload vers GPU avec fallback
               '-c:v', 'h264_vaapi',
-              '-b:v', '4000k', // 🔧 Augmenté pour meilleure qualité
-              '-maxrate', '5000k',
-              '-bufsize', '8000k',
+              '-global_quality', '23', // 🔧 CRF-like pour VAAPI (18-28, plus bas = meilleure qualité)
+              '-maxrate', '8000k', // 🔧 Augmenté pour pics de qualité
+              '-bufsize', '16000k',
               '-profile:v', 'main',
               '-level', '4.1',
-              '-quality', '4', // 🔧 Balance qualité/vitesse (1=meilleure qualité, 7=plus rapide)
             ],
             supportsHEVC: true,
-            maxConcurrentTranscodes: 2, // Synology NAS peut gérer 2 transcodes simultanés
+            maxConcurrentTranscodes: 3, // 🔧 3 transcodes avec 16 Go RAM + Quick Sync
             recommendedPreset: 'fast',
           }
           return cachedCapabilities
