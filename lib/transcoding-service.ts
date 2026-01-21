@@ -55,7 +55,10 @@ export interface TranscodeStats {
   completedFiles: number
   pendingFiles: number
   failedFiles: number
-  currentJob?: TranscodeJob
+  currentJob?: TranscodeJob // Premier job actif (compatibilité)
+  activeJobs?: TranscodeJob[] // 🔧 Tous les jobs actifs
+  activeCount?: number // 🔧 Nombre de jobs actifs
+  maxConcurrent?: number // 🔧 Limite max
   isRunning: boolean
   isPaused: boolean
   estimatedTimeRemaining?: number
@@ -82,10 +85,10 @@ declare global {
 class TranscodingService {
   private queue: TranscodeJob[] = []
   private completedJobs: TranscodeJob[] = []
-  private currentJob: TranscodeJob | null = null
+  private activeJobs: Map<string, TranscodeJob> = new Map() // 🔧 Support multi-jobs
+  private activeProcesses: Map<string, ReturnType<typeof spawn>> = new Map() // 🔧 Support multi-process
   private isRunning: boolean = false
   private isPaused: boolean = false
-  private currentProcess: ReturnType<typeof spawn> | null = null
   private autoSaveInterval: NodeJS.Timeout | null = null
   private autoStartEnabled: boolean = true
   private initialized: boolean = false
@@ -228,15 +231,17 @@ class TranscodingService {
       // Garantit qu'on ne sauvegarde jamais de doublons
       this.cleanDuplicatesSync()
       
+      // Sauvegarder tous les jobs actifs pour reprise après redémarrage
+      const activeJobsArray = Array.from(this.activeJobs.values()).map(job => ({
+        ...job,
+        status: 'pending' as const, // Remettre en pending pour reprise
+        progress: 0 // Réinitialiser la progression (FFmpeg doit recommencer)
+      }))
+      
       const state: QueueState = {
-        queue: this.queue,
+        queue: [...activeJobsArray, ...this.queue], // Jobs actifs + queue
         completedJobs: this.completedJobs.slice(-100), // Garder les 100 derniers
-        // Sauvegarder le job en cours pour reprise après redémarrage
-        interruptedJob: this.currentJob ? {
-          ...this.currentJob,
-          status: 'pending', // Remettre en pending pour reprise
-          progress: 0 // Réinitialiser la progression (FFmpeg doit recommencer)
-        } : undefined,
+        interruptedJob: undefined, // Deprecated, on utilise activeJobs maintenant
         isRunning: this.isRunning,
         isPaused: this.isPaused,
         lastSaved: new Date().toISOString(),
@@ -669,19 +674,23 @@ class TranscodingService {
     this.isPaused = true
     console.log('⏸️ Transcodage en pause')
     
-    // Tuer le processus en cours si existant
-    if (this.currentProcess && this.currentJob) {
-      // Nettoyer le fichier verrou avant de tuer le processus
-      const transcodingLockPath = path.join(this.currentJob.outputDir, '.transcoding')
-      try {
-        await rm(transcodingLockPath, { force: true })
-      } catch {}
-      
-      this.currentProcess.kill('SIGTERM')
-      this.currentJob.status = 'pending'
-      this.queue.unshift(this.currentJob)
-      this.currentJob = null
+    // Tuer tous les processus actifs
+    for (const [jobId, job] of this.activeJobs) {
+      const process = this.activeProcesses.get(jobId)
+      if (process) {
+        // Nettoyer le fichier verrou avant de tuer le processus
+        const transcodingLockPath = path.join(job.outputDir, '.transcoding')
+        try {
+          await rm(transcodingLockPath, { force: true })
+        } catch {}
+        
+        process.kill('SIGTERM')
+        job.status = 'pending'
+        this.queue.unshift(job)
+      }
     }
+    this.activeJobs.clear()
+    this.activeProcesses.clear()
 
     await this.saveState()
   }
@@ -709,79 +718,108 @@ class TranscodingService {
     this.isRunning = false
     this.isPaused = false
     
-    // Nettoyer le fichier verrou si un job est en cours
-    if (this.currentJob) {
-      const transcodingLockPath = path.join(this.currentJob.outputDir, '.transcoding')
+    // Arrêter tous les jobs actifs
+    for (const [jobId, job] of this.activeJobs) {
+      // Nettoyer le fichier verrou
+      const transcodingLockPath = path.join(job.outputDir, '.transcoding')
       try {
         await rm(transcodingLockPath, { force: true })
       } catch {}
+      
+      // Tuer le processus
+      const process = this.activeProcesses.get(jobId)
+      if (process) {
+        process.kill('SIGKILL')
+      }
+      
+      // Remettre en queue
+      job.status = 'pending'
+      this.queue.unshift(job)
     }
     
-    if (this.currentProcess) {
-      this.currentProcess.kill('SIGKILL')
-    }
-    
-    if (this.currentJob) {
-      this.currentJob.status = 'pending'
-      this.queue.unshift(this.currentJob)
-      this.currentJob = null
-    }
+    this.activeJobs.clear()
+    this.activeProcesses.clear()
     
     await this.saveState()
     console.log('🛑 Service de transcodage arrêté')
   }
 
   /**
-   * Traiter la queue de transcodage
+   * Traiter la queue de transcodage (support multi-jobs parallèles)
    */
   private async processQueue(): Promise<void> {
-    while (this.isRunning && !this.isPaused && this.queue.length > 0) {
-      const job = this.queue.shift()
-      if (!job) break
-
-      this.currentJob = job
-      job.status = 'transcoding'
-      job.startedAt = new Date().toISOString()
-
-      console.log(`🎬 Transcodage: ${job.filename}`)
-      await this.saveState()
-
-      try {
-        await this.transcodeFile(job)
-        
-        job.status = 'completed'
-        job.completedAt = new Date().toISOString()
-        job.progress = 100
-        
-        this.completedJobs.push(job)
-        console.log(`✅ Terminé: ${job.filename}`)
-      } catch (error) {
-        job.status = 'failed'
-        job.error = error instanceof Error ? error.message : String(error)
-        job.completedAt = new Date().toISOString()
-        
-        // Réessayer plus tard SAUF si fichier corrompu ou erreur fatale
-        const isFatalError = job.error.includes('SIGKILL') || 
-                            job.error.includes('SIGTERM') ||
-                            job.error.includes('corrompu') ||
-                            job.error.includes('Invalid data')
-        
-        if (!isFatalError) {
-          job.status = 'pending'
-          job.priority = 0 // Basse priorité pour les retry
-          this.queue.push(job)
-        } else {
-          console.log(`[TRANSCODE] ⛔ Fichier ignoré définitivement: ${job.filename}`)
+    // Démarrer les workers parallèles
+    const startWorker = async (workerId: number): Promise<void> => {
+      while (this.isRunning && !this.isPaused) {
+        // Vérifier si on peut prendre un nouveau job
+        if (this.activeJobs.size >= MAX_CONCURRENT_TRANSCODES) {
+          // Attendre qu'un slot se libère
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          continue
         }
-        
-        console.error(`❌ Échec: ${job.filename}`, error)
-      }
 
-      this.currentJob = null
-      await this.saveState()
+        const job = this.queue.shift()
+        if (!job) {
+          // Plus de jobs dans la queue, ce worker s'arrête
+          break
+        }
+
+        // Marquer le job comme actif
+        this.activeJobs.set(job.id, job)
+        job.status = 'transcoding'
+        job.startedAt = new Date().toISOString()
+
+        console.log(`🎬 [Worker ${workerId}] Transcodage: ${job.filename} (${this.activeJobs.size}/${MAX_CONCURRENT_TRANSCODES} actifs)`)
+        await this.saveState()
+
+        try {
+          await this.transcodeFile(job)
+          
+          job.status = 'completed'
+          job.completedAt = new Date().toISOString()
+          job.progress = 100
+          
+          this.completedJobs.push(job)
+          console.log(`✅ [Worker ${workerId}] Terminé: ${job.filename}`)
+        } catch (error) {
+          job.status = 'failed'
+          job.error = error instanceof Error ? error.message : String(error)
+          job.completedAt = new Date().toISOString()
+          
+          // Réessayer plus tard SAUF si fichier corrompu ou erreur fatale
+          const isFatalError = job.error.includes('SIGKILL') || 
+                              job.error.includes('SIGTERM') ||
+                              job.error.includes('corrompu') ||
+                              job.error.includes('Invalid data')
+          
+          if (!isFatalError) {
+            job.status = 'pending'
+            job.priority = 0 // Basse priorité pour les retry
+            this.queue.push(job)
+          } else {
+            console.log(`[TRANSCODE] ⛔ [Worker ${workerId}] Fichier ignoré définitivement: ${job.filename}`)
+          }
+          
+          console.error(`❌ [Worker ${workerId}] Échec: ${job.filename}`, error)
+        }
+
+        // Retirer le job des actifs
+        this.activeJobs.delete(job.id)
+        this.activeProcesses.delete(job.id)
+        await this.saveState()
+      }
     }
 
-    if (this.queue.length === 0 && this.isRunning) {
+    // Démarrer MAX_CONCURRENT_TRANSCODES workers en parallèle
+    const workers: Promise<void>[] = []
+    for (let i = 0; i < MAX_CONCURRENT_TRANSCODES; i++) {
+      workers.push(startWorker(i + 1))
+    }
+
+    // Attendre que tous les workers terminent
+    await Promise.all(workers)
+
+    if (this.queue.length === 0 && this.activeJobs.size === 0 && this.isRunning) {
       console.log('🎉 Queue de transcodage terminée!')
       this.isRunning = false
       await this.saveState()
@@ -1058,7 +1096,8 @@ class TranscodingService {
           stdio: ['ignore', 'pipe', 'pipe']
         })
 
-        this.currentProcess = ffmpeg
+        // 🔧 Enregistrer le processus pour ce job (support multi-jobs)
+        this.activeProcesses.set(job.id, ffmpeg)
         job.pid = ffmpeg.pid
         
         let lastError = ''
@@ -1088,7 +1127,7 @@ class TranscodingService {
         })
 
         ffmpeg.on('close', (code) => {
-          this.currentProcess = null
+          // Le processus sera nettoyé par processQueue après completion
           if (code === 0) {
             console.log(`[TRANSCODE] ✅ ${label} terminé`)
             resolve()
@@ -1100,7 +1139,6 @@ class TranscodingService {
         })
 
         ffmpeg.on('error', (err) => {
-          this.currentProcess = null
           reject(err)
         })
       })
@@ -1209,13 +1247,13 @@ class TranscodingService {
       return existingByPath
     }
     
-    // Vérifier si c'est le job en cours (insensible à la casse)
-    if (this.currentJob && (
-      this.currentJob.filename.toLowerCase().trim() === normalizedFilename || 
-      path.normalize(this.currentJob.filepath) === normalizedPath
-    )) {
-      console.log(`⏭️ [DOUBLON] Fichier en cours de transcodage: ${filename}`)
-      return this.currentJob
+    // Vérifier si c'est un des jobs en cours (insensible à la casse)
+    for (const [, activeJob] of this.activeJobs) {
+      if (activeJob.filename.toLowerCase().trim() === normalizedFilename || 
+          path.normalize(activeJob.filepath) === normalizedPath) {
+        console.log(`⏭️ [DOUBLON] Fichier en cours de transcodage: ${filename}`)
+        return activeJob
+      }
     }
     
     // Vérifier si déjà complété récemment (insensible à la casse)
@@ -1272,16 +1310,21 @@ class TranscodingService {
    * Annuler un job
    */
   async cancelJob(jobId: string): Promise<boolean> {
-    if (this.currentJob?.id === jobId) {
-      if (this.currentProcess) {
-        this.currentProcess.kill('SIGTERM')
+    // Vérifier si c'est un job actif
+    const activeJob = this.activeJobs.get(jobId)
+    if (activeJob) {
+      const process = this.activeProcesses.get(jobId)
+      if (process) {
+        process.kill('SIGTERM')
       }
-      this.currentJob.status = 'cancelled'
-      this.currentJob = null
+      activeJob.status = 'cancelled'
+      this.activeJobs.delete(jobId)
+      this.activeProcesses.delete(jobId)
       await this.saveState()
       return true
     }
 
+    // Sinon vérifier dans la queue
     const index = this.queue.findIndex(j => j.id === jobId)
     if (index !== -1) {
       this.queue[index].status = 'cancelled'
@@ -1459,16 +1502,28 @@ class TranscodingService {
       }).catch(() => {})
     }
 
+    // Calculer le temps restant estimé basé sur tous les jobs actifs
     let estimatedTimeRemaining: number | undefined
-    if (this.currentJob?.speed && this.currentJob?.estimatedDuration && this.currentJob?.currentTime) {
-      const remaining = this.currentJob.estimatedDuration - this.currentJob.currentTime
-      estimatedTimeRemaining = remaining / this.currentJob.speed
+    const activeJobsArray = Array.from(this.activeJobs.values())
+    const firstActiveJob = activeJobsArray[0] // Utiliser le premier job actif pour la vitesse moyenne
+    
+    if (firstActiveJob?.speed && firstActiveJob?.estimatedDuration && firstActiveJob?.currentTime) {
+      estimatedTimeRemaining = 0
+      
+      // Temps restant pour tous les jobs actifs
+      for (const activeJob of activeJobsArray) {
+        if (activeJob.estimatedDuration && activeJob.currentTime) {
+          const remaining = activeJob.estimatedDuration - activeJob.currentTime
+          estimatedTimeRemaining += remaining / (activeJob.speed || firstActiveJob.speed || 1)
+        }
+      }
 
+      // Temps pour les jobs en queue (divisé par le nombre de workers)
       for (const job of this.queue) {
         if (job.estimatedDuration) {
-          estimatedTimeRemaining += job.estimatedDuration / (this.currentJob.speed || 1)
+          estimatedTimeRemaining += job.estimatedDuration / (firstActiveJob.speed || 1) / MAX_CONCURRENT_TRANSCODES
         } else {
-          estimatedTimeRemaining += 7200
+          estimatedTimeRemaining += 7200 / MAX_CONCURRENT_TRANSCODES
         }
       }
     }
@@ -1481,11 +1536,14 @@ class TranscodingService {
     } catch {}
 
     return {
-      totalFiles: this.queue.length + this.completedJobs.length + (this.currentJob ? 1 : 0),
+      totalFiles: this.queue.length + this.completedJobs.length + this.activeJobs.size,
       completedFiles: this.completedJobs.length,
       pendingFiles: this.queue.length,
       failedFiles: this.completedJobs.filter(j => j.status === 'failed').length,
-      currentJob: this.currentJob || undefined,
+      currentJob: firstActiveJob || undefined, // Premier job actif pour compatibilité
+      activeJobs: activeJobsArray, // 🔧 Tous les jobs actifs
+      activeCount: this.activeJobs.size, // 🔧 Nombre de jobs actifs
+      maxConcurrent: MAX_CONCURRENT_TRANSCODES, // 🔧 Limite max
       isRunning: this.isRunning,
       isPaused: this.isPaused,
       estimatedTimeRemaining,

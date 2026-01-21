@@ -1819,6 +1819,16 @@ interface TranscodeStats {
     estimatedDuration?: number
     mtime?: string
   }
+  activeJobs?: Array<{
+    id: string
+    filename: string
+    progress: number
+    speed?: number
+    currentTime?: number
+    estimatedDuration?: number
+  }>
+  activeCount?: number
+  maxConcurrent?: number
   isRunning: boolean
   isPaused: boolean
   estimatedTimeRemaining?: number
@@ -2185,8 +2195,38 @@ function TranscodeView() {
         )}
       </div>
 
-      {/* Job en cours */}
-      {stats?.currentJob && (
+      {/* Jobs en cours (support multi-transcodage) */}
+      {stats?.activeJobs && stats.activeJobs.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', marginBottom: 4 }}>
+            🔄 {stats.activeCount || stats.activeJobs.length}/{stats.maxConcurrent || 2} transcodes actifs
+          </div>
+          {stats.activeJobs.map((job, index) => (
+            <div key={job.id} className={styles.currentJob}>
+              <div className={styles.jobHeader}>
+                <Film size={20} className={styles.jobIcon} />
+                <div>
+                  <p className={styles.jobTitle}>{job.filename}</p>
+                  <p className={styles.jobMeta}>
+                    {job.speed && `${job.speed.toFixed(1)}x`}
+                    {job.currentTime && job.estimatedDuration && (
+                      <> • {formatTime(job.currentTime)} / {formatTime(job.estimatedDuration)}</>
+                    )}
+                  </p>
+                </div>
+              </div>
+              <div className={styles.jobProgress}>
+                <div className={styles.progressBar}>
+                  <div className={styles.progressFill} style={{ width: `${job.progress}%` }} />
+                </div>
+                <span className={styles.jobPercent}>{Math.round(job.progress)}%</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {/* Fallback pour ancien format (1 seul job) */}
+      {stats?.currentJob && !stats?.activeJobs && (
         <div className={styles.currentJob}>
           <div className={styles.jobHeader}>
             <Film size={20} className={styles.jobIcon} />
