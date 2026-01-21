@@ -427,7 +427,7 @@ async function runScanInBackground() {
       let seriesId: string
 
       if (existingSeries) {
-        // Mettre à jour
+        // Mettre à jour (incluant les genres depuis TMDB)
         const { error: updateError } = await supabase
           .from('series')
           .update({
@@ -438,6 +438,7 @@ async function runScanInBackground() {
             backdrop_url: tmdbData.backdrop_path ? `https://image.tmdb.org/t/p/original${tmdbData.backdrop_path}` : null,
             rating: tmdbData.vote_average,
             first_air_date: tmdbData.first_air_date,
+            genres: tmdbData.genres?.map((g: any) => g.name) || [], // 🎬 Ajout des genres
             local_folder_path: seriesPath,
             updated_at: new Date().toISOString()
           })
@@ -675,11 +676,24 @@ async function searchSeriesOnTMDB(seriesName: string): Promise<any | null> {
       .replace(/[._-]/g, ' ')
       .trim()
 
+    // 1. Rechercher la série
     const searchUrl = `https://api.themoviedb.org/3/search/tv?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(cleanName)}&language=fr-FR`
     const response = await fetch(searchUrl)
     const data = await response.json()
 
     if (data.results && data.results.length > 0) {
+      const seriesId = data.results[0].id
+      
+      // 2. Récupérer les détails complets (avec genres en noms, pas en IDs)
+      const detailsUrl = `https://api.themoviedb.org/3/tv/${seriesId}?api_key=${TMDB_API_KEY}&language=fr-FR`
+      const detailsResponse = await fetch(detailsUrl)
+      const detailsData = await detailsResponse.json()
+      
+      if (detailsData && detailsData.id) {
+        console.log(`   🎬 Genres TMDB: ${detailsData.genres?.map((g: any) => g.name).join(', ') || 'aucun'}`)
+        return detailsData
+      }
+      
       return data.results[0]
     }
 
