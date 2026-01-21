@@ -1363,9 +1363,11 @@ function PostersView() {
     }
   }
 
-  async function loadSeries() {
+  async function loadSeries(forceRefresh = false) {
     try {
-      const response = await fetch('/api/series/list')
+      // 🔧 FIX: Ajouter nocache=true pour forcer le rafraîchissement après mise à jour
+      const url = forceRefresh ? '/api/series/list?nocache=true' : '/api/series/list'
+      const response = await fetch(url)
       const data = await response.json()
       if (data.success) {
         setAllSeries((data.series || []).sort((a: SeriesData, b: SeriesData) => a.title.localeCompare(b.title)))
@@ -1408,7 +1410,7 @@ function PostersView() {
       if (response.ok) {
         closeModal()
         if (type === 'movie') await loadMovies()
-        else await loadSeries()
+        else await loadSeries(true) // 🔧 FIX: Forcer le rafraîchissement du cache
         alert('✅ Affiche mise à jour !')
       } else {
         const data = await response.json()
