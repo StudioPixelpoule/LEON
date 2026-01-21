@@ -1,13 +1,21 @@
 /**
  * Utilitaires d'authentification Supabase
+ * Utilise @supabase/ssr (remplace @supabase/auth-helpers-nextjs déprécié)
  */
 
 import { createClient } from '@supabase/supabase-js'
-import { createClientComponentClient } from '@supabase/auth-helpers-nextjs'
+import { createBrowserClient as createSupabaseBrowserClient } from '@supabase/ssr'
 
 // Client pour les composants (côté client)
 export const createBrowserClient = () => {
-  return createClientComponentClient()
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error('Variables NEXT_PUBLIC_SUPABASE_URL et NEXT_PUBLIC_SUPABASE_ANON_KEY requises')
+  }
+  
+  return createSupabaseBrowserClient(supabaseUrl, supabaseAnonKey)
 }
 
 // Client pour les Server Components et API Routes

@@ -1,8 +1,11 @@
 // Configuration Sentry côté serveur
 import * as Sentry from "@sentry/nextjs"
 
+// DSN Sentry depuis variable d'environnement
+const SENTRY_DSN = process.env.NEXT_PUBLIC_SENTRY_DSN
+
 Sentry.init({
-  dsn: "https://ba451d1da215a87bf7aabf2f38830b9d@o4510134756048896.ingest.de.sentry.io/4510463324258384",
+  dsn: SENTRY_DSN,
   
   // Performance Monitoring
   tracesSampleRate: 0.1, // 10% des transactions

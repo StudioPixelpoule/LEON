@@ -8,6 +8,7 @@ import { useState, useEffect, useMemo } from 'react'
 import Header from '@/components/Header/Header'
 import HeroSection from '@/components/HeroSection/HeroSection'
 import MovieRow from '@/components/MovieRow/MovieRow'
+import LazyMovieRow from '@/components/MovieRow/LazyMovieRow'
 import MovieModal from '@/components/MovieModal/MovieModalWithTV'
 import ContinueWatchingRow from '@/components/ContinueWatchingRow/ContinueWatchingRow'
 import FavoritesRow from '@/components/FavoritesRow/FavoritesRow'
@@ -70,14 +71,15 @@ export default function FilmsPage() {
     loadMovies()
   }, []) // Charger une seule fois au montage
 
-  // 🎬 Charger le trailer du film hero
+  // 🎬 Charger le trailer du film hero (différé de 2s pour ne pas ralentir le chargement initial)
   useEffect(() => {
-    async function loadTrailer() {
-      if (!heroMovie?.tmdb_id) {
-        setHeroTrailerKey(null)
-        return
-      }
-      
+    if (!heroMovie?.tmdb_id) {
+      setHeroTrailerKey(null)
+      return
+    }
+    
+    // 🔧 OPTIMISATION: Différer le chargement du trailer pour améliorer le temps de chargement initial
+    const timeoutId = setTimeout(async () => {
       try {
         const response = await fetch(`/api/trailer?tmdb_id=${heroMovie.tmdb_id}&type=movie`)
         const result = await response.json()
@@ -92,9 +94,9 @@ export default function FilmsPage() {
         console.error('❌ Erreur chargement trailer:', error)
         setHeroTrailerKey(null)
       }
-    }
+    }, 2000) // Délai de 2s
     
-    loadTrailer()
+    return () => clearTimeout(timeoutId)
   }, [heroMovie])
   
   // Fonction de mélange aléatoire (shuffle)
@@ -330,9 +332,10 @@ export default function FilmsPage() {
               />
             )}
             
+            {/* 🔧 OPTIMISATION: Lazy loading des rangées de genre */}
             {topGenres.map(({ genre, movies }, index) => (
               <div key={genre}>
-                <MovieRow
+                <LazyMovieRow
                   title={genre}
                   movies={movies}
                   onMovieClick={setSelectedMovie}
@@ -341,9 +344,9 @@ export default function FilmsPage() {
               </div>
             ))}
             
-            {/* Section "Tous les films" pour afficher TOUS les films */}
+            {/* Section "Tous les films" - lazy loaded car en bas de page */}
             {validMovies.length > 0 && (
-              <MovieRow
+              <LazyMovieRow
                 title="Tous les films"
                 movies={validMovies}
                 onMovieClick={setSelectedMovie}

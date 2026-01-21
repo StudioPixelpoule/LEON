@@ -54,6 +54,8 @@ jobs:
           build-args: |
             NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
             NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+            ADMIN_EMAILS=${{ secrets.ADMIN_EMAILS }}
+            NEXT_PUBLIC_SENTRY_DSN=${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}
             BUILD_SHA=${{ github.sha }}
             BUILD_DATE=${{ github.run_id }}
           no-cache: true
@@ -70,10 +72,3 @@ jobs:
         run: |
           echo "💥 Build failed!"
           echo "📝 Check the logs above for details"
-
-
-
-
-
-
-

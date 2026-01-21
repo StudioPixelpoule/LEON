@@ -8,10 +8,12 @@ const publicRoutes = ['/login', '/register']
 // Routes admin (nécessitent le rôle admin)
 const adminRoutes = ['/admin', '/api/admin']
 
-// Liste des emails admin
-const ADMIN_EMAILS = [
-  'theboxoflio@gmail.com',
-]
+// Liste des emails admin (depuis variable d'environnement)
+// Format: "email1@example.com,email2@example.com"
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS || '')
+  .split(',')
+  .map(email => email.trim().toLowerCase())
+  .filter(Boolean)
 
 export async function middleware(req: NextRequest) {
   let res = NextResponse.next({

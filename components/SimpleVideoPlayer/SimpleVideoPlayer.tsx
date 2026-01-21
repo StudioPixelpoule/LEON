@@ -8,6 +8,7 @@ import { useBufferStatus } from '@/lib/hooks/useBufferStatus'
 import { SegmentPreloader } from '@/lib/segment-preloader'
 import { usePlaybackPosition } from '@/lib/hooks/usePlaybackPosition'
 import { useNetworkResilience } from '@/lib/hooks/useNetworkResilience'
+import { usePlayerPreferences } from '@/lib/hooks/usePlayerPreferences'
 import { HLS_BASE_CONFIG, selectHlsConfig } from '@/lib/hls-config'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -192,6 +193,9 @@ export default function SimpleVideoPlayer({
   const { user } = useAuth()
   const userId = user?.id
   
+  // 🔧 Hook pour persister les préférences (langue audio, sous-titres)
+  const { savePreferences, getInitialPreferences, isLoaded: prefsLoaded } = usePlayerPreferences(userId)
+  
   const videoRef = useRef<HTMLVideoElement>(null)
   const progressRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -244,6 +248,11 @@ export default function SimpleVideoPlayer({
   const [isNextEpisodeCancelled, setIsNextEpisodeCancelled] = useState(false) // Si l'utilisateur a annulé
   const nextEpisodeTimerRef = useRef<NodeJS.Timeout | null>(null) // Timer pour le compte à rebours
   
+  // 🔧 FIX: Refs pour éviter les closures stale dans le countdown
+  const selectedAudioRef = useRef(0)
+  const selectedSubtitleRef = useRef<number | null>(null)
+  const isFullscreenRef = useRef(false)
+  
   // Refs pour la gestion d'état
   const hideControlsTimeout = useRef<NodeJS.Timeout>()
   const currentVideoUrl = useRef(src)
@@ -251,6 +260,7 @@ export default function SimpleVideoPlayer({
   const hasStartedPlaying = useRef(false)
   const bufferCheckIntervalRef = useRef<NodeJS.Timeout | null>(null) // 🔧 Pour nettoyer l'intervalle buffer
   const lastTimeRef = useRef(0) // 🔧 Pour détecter les vrais sauts (pas les faux positifs)
+  const subtitleAbortControllerRef = useRef<AbortController | null>(null) // 🔧 Pour annuler les fetch de sous-titres
 
   // Extraire le filepath depuis l'URL
   const getFilepath = useCallback(() => {
@@ -355,6 +365,26 @@ export default function SimpleVideoPlayer({
     setNextEpisodeCountdown(10)
   }, [src])
 
+  // 🔧 FIX: Synchroniser les refs avec les valeurs de state (pour éviter closures stale)
+  useEffect(() => {
+    selectedAudioRef.current = selectedAudio
+    selectedSubtitleRef.current = selectedSubtitle
+    isFullscreenRef.current = isFullscreen
+  }, [selectedAudio, selectedSubtitle, isFullscreen])
+
+  // 🔧 Sauvegarder les préférences quand elles changent (localStorage)
+  useEffect(() => {
+    // Ne sauvegarder que si les préférences ont été modifiées par l'utilisateur
+    // (pas au chargement initial)
+    if (!prefsLoaded) return
+    
+    savePreferences({
+      audioTrackIndex: selectedAudio,
+      subtitleTrackIndex: selectedSubtitle,
+      volume
+    })
+  }, [selectedAudio, selectedSubtitle, volume, prefsLoaded, savePreferences])
+
   // Charger les infos des pistes et la durée
   useEffect(() => {
     const filepath = getFilepath()
@@ -388,23 +418,27 @@ export default function SimpleVideoPlayer({
         setSubtitleTracks(data.subtitleTracks || [])
         
         // 🎬 Appliquer les préférences initiales si fournies (enchaînement d'épisodes)
-        if (initialPreferences?.audioTrackIndex !== undefined && data.audioTracks?.length > initialPreferences.audioTrackIndex) {
-          setSelectedAudio(initialPreferences.audioTrackIndex)
-          console.log('[PLAYER] 🔊 Préférence audio restaurée:', initialPreferences.audioTrackIndex)
+        // Sinon, utiliser les préférences sauvegardées (localStorage)
+        const savedPrefs = getInitialPreferences()
+        const effectivePrefs = initialPreferences || savedPrefs
+        
+        if (effectivePrefs?.audioTrackIndex !== undefined && data.audioTracks?.length > effectivePrefs.audioTrackIndex) {
+          setSelectedAudio(effectivePrefs.audioTrackIndex)
+          console.log('[PLAYER] 🔊 Préférence audio restaurée:', effectivePrefs.audioTrackIndex, initialPreferences ? '(épisode)' : '(localStorage)')
         } else if (data.audioTracks?.length > 0) {
           // Sélectionner la première piste audio par défaut
           setSelectedAudio(0)
         }
         
-        if (initialPreferences?.subtitleTrackIndex !== undefined) {
-          setSelectedSubtitle(initialPreferences.subtitleTrackIndex)
-          console.log('[PLAYER] 📝 Préférence sous-titres restaurée:', initialPreferences.subtitleTrackIndex)
+        if (effectivePrefs?.subtitleTrackIndex !== undefined) {
+          setSelectedSubtitle(effectivePrefs.subtitleTrackIndex)
+          console.log('[PLAYER] 📝 Préférence sous-titres restaurée:', effectivePrefs.subtitleTrackIndex, initialPreferences ? '(épisode)' : '(localStorage)')
         }
       })
       .catch(err => {
         console.log('⚠️ API pistes non disponible, pas de changement de langue')
       })
-  }, [getFilepath, src])
+  }, [getFilepath, src, getInitialPreferences])
 
   // Pour les MP4 directs : s'assurer que la première piste audio est sélectionnée et détecter les sous-titres natifs
   useEffect(() => {
@@ -576,10 +610,11 @@ export default function SimpleVideoPlayer({
       // Si on arrive ici et que le UI n'est pas affiché (vidéo courte), lancer l'épisode suivant
       if (nextEpisode && onNextEpisode && !isNextEpisodeCancelled && !showNextEpisodeUI) {
         console.log('[PLAYER] ➡️ Vidéo terminée, passage direct à l\'épisode suivant:', nextEpisode.title)
+        // 🔧 FIX: Utiliser les refs pour avoir les valeurs actuelles
         const preferences: PlayerPreferences = {
-          audioTrackIndex: selectedAudio,
-          subtitleTrackIndex: selectedSubtitle,
-          wasFullscreen: isFullscreen
+          audioTrackIndex: selectedAudioRef.current,
+          subtitleTrackIndex: selectedSubtitleRef.current,
+          wasFullscreen: isFullscreenRef.current
         }
         onNextEpisode(preferences)
       }
@@ -587,9 +622,11 @@ export default function SimpleVideoPlayer({
 
     video.addEventListener('ended', handleVideoEnded)
     return () => video.removeEventListener('ended', handleVideoEnded)
-  }, [mediaId, nextEpisode, onNextEpisode, markAsFinished, isNextEpisodeCancelled, showNextEpisodeUI, selectedAudio, selectedSubtitle, isFullscreen])
+    // 🔧 FIX: Retrait des valeurs de state des dépendances car on utilise les refs
+  }, [mediaId, nextEpisode, onNextEpisode, markAsFinished, isNextEpisodeCancelled, showNextEpisodeUI])
 
   // 🎬 Netflix: Compte à rebours de 10 secondes pour l'épisode suivant
+  // 🔧 FIX: Utilise les refs pour éviter les closures stale (le countdown ne redémarre plus)
   useEffect(() => {
     // Nettoyer le timer précédent
     if (nextEpisodeTimerRef.current) {
@@ -617,11 +654,11 @@ export default function SimpleVideoPlayer({
             nextEpisodeTimerRef.current = null
           }
           
-          // Récupérer les préférences actuelles
+          // 🔧 FIX: Utiliser les refs pour avoir les valeurs actuelles (pas de closure stale)
           const preferences: PlayerPreferences = {
-            audioTrackIndex: selectedAudio,
-            subtitleTrackIndex: selectedSubtitle,
-            wasFullscreen: isFullscreen
+            audioTrackIndex: selectedAudioRef.current,
+            subtitleTrackIndex: selectedSubtitleRef.current,
+            wasFullscreen: isFullscreenRef.current
           }
           
           // Marquer l'épisode actuel comme terminé
@@ -645,7 +682,9 @@ export default function SimpleVideoPlayer({
         nextEpisodeTimerRef.current = null
       }
     }
-  }, [showNextEpisodeUI, isNextEpisodeCancelled, nextEpisode, onNextEpisode, selectedAudio, selectedSubtitle, isFullscreen, mediaId, markAsFinished])
+    // 🔧 FIX: Retrait de selectedAudio, selectedSubtitle, isFullscreen des dépendances
+    // car on utilise maintenant les refs (évite de redémarrer le countdown)
+  }, [showNextEpisodeUI, isNextEpisodeCancelled, nextEpisode, onNextEpisode, mediaId, markAsFinished])
 
   // 🔧 FIX #3: Gérer spécifiquement le fullscreen (compatible Safari et iOS)
   useEffect(() => {
@@ -1173,8 +1212,11 @@ export default function SimpleVideoPlayer({
       }
       
       // 🎬 Épisode suivant: Afficher le UI quand on arrive à la fin (30s avant la fin)
-      const totalDuration = realDurationRef.current || video.duration
-      if (nextEpisode && onNextEpisode && !isNextEpisodeCancelled && totalDuration > 0) {
+      // 🔧 FIX: Fallback robuste pour la durée (API, vidéo native, puis state)
+      const videoDuration = isFinite(video.duration) && video.duration > 0 ? video.duration : 0
+      const totalDuration = realDurationRef.current || videoDuration || duration
+      // Ne pas afficher l'UI pour les vidéos trop courtes (< 60s) ou si durée inconnue
+      if (nextEpisode && onNextEpisode && !isNextEpisodeCancelled && totalDuration > 60) {
         const timeRemaining = Math.max(0, totalDuration - currentPos)
         
         // Afficher l'UI 30s avant la fin (déclenche le compte à rebours de 10s)
@@ -1285,6 +1327,26 @@ export default function SimpleVideoPlayer({
       if (bufferCheckIntervalRef.current) {
         clearInterval(bufferCheckIntervalRef.current)
         bufferCheckIntervalRef.current = null
+      }
+      // 🧹 Nettoyer le timer épisode suivant (FIX FUITE MÉMOIRE)
+      if (nextEpisodeTimerRef.current) {
+        clearInterval(nextEpisodeTimerRef.current)
+        nextEpisodeTimerRef.current = null
+      }
+      // 🧹 Nettoyer le timeout des contrôles (FIX FUITE MÉMOIRE)
+      if (hideControlsTimeout.current) {
+        clearTimeout(hideControlsTimeout.current)
+        hideControlsTimeout.current = undefined
+      }
+      // 🧹 Nettoyer le preloader (FIX FUITE MÉMOIRE)
+      if (preloaderRef.current) {
+        preloaderRef.current.reset()
+        preloaderRef.current = null
+      }
+      // 🧹 Annuler les fetch de sous-titres en cours (FIX FUITE MÉMOIRE)
+      if (subtitleAbortControllerRef.current) {
+        subtitleAbortControllerRef.current.abort()
+        subtitleAbortControllerRef.current = null
       }
       // Nettoyer HLS.js
       if (hlsRef.current) {
@@ -1718,9 +1780,6 @@ export default function SimpleVideoPlayer({
       }
     }
   }, [selectedAudio, getFilepath, src])
-
-  // 🔧 AbortController pour annuler les fetch de sous-titres en cours
-  const subtitleAbortControllerRef = useRef<AbortController | null>(null)
 
   // Changement de sous-titres DYNAMIQUE
   const handleSubtitleChange = useCallback((idx: number | null) => {

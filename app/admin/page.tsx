@@ -253,18 +253,23 @@ export default function AdminPageV2() {
     }
   }, [])
 
-  // Polling intelligent : plus rapide si transcodage actif
+  // Polling intelligent : plus rapide si transcodage actif, désactivé si pas sur le dashboard
   useEffect(() => {
     loadDashboardData(true)
     
-    // Polling adaptatif : 5s si actif, 15s sinon
+    // 🔧 OPTIMISATION: Ne pas faire de polling si on n'est pas sur le dashboard
+    if (view !== 'dashboard') {
+      return
+    }
+    
+    // Polling adaptatif : 5s si transcodage actif, 15s sinon
     const getInterval = () => status.transcodingActive ? 5000 : 15000
     
     let interval = setInterval(() => loadDashboardData(), getInterval())
     
-    // Re-créer l'intervalle si le status change
+    // Re-créer l'intervalle si le status change ou si on change de vue
     return () => clearInterval(interval)
-  }, [loadDashboardData, status.transcodingActive])
+  }, [loadDashboardData, status.transcodingActive, view])
 
   return (
     <ToastContext.Provider value={{ addToast }}>

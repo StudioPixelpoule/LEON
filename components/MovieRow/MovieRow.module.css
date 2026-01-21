@@ -286,3 +286,84 @@
   }
 }
 
+/* Lazy Loading Placeholder Styles */
+.lazyContainer {
+  min-height: 400px;
+}
+
+.rowPlaceholder {
+  padding: var(--spacing-xl) 0;
+}
+
+.rowTitle {
+  font-size: 2.5rem;
+  font-weight: 700;
+  color: var(--color-white);
+  margin: 0 0 var(--spacing-lg) 0;
+  padding: 0 calc(var(--spacing-xl) * 3);
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+}
+
+.placeholderCards {
+  display: flex;
+  gap: calc(var(--spacing-xl) * 1.25);
+  padding: calc(var(--spacing-lg) * 1.5) calc(var(--spacing-xl) * 3);
+  overflow: hidden;
+}
+
+.placeholderCard {
+  min-width: 240px;
+  width: 240px;
+  height: 360px;
+  border-radius: 8px;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(255, 255, 255, 0.02) 100%
+  );
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.8;
+  }
+  100% {
+    opacity: 0.5;
+  }
+}
+
+@media (max-width: 1280px) {
+  .placeholderCard {
+    min-width: 200px;
+    width: 200px;
+    height: 300px;
+  }
+}
+
+@media (max-width: 768px) {
+  .lazyContainer {
+    min-height: 320px;
+  }
+  
+  .rowTitle {
+    font-size: 1.5rem;
+    padding: 0 var(--spacing-lg);
+  }
+  
+  .placeholderCards {
+    padding: var(--spacing-md) var(--spacing-lg);
+    gap: var(--spacing-md);
+  }
+  
+  .placeholderCard {
+    min-width: 160px;
+    width: 160px;
+    height: 240px;
+  }
+}
+

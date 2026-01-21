@@ -19,17 +19,21 @@ export const HLS_BASE_CONFIG: Partial<HlsConfig> = {
   startPosition: -1, // Démarrer au début du buffer disponible
   startLevel: -1, // Auto-sélection du niveau de qualité
   
-  // 📦 BUFFER OPTIMISÉ - Plus grand pour éviter les micro-lags
-  // Compromis : démarrage légèrement plus lent mais lecture fluide
-  maxBufferLength: 30, // 30s de buffer (au lieu de 15)
-  maxMaxBufferLength: 60, // 60s max absolu
-  maxBufferSize: 60 * 1000 * 1000, // 60MB max
-  backBufferLength: 30, // Garder 30s en arrière (pour retour rapide)
+  // 📦 BUFFER OPTIMISÉ - Augmenté pour éviter les micro-coupures audio
+  // Compromis : démarrage légèrement plus lent mais lecture parfaitement fluide
+  maxBufferLength: 45, // 45s de buffer (était 30s) - évite les micro-coupures
+  maxMaxBufferLength: 90, // 90s max absolu (était 60s)
+  maxBufferSize: 90 * 1000 * 1000, // 90MB max (augmenté pour plus de marge)
+  backBufferLength: 45, // Garder 45s en arrière (était 30s) - seek arrière fluide
   
-  // 🔧 TOLÉRANCE aux imperfections - Plus permissif
-  maxBufferHole: 1.0, // Accepter des trous de 1s
-  nudgeOffset: 0.3, // Décalage de nudge 300ms
-  nudgeMaxRetry: 8, // 8 tentatives de nudge
+  // 🔧 TOLÉRANCE aux imperfections - Équilibré pour audio fluide
+  maxBufferHole: 0.5, // Réduire à 0.5s (était 1.0s) - moins de micro-coupures audio
+  nudgeOffset: 0.2, // Réduire le décalage de nudge (était 0.3s)
+  nudgeMaxRetry: 10, // Plus de tentatives (était 8)
+  
+  // 🎵 STABILITÉ AUDIO - Nouvelles options
+  maxAudioFramesDrift: 10, // Permet plus de drift audio avant resync
+  appendErrorMaxRetry: 5, // Retenter les erreurs d'append de segment
   
   // ⏳ TIMEOUTS adaptés au transcodage NAS
   manifestLoadingTimeOut: 30000, // 30s pour le manifest
@@ -61,27 +65,27 @@ export const HLS_BASE_CONFIG: Partial<HlsConfig> = {
 
 /**
  * Configuration pour démarrage rapide (premier lancement)
- * Compromis entre vitesse et stabilité
+ * Compromis entre vitesse et stabilité audio
  */
 export const HLS_FAST_START_CONFIG: Partial<HlsConfig> = {
   ...HLS_BASE_CONFIG,
-  maxBufferLength: 15, // 15s au lieu de 8 pour plus de stabilité
-  maxMaxBufferLength: 30,
+  maxBufferLength: 20, // 20s (était 15s) - garde plus de marge pour l'audio
+  maxMaxBufferLength: 45, // (était 30s)
   startFragPrefetch: true,
 }
 
 /**
  * Configuration pour connexion lente
- * Buffers plus grands, timeouts plus longs
+ * Buffers encore plus grands, timeouts plus longs
  */
 export const HLS_SLOW_CONNECTION_CONFIG: Partial<HlsConfig> = {
   ...HLS_BASE_CONFIG,
-  maxBufferLength: 30,
-  maxMaxBufferLength: 60,
-  maxBufferSize: 60 * 1000 * 1000,
-  fragLoadingTimeOut: 40000,
-  fragLoadingMaxRetry: 10,
-  fragLoadingRetryDelay: 2000,
+  maxBufferLength: 60, // 60s (était 30s) - beaucoup plus de buffer
+  maxMaxBufferLength: 120, // 120s (était 60s)
+  maxBufferSize: 120 * 1000 * 1000, // 120MB (était 60MB)
+  fragLoadingTimeOut: 45000, // 45s (était 40s)
+  fragLoadingMaxRetry: 12, // 12 retries (était 10)
+  fragLoadingRetryDelay: 2500, // 2.5s (était 2s)
 }
 
 /**
