@@ -367,6 +367,10 @@ export default function SimpleVideoPlayer({
 
   // 🎬 Reset de l'état épisode suivant quand la source change
   useEffect(() => {
+    // 🔧 FIX CRITIQUE: Mettre à jour currentVideoUrl quand src change
+    // Sans ça, le player garde l'ancienne URL après changement d'épisode
+    currentVideoUrl.current = src
+    
     setShowNextEpisodeUI(false)
     setIsNextEpisodeCancelled(false)
     setNextEpisodeCountdown(5) // 5s comme Netflix
