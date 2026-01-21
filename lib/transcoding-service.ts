@@ -23,7 +23,7 @@ const TRANSCODED_DIR = process.env.TRANSCODED_DIR || '/leon/transcoded'
 const MEDIA_DIR = process.env.MEDIA_DIR || '/leon/media/films'
 const SERIES_DIR = process.env.PCLOUD_SERIES_PATH || '/leon/media/series'
 const STATE_FILE = path.join(TRANSCODED_DIR, 'queue-state.json')
-const MAX_CONCURRENT_TRANSCODES = 2 // 🔧 2 en parallèle avec Quick Sync (le 3ème pour lecture temps réel)
+const MAX_CONCURRENT_TRANSCODES = 1 // 🔧 Revenu à 1 - Quick Sync saturé avec 2 transcodes parallèles
 const SEGMENT_DURATION = 2
 const AUTO_SAVE_INTERVAL = 30000 // Sauvegarde toutes les 30 secondes
 
