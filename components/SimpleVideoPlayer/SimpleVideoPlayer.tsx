@@ -860,6 +860,13 @@ export default function SimpleVideoPlayer({
               setIsPreTranscoded(true)
               setMaxSeekableTime(Infinity) // Seek illimité pour pré-transcodé
               console.log('[PLAYER] 🎯 Fichier pré-transcodé détecté - scrubbing complet activé')
+              
+              // 🔧 FIX: Désactiver le preloader pour le contenu pré-transcodé
+              // HLS.js gère nativement le buffering VOD - pas besoin de préchargement manuel
+              if (preloaderRef.current) {
+                preloaderRef.current.setEnabled(false)
+                console.log('[PRELOADER] ⏸️ Désactivé pour contenu pré-transcodé')
+              }
             }
             
             // 🧠 DÉCISION INTELLIGENTE

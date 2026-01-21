@@ -100,6 +100,8 @@ export class SegmentPreloader {
 
   /**
    * Précharge un segment spécifique
+   * Note: Ce preloader est destiné au transcodage TEMPS RÉEL uniquement
+   * Pour le contenu pré-transcodé, il est désactivé via setEnabled(false)
    */
   private preloadSegment(segmentIndex: number): void {
     if (this.tasks.has(segmentIndex)) {
@@ -107,6 +109,8 @@ export class SegmentPreloader {
       return
     }
     
+    // Format: segmentX.ts (transcodage temps réel)
+    // Le pré-transcodé utilise video_segmentX.ts mais le preloader est désactivé pour ce cas
     const segmentUrl = `${this.baseUrl}&segment=segment${segmentIndex}.ts`
     
     const task: PreloadTask = {
