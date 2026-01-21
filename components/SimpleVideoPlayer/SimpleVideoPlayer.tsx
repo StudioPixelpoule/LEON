@@ -250,10 +250,11 @@ export default function SimpleVideoPlayer({
   const [isNextEpisodeCancelled, setIsNextEpisodeCancelled] = useState(false) // Si l'utilisateur a annulé
   const nextEpisodeTimerRef = useRef<NodeJS.Timeout | null>(null) // Timer pour le compte à rebours
   
-  // 🔧 FIX: Refs pour éviter les closures stale dans le countdown
+  // 🔧 FIX: Refs pour éviter les closures stale dans le countdown et handleTimeUpdate
   const selectedAudioRef = useRef(0)
   const selectedSubtitleRef = useRef<number | null>(null)
   const isFullscreenRef = useRef(false)
+  const showNextEpisodeUIRef = useRef(false) // 🆕 Pour handleTimeUpdate
   
   // Refs pour la gestion d'état
   const hideControlsTimeout = useRef<NodeJS.Timeout>()
@@ -372,7 +373,8 @@ export default function SimpleVideoPlayer({
     selectedAudioRef.current = selectedAudio
     selectedSubtitleRef.current = selectedSubtitle
     isFullscreenRef.current = isFullscreen
-  }, [selectedAudio, selectedSubtitle, isFullscreen])
+    showNextEpisodeUIRef.current = showNextEpisodeUI // 🆕 Pour handleTimeUpdate
+  }, [selectedAudio, selectedSubtitle, isFullscreen, showNextEpisodeUI])
 
   // 🔧 Sauvegarder les préférences quand elles changent (localStorage) - avec debounce
   const savePrefsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -1257,17 +1259,19 @@ export default function SimpleVideoPlayer({
         const triggerTime = creditsStartTime ?? (totalDuration - 45)
         const shouldShowUI = currentPos >= triggerTime && currentPos < totalDuration
         
+        // 🔧 FIX: Utiliser la ref pour éviter closure stale (handleTimeUpdate est défini avec [src] uniquement)
+        const isUICurrentlyShown = showNextEpisodeUIRef.current
+        
         // Afficher l'UI au début du générique (timing précis ou 45s avant la fin)
         // Le countdown de 5s démarre automatiquement via useEffect
-        if (shouldShowUI) {
-          if (!showNextEpisodeUI) {
-            setShowNextEpisodeUI(true)
-            // Ne pas réinitialiser ici - le useEffect gère le countdown
-          }
+        if (shouldShowUI && !isUICurrentlyShown) {
+          console.log('[PLAYER] 🎬 Déclenchement UI épisode suivant à', currentPos.toFixed(1), 's (trigger:', triggerTime.toFixed(1), 's)')
+          setShowNextEpisodeUI(true)
         }
         
         // Masquer si on recule avant le générique
-        if (!shouldShowUI && showNextEpisodeUI) {
+        if (!shouldShowUI && isUICurrentlyShown) {
+          console.log('[PLAYER] ⏪ Masquage UI épisode suivant (recul)')
           setShowNextEpisodeUI(false)
           setNextEpisodeCountdown(5) // Reset à 5s
           // Annuler le timer si on recule
