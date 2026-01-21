@@ -70,6 +70,7 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
   const [trailerMuted, setTrailerMuted] = useState(true) // 🔊 État du son du trailer
   const trailerRef = useRef<TrailerPlayerRef>(null)
   const [playerPreferences, setPlayerPreferences] = useState<PlayerPreferences | undefined>(undefined) // 🎬 Préférences conservées entre épisodes
+  const [creditsDuration, setCreditsDuration] = useState<number>(45) // 🎬 Durée du générique (défaut: 45s)
 
   // Charger la progression de visionnage
   const loadProgress = useCallback(async (episodes: Episode[]) => {
@@ -222,11 +223,27 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
     return runtime ? `${runtime} min` : ''
   }
 
-  function handlePlayEpisode(episode: Episode, preferences?: PlayerPreferences) {
+  async function handlePlayEpisode(episode: Episode, preferences?: PlayerPreferences) {
     // Stocker les préférences si fournies (pour les enchaînements d'épisodes)
     if (preferences) {
       setPlayerPreferences(preferences)
     }
+    
+    // 🎬 Charger la durée du générique pour cette série/saison
+    try {
+      const params = new URLSearchParams({ show_name: series.title })
+      if (episode.season_number) params.append('season', episode.season_number.toString())
+      const response = await fetch(`/api/credits-duration?${params.toString()}`)
+      const data = await response.json()
+      if (data.success && data.credits_duration) {
+        setCreditsDuration(data.credits_duration)
+        console.log(`🎬 Durée générique pour ${series.title} S${episode.season_number}: ${data.credits_duration}s (${data.level})`)
+      }
+    } catch (error) {
+      console.log('⚠️ Impossible de charger la durée du générique, utilisation du défaut (45s)')
+      setCreditsDuration(45)
+    }
+    
     setCurrentEpisode(episode)
     setShowPlayer(true)
   }
@@ -330,6 +347,7 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
           handlePlayEpisode(nextEp, preferences)
         } : undefined}
         initialPreferences={playerPreferences}
+        creditsDuration={creditsDuration} // 🎬 Durée du générique configurée
         onClose={() => {
           setShowPlayer(false)
           setCurrentEpisode(null)

@@ -138,7 +138,7 @@ interface SimpleVideoPlayerProps {
   nextEpisode?: NextEpisodeInfo // Épisode suivant (pour les séries)
   onNextEpisode?: (preferences: PlayerPreferences) => void // Callback pour passer à l'épisode suivant (avec préférences)
   initialPreferences?: PlayerPreferences // Préférences de l'épisode précédent
-  creditsStartTime?: number // Moment où le générique commence (en secondes) - si connu
+  creditsDuration?: number // Durée du générique en secondes (temps avant la fin, défaut: 45)
 }
 
 interface AudioTrack {
@@ -190,7 +190,7 @@ export default function SimpleVideoPlayer({
   nextEpisode,
   onNextEpisode,
   initialPreferences,
-  creditsStartTime // Timing précis du générique si disponible (en secondes)
+  creditsDuration = 45 // Durée du générique en secondes (défaut: 45s avant la fin)
 }: SimpleVideoPlayerProps) {
   const { user } = useAuth()
   const userId = user?.id
@@ -1275,8 +1275,8 @@ export default function SimpleVideoPlayer({
       const totalDuration = realDurationRef.current || videoDuration || duration
       // Ne pas afficher l'UI pour les vidéos trop courtes (< 60s) ou si durée inconnue
       if (nextEpisode && onNextEpisode && !isNextEpisodeCancelled && totalDuration > 60) {
-        // 🎯 Utiliser creditsStartTime si disponible, sinon fallback à 45s avant la fin
-        const triggerTime = creditsStartTime ?? (totalDuration - 45)
+        // 🎯 Calculer le moment de déclenchement: durée totale - durée du générique
+        const triggerTime = totalDuration - creditsDuration
         const shouldShowUI = currentPos >= triggerTime && currentPos < totalDuration
         
         // 🔧 FIX: Utiliser la ref pour éviter closure stale (handleTimeUpdate est défini avec [src] uniquement)
