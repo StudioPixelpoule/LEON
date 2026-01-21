@@ -483,7 +483,7 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
                         {episode.still_url ? (
                           <div className={styles.episodeThumbnail}>
                             <Image
-                              src={episode.still_url}
+                              src={`/api/proxy-image?url=${encodeURIComponent(episode.still_url)}`}
                               alt={episode.title}
                               width={160}
                               height={90}
@@ -494,28 +494,10 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
                             <div className={styles.playOverlay}>
                               <Play size={32} fill="white" />
                             </div>
-                            {/* Barre de progression */}
-                            {progressPercent > 0 && (
-                              <div className={styles.progressBar}>
-                                <div 
-                                  className={styles.progressFill} 
-                                  style={{ width: `${progressPercent}%` }}
-                                />
-                              </div>
-                            )}
                           </div>
                         ) : (
                           <div className={styles.episodeNumber}>
                             {episode.episode_number}
-                            {/* Barre de progression pour épisodes sans image */}
-                            {progressPercent > 0 && (
-                              <div className={styles.progressBar}>
-                                <div 
-                                  className={styles.progressFill} 
-                                  style={{ width: `${progressPercent}%` }}
-                                />
-                              </div>
-                            )}
                           </div>
                         )}
                       </div>

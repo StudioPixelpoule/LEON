@@ -374,10 +374,11 @@ export async function POST() {
       // 5. Sauvegarder les épisodes
       console.log(`   💾 Sauvegarde de ${episodes.length} épisodes...`)
       let episodesSaved = 0
+      let episodesUpdated = 0
       for (const ep of episodes) {
         const { data: existingEp } = await supabase
           .from('episodes')
-          .select('id')
+          .select('id, still_url, overview')
           .eq('series_id', seriesId)
           .eq('season_number', ep.season)
           .eq('episode_number', ep.episode)
@@ -420,10 +421,41 @@ export async function POST() {
           
           // Petite pause pour éviter le rate limiting TMDB
           if (tmdbData?.id) await new Promise(r => setTimeout(r, 50))
+        } else if (tmdbData?.id && (!existingEp.still_url || !existingEp.overview)) {
+          // 🔄 Mettre à jour les épisodes existants sans métadonnées TMDB
+          const tmdbEpisode = await fetchTmdbEpisode(tmdbData.id, ep.season, ep.episode)
+          
+          if (tmdbEpisode) {
+            const updateData: Record<string, unknown> = {}
+            
+            if (!existingEp.still_url && tmdbEpisode.still_path) {
+              updateData.still_url = `https://image.tmdb.org/t/p/w500${tmdbEpisode.still_path}`
+            }
+            if (!existingEp.overview && tmdbEpisode.overview) {
+              updateData.overview = tmdbEpisode.overview
+            }
+            if (tmdbEpisode.air_date) updateData.air_date = tmdbEpisode.air_date
+            if (tmdbEpisode.vote_average) updateData.rating = tmdbEpisode.vote_average
+            if (tmdbEpisode.runtime) updateData.runtime = tmdbEpisode.runtime
+            
+            if (Object.keys(updateData).length > 0) {
+              const { error: updateError } = await supabase
+                .from('episodes')
+                .update(updateData)
+                .eq('id', existingEp.id)
+              
+              if (!updateError) {
+                console.log(`      🔄 S${ep.season}E${ep.episode}: métadonnées enrichies`)
+                episodesUpdated++
+              }
+            }
+          }
+          
+          await new Promise(r => setTimeout(r, 50))
         }
       }
       
-      console.log(`   ✅ ${episodesSaved} nouveaux épisodes sauvegardés`)
+      console.log(`   ✅ ${episodesSaved} nouveaux épisodes, ${episodesUpdated} enrichis`)
 
       stats.totalSeries++
       stats.totalEpisodes += episodes.length
