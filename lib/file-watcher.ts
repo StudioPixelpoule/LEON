@@ -25,6 +25,13 @@ const VIDEO_EXTENSIONS = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm
 // Debounce pour éviter les événements multiples
 const DEBOUNCE_MS = 10000 // 10 secondes (fichiers volumineux)
 
+// Debounce pour le scan d'enrichissement global (après batch de fichiers)
+const ENRICHMENT_SCAN_DELAY_MS = 10 * 60 * 1000 // 10 minutes de calme avant scan
+
+// TMDB API
+const TMDB_API_KEY = process.env.TMDB_API_KEY
+const TMDB_BASE_URL = 'https://api.themoviedb.org/3'
+
 // Interface pour l'état du watcher
 interface WatcherState {
   knownFiles: string[] // Fichiers déjà connus
@@ -42,10 +49,80 @@ class FileWatcher {
   private pendingFiles: Map<string, NodeJS.Timeout> = new Map()
   private watchedDirs: Set<string> = new Set()
   private knownFiles: Set<string> = new Set()
+  private enrichmentScanTimer: NodeJS.Timeout | null = null
+  private pendingEnrichment: boolean = false
 
   constructor() {
     console.log('👁️ Initialisation FileWatcher')
     this.loadState()
+  }
+
+  /**
+   * Récupérer les métadonnées TMDB d'un épisode
+   */
+  private async fetchTmdbEpisodeMetadata(
+    tmdbSeriesId: number,
+    seasonNumber: number,
+    episodeNumber: number
+  ): Promise<{ name?: string; overview?: string; still_path?: string; air_date?: string; vote_average?: number; runtime?: number } | null> {
+    if (!TMDB_API_KEY) return null
+    
+    try {
+      // Essayer en français d'abord
+      const response = await fetch(
+        `${TMDB_BASE_URL}/tv/${tmdbSeriesId}/season/${seasonNumber}/episode/${episodeNumber}?api_key=${TMDB_API_KEY}&language=fr-FR`
+      )
+      
+      if (!response.ok) {
+        // Fallback en anglais
+        const responseEn = await fetch(
+          `${TMDB_BASE_URL}/tv/${tmdbSeriesId}/season/${seasonNumber}/episode/${episodeNumber}?api_key=${TMDB_API_KEY}&language=en-US`
+        )
+        if (!responseEn.ok) return null
+        return await responseEn.json()
+      }
+      
+      return await response.json()
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Programmer un scan d'enrichissement différé
+   * Se déclenche après 10 minutes sans nouveaux fichiers
+   */
+  private scheduleEnrichmentScan(): void {
+    // Annuler le timer précédent
+    if (this.enrichmentScanTimer) {
+      clearTimeout(this.enrichmentScanTimer)
+    }
+    
+    this.pendingEnrichment = true
+    
+    this.enrichmentScanTimer = setTimeout(async () => {
+      this.enrichmentScanTimer = null
+      this.pendingEnrichment = false
+      
+      console.log('🔄 Scan d\'enrichissement automatique (10 min de calme)')
+      
+      try {
+        // Appeler l'API de scan en mode background
+        const response = await fetch('http://localhost:3000/api/scan-series?background=true', {
+          method: 'POST'
+        })
+        
+        if (response.ok) {
+          console.log('✅ Scan d\'enrichissement lancé en arrière-plan')
+        } else {
+          console.log('⚠️ Échec du scan d\'enrichissement')
+        }
+      } catch (error) {
+        console.error('❌ Erreur scan d\'enrichissement:', error)
+      }
+    }, ENRICHMENT_SCAN_DELAY_MS)
+    
+    console.log('⏰ Scan d\'enrichissement programmé dans 10 minutes')
   }
 
   /**
@@ -353,22 +430,48 @@ class FileWatcher {
           return
         }
         
-        // Ajouter l'épisode
+        // Préparer les données de l'épisode
         const cleanTitle = this.cleanEpisodeTitle(filename, seriesName)
-        const { error: epError } = await supabase.from('episodes').insert({
+        const episodeData: Record<string, unknown> = {
           series_id: existingSeries.id,
           tmdb_series_id: existingSeries.tmdb_id,
           season_number: seasonNumber,
           episode_number: episodeNumber,
           title: cleanTitle,
           filepath: filepath
-        })
+        }
+        
+        // Récupérer les métadonnées TMDB si la série a un tmdb_id
+        if (existingSeries.tmdb_id) {
+          const tmdbEpisode = await this.fetchTmdbEpisodeMetadata(
+            existingSeries.tmdb_id,
+            seasonNumber,
+            episodeNumber
+          )
+          
+          if (tmdbEpisode) {
+            if (tmdbEpisode.name) episodeData.title = tmdbEpisode.name
+            if (tmdbEpisode.overview) episodeData.overview = tmdbEpisode.overview
+            if (tmdbEpisode.still_path) episodeData.still_url = `https://image.tmdb.org/t/p/w500${tmdbEpisode.still_path}`
+            if (tmdbEpisode.air_date) episodeData.air_date = tmdbEpisode.air_date
+            if (tmdbEpisode.vote_average) episodeData.rating = tmdbEpisode.vote_average
+            if (tmdbEpisode.runtime) episodeData.runtime = tmdbEpisode.runtime
+            console.log(`✨ Métadonnées TMDB récupérées pour S${seasonNumber}E${episodeNumber}`)
+          }
+        }
+        
+        // Ajouter l'épisode
+        const { error: epError } = await supabase.from('episodes').insert(episodeData)
         
         if (epError) {
           console.error(`❌ Erreur ajout épisode:`, epError.message)
         } else {
-          console.log(`✅ Épisode ajouté: ${seriesName} S${seasonNumber}E${episodeNumber} - ${cleanTitle}`)
+          const hasMetadata = episodeData.still_url ? '✨' : ''
+          console.log(`✅ ${hasMetadata} Épisode ajouté: ${seriesName} S${seasonNumber}E${episodeNumber} - ${episodeData.title}`)
         }
+        
+        // Programmer un scan d'enrichissement différé (pour les autres épisodes potentiels)
+        this.scheduleEnrichmentScan()
       } else {
         // Série pas encore en base - déclencher un scan complet
         console.log(`🔍 Série non trouvée, déclenchement du scan...`)
@@ -404,6 +507,9 @@ class FileWatcher {
           })
           
           console.log(`✅ Épisode ajouté: ${seriesName} S${seasonNumber}E${episodeNumber}`)
+          
+          // Programmer un scan d'enrichissement différé (pour récupérer les métadonnées TMDB)
+          this.scheduleEnrichmentScan()
         } catch (scanError) {
           console.error(`❌ Erreur lors du scan:`, scanError)
         }
@@ -596,6 +702,13 @@ class FileWatcher {
       clearTimeout(timeout)
     }
     this.pendingFiles.clear()
+    
+    // Annuler le timer d'enrichissement
+    if (this.enrichmentScanTimer) {
+      clearTimeout(this.enrichmentScanTimer)
+      this.enrichmentScanTimer = null
+    }
+    this.pendingEnrichment = false
 
     console.log('🛑 Surveillance arrêtée')
   }
@@ -610,12 +723,13 @@ class FileWatcher {
   /**
    * Obtenir les statistiques du watcher
    */
-  getStats(): { isWatching: boolean; watchedDirs: number; pendingFiles: number; knownFiles: number } {
+  getStats(): { isWatching: boolean; watchedDirs: number; pendingFiles: number; knownFiles: number; pendingEnrichment: boolean } {
     return {
       isWatching: this.isWatching,
       watchedDirs: this.watchedDirs.size,
       pendingFiles: this.pendingFiles.size,
-      knownFiles: this.knownFiles.size
+      knownFiles: this.knownFiles.size,
+      pendingEnrichment: this.pendingEnrichment
     }
   }
 
