@@ -142,10 +142,14 @@ export default function MovieModal({ movie, isOpen, onClose, onPlayClick }: Movi
           )}
           
           {/* Réalisateur */}
-          {movie.director && movie.director.name && (
+          {movie.director && 
+           typeof movie.director === 'object' && 
+           movie.director !== null &&
+           'name' in movie.director &&
+           movie.director.name && (
             <div className={styles.director}>
               <span className={styles.label}>Réalisation :</span>
-              <span className={styles.value}>{movie.director.name}</span>
+              <span className={styles.value}>{String(movie.director.name)}</span>
             </div>
           )}
           

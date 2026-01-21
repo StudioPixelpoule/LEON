@@ -83,8 +83,8 @@ export default function SmartSearch({ movies, onMovieClick }: SmartSearchProps) 
       }
 
       // Recherche dans le réalisateur
-      if (movie.director?.name) {
-        const normalizedDirector = normalizeString(movie.director.name)
+      if (movie.director && typeof movie.director === 'object' && movie.director !== null && 'name' in movie.director && movie.director.name) {
+        const normalizedDirector = normalizeString(String(movie.director.name))
         queryWords.forEach(word => {
           if (word.length >= 3 && normalizedDirector.includes(word)) {
             score += 3
@@ -257,9 +257,9 @@ export default function SmartSearch({ movies, onMovieClick }: SmartSearchProps) 
                         ★ {movie.rating.toFixed(1)}
                       </span>
                     )}
-                    {movie.director?.name && (
+                    {movie.director && typeof movie.director === 'object' && movie.director !== null && 'name' in movie.director && movie.director.name && (
                       <span className={styles.resultDirector}>
-                        par {movie.director.name}
+                        par {String(movie.director.name)}
                       </span>
                     )}
                   </div>

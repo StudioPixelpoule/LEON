@@ -153,7 +153,11 @@ export default function FilmsPage() {
 
       // 5. Réalisateur
       if (movie.director) {
-        const directorName = typeof movie.director === 'string' ? movie.director : movie.director.name
+        const directorName = typeof movie.director === 'string' 
+          ? movie.director 
+          : (typeof movie.director === 'object' && movie.director !== null && 'name' in movie.director)
+            ? String(movie.director.name)
+            : null
         if (directorName) {
           const normalizedDirector = normalizeString(directorName)
           if (normalizedDirector.includes(normalizedQuery)) score += 8
