@@ -46,6 +46,9 @@ export default function ContinueWatchingRow({
   const { user } = useAuth()
   const userId = user?.id
   
+  // 🔧 FIX: Garder trace des IDs supprimés pour éviter qu'ils réapparaissent
+  const removedIdsRef = useRef<Set<string>>(new Set())
+  
   const scrollRef = useRef<HTMLDivElement>(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
@@ -110,6 +113,8 @@ export default function ContinueWatchingRow({
         } else if (filter === 'episodes') {
           filtered = data.media.filter((m: MediaWithProgress) => m.content_type === 'episode')
         }
+        // 🔧 FIX: Exclure les éléments récemment supprimés (évite le flash de réapparition)
+        filtered = filtered.filter((m: MediaWithProgress) => !removedIdsRef.current.has(m.id))
         setMedia(filtered)
       }
     } catch (error) {
@@ -125,7 +130,10 @@ export default function ContinueWatchingRow({
     
     console.log(`[REMOVE] Suppression de ${mediaId} (type: ${mediaType}) pour user ${userId}`)
     
-    // 🔧 FIX: Mettre à jour l'état local IMMÉDIATEMENT pour feedback utilisateur
+    // 🔧 FIX: Ajouter à la liste des supprimés pour éviter réapparition
+    removedIdsRef.current.add(mediaId)
+    
+    // Mettre à jour l'état local IMMÉDIATEMENT pour feedback utilisateur
     setMedia(prev => prev.filter(m => m.id !== mediaId))
     
     try {
@@ -141,18 +149,21 @@ export default function ContinueWatchingRow({
       console.log(`[REMOVE] Résultat:`, result)
       
       if (response.ok) {
-        // 🔧 FIX: Attendre un peu avant de rafraîchir pour laisser Supabase propager
+        // 🔧 FIX: Nettoyer l'ID de la liste des supprimés après 10s (la suppression est propagée)
         setTimeout(() => {
-          onRefresh()
-        }, 500)
+          removedIdsRef.current.delete(mediaId)
+        }, 10000)
+        // Pas besoin d'appeler onRefresh - l'état local est déjà à jour
       } else {
         console.error('[REMOVE] Erreur API:', result)
-        // Restaurer si erreur - recharger depuis l'API
+        // Restaurer si erreur - retirer de la liste des supprimés et recharger
+        removedIdsRef.current.delete(mediaId)
         loadInProgressMedia()
       }
     } catch (error) {
       console.error('[REMOVE] Erreur suppression position:', error)
-      // Restaurer si erreur - recharger depuis l'API
+      // Restaurer si erreur - retirer de la liste des supprimés et recharger
+      removedIdsRef.current.delete(mediaId)
       loadInProgressMedia()
     }
   }
