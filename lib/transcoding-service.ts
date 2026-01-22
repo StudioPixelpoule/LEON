@@ -844,7 +844,10 @@ class TranscodingService {
         `ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of csv=p=0 '${escapedPath}'`,
         { timeout: 30000 }
       )
-      return stdout.trim().toLowerCase()
+      // 🔧 FIX: Retirer la virgule finale que ffprobe ajoute parfois (ex: "hevc," -> "hevc")
+      const codec = stdout.trim().toLowerCase().replace(/,+$/, '')
+      console.log(`[TRANSCODE] 🔍 Codec détecté: "${codec}" (raw: "${stdout.trim()}")`)
+      return codec
     } catch (error) {
       console.error('[TRANSCODE] Erreur détection codec:', error)
       return 'unknown'
