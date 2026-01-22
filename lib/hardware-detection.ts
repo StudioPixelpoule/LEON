@@ -99,10 +99,10 @@ export async function detectHardwareCapabilities(): Promise<HardwareCapabilities
             platform: 'linux',
             decoderArgs: ['-hwaccel', 'vaapi', '-hwaccel_device', '/dev/dri/renderD128', '-hwaccel_output_format', 'vaapi'],
             encoderArgs: [
-              '-vf', 'format=nv12|vaapi,hwupload', // Upload vers GPU avec fallback
+              // 🔧 PAS de -vf ici - géré dynamiquement selon le codec source (H.264 vs HEVC)
               '-c:v', 'h264_vaapi',
-              '-global_quality', '23', // 🔧 CRF-like pour VAAPI (18-28, plus bas = meilleure qualité)
-              '-maxrate', '8000k', // 🔧 Augmenté pour pics de qualité
+              '-global_quality', '23', // CRF-like pour VAAPI (18-28, plus bas = meilleure qualité)
+              '-maxrate', '8000k',
               '-bufsize', '16000k',
               '-profile:v', 'main',
               '-level', '4.1',
