@@ -27,13 +27,15 @@ export const HLS_BASE_CONFIG: Partial<HlsConfig> = {
   backBufferLength: 45, // Garder 45s en arrière (était 30s) - seek arrière fluide
   
   // 🔧 TOLÉRANCE aux imperfections - Équilibré pour audio fluide
-  maxBufferHole: 0.5, // Réduire à 0.5s (était 1.0s) - moins de micro-coupures audio
-  nudgeOffset: 0.2, // Réduire le décalage de nudge (était 0.3s)
-  nudgeMaxRetry: 10, // Plus de tentatives (était 8)
+  maxBufferHole: 0.3, // 🔧 Réduit à 0.3s - tolère moins de trous pour éviter les sauts
+  nudgeOffset: 0.1, // 🔧 Réduit à 0.1s - micro-ajustements plus fins
+  nudgeMaxRetry: 15, // 🔧 Plus de tentatives pour éviter les coupures
   
-  // 🎵 STABILITÉ AUDIO - Nouvelles options
-  maxAudioFramesDrift: 10, // Permet plus de drift audio avant resync
-  appendErrorMaxRetry: 5, // Retenter les erreurs d'append de segment
+  // 🎵 STABILITÉ AUDIO - Options critiques pour éviter micro-coupures
+  maxAudioFramesDrift: 1, // 🔧 Réduit à 1 frame - resync audio plus rapide et précis
+  appendErrorMaxRetry: 8, // 🔧 Plus de retries pour les erreurs d'append
+  stretchShortVideoTrack: true, // 🔧 Étire les pistes courtes pour éviter les sauts
+  forceKeyFrameOnDiscontinuity: true, // 🔧 Force keyframe sur discontinuité
   
   // ⏳ TIMEOUTS adaptés au transcodage NAS
   manifestLoadingTimeOut: 30000, // 30s pour le manifest
@@ -69,9 +71,10 @@ export const HLS_BASE_CONFIG: Partial<HlsConfig> = {
  */
 export const HLS_FAST_START_CONFIG: Partial<HlsConfig> = {
   ...HLS_BASE_CONFIG,
-  maxBufferLength: 20, // 20s (était 15s) - garde plus de marge pour l'audio
-  maxMaxBufferLength: 45, // (était 30s)
+  maxBufferLength: 30, // 🔧 Augmenté à 30s pour plus de stabilité audio
+  maxMaxBufferLength: 60, // 🔧 Augmenté à 60s
   startFragPrefetch: true,
+  // 🎵 Hérite des paramètres audio de BASE_CONFIG (stretchShortVideoTrack, etc.)
 }
 
 /**

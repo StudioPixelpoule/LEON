@@ -33,10 +33,22 @@ export function usePlaybackPosition({
   const hasLoadedPosition = useRef(false)
   const currentTimeRef = useRef<number>(currentTime)
   const durationRef = useRef<number>(duration)
+  const lastMediaIdRef = useRef<string | null>(null) // 🔧 Track du mediaId précédent
 
   // Mettre à jour les refs à chaque render
   currentTimeRef.current = currentTime
   durationRef.current = duration
+
+  // 🔧 FIX: Réinitialiser quand le mediaId change (passage à l'épisode suivant)
+  useEffect(() => {
+    if (mediaId !== lastMediaIdRef.current) {
+      console.log(`[PLAYBACK] 🔄 MediaId changé: ${lastMediaIdRef.current} → ${mediaId}`)
+      hasLoadedPosition.current = false
+      lastSavedTimeRef.current = 0
+      setInitialPosition(0) // Reset à 0 pour le nouvel épisode
+      lastMediaIdRef.current = mediaId
+    }
+  }, [mediaId])
 
   // Charger la position sauvegardée au montage
   useEffect(() => {
