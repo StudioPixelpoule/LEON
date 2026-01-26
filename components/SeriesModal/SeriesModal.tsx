@@ -10,7 +10,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import Image from 'next/image'
 import { Play, Check } from 'lucide-react'
 import styles from './SeriesModal.module.css'
-import SimpleVideoPlayer, { PlayerPreferences } from '@/components/SimpleVideoPlayer/SimpleVideoPlayer'
+import SimpleVideoPlayer, { PlayerPreferences, SeasonInfo, EpisodeInfo } from '@/components/SimpleVideoPlayer/SimpleVideoPlayer'
 import TrailerPlayer, { TrailerPlayerRef, IconVolumeOff, IconVolumeOn } from '@/components/TrailerPlayer/TrailerPlayer'
 import { useAuth } from '@/contexts/AuthContext'
 
@@ -318,6 +318,35 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
     // Trouver l'épisode suivant pour le auto-play
     const nextEp = getNextEpisode(currentEpisode)
     
+    // Convertir les saisons pour le player
+    const allSeasonsForPlayer: SeasonInfo[] = seriesDetails.seasons.map(season => ({
+      seasonNumber: season.season,
+      episodes: season.episodes.map(ep => ({
+        id: ep.id,
+        title: ep.title,
+        seasonNumber: ep.season_number,
+        episodeNumber: ep.episode_number,
+        thumbnail: ep.still_url 
+          ? `/api/proxy-image?url=${encodeURIComponent(ep.still_url)}`
+          : undefined,
+        overview: ep.overview,
+        runtime: ep.runtime
+      }))
+    }))
+    
+    // Handler pour sélectionner un épisode depuis la modale du player
+    const handleEpisodeSelectFromPlayer = (episodeId: string, preferences: PlayerPreferences) => {
+      // Trouver l'épisode dans toutes les saisons
+      for (const season of seriesDetails.seasons) {
+        const episode = season.episodes.find(ep => ep.id === episodeId)
+        if (episode) {
+          console.log('[SERIES] 📺 Épisode sélectionné depuis player:', episode.title, 'avec préférences:', preferences)
+          handlePlayEpisode(episode, preferences)
+          break
+        }
+      }
+    }
+    
     return (
       <SimpleVideoPlayer
         // 🔧 FIX: PAS de key ici ! Garder le même composant pour préserver le fullscreen
@@ -348,6 +377,10 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
         } : undefined}
         initialPreferences={playerPreferences}
         creditsDuration={creditsDuration} // 🎬 Durée du générique configurée
+        // 🆕 Props pour la navigation des épisodes
+        allSeasons={allSeasonsForPlayer}
+        currentEpisodeId={currentEpisode.id}
+        onEpisodeSelect={handleEpisodeSelectFromPlayer}
         onClose={() => {
           setShowPlayer(false)
           setCurrentEpisode(null)

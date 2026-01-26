@@ -120,6 +120,23 @@ interface NextEpisodeInfo {
   thumbnail?: string
 }
 
+// Info épisode pour la modale de sélection
+export interface EpisodeInfo {
+  id: string
+  title: string
+  seasonNumber: number
+  episodeNumber: number
+  thumbnail?: string
+  overview?: string
+  runtime?: number
+}
+
+// Info saison pour la modale de sélection
+export interface SeasonInfo {
+  seasonNumber: number
+  episodes: EpisodeInfo[]
+}
+
 // Préférences à conserver entre épisodes
 export interface PlayerPreferences {
   audioTrackIndex?: number
@@ -139,6 +156,10 @@ interface SimpleVideoPlayerProps {
   onNextEpisode?: (preferences: PlayerPreferences) => void // Callback pour passer à l'épisode suivant (avec préférences)
   initialPreferences?: PlayerPreferences // Préférences de l'épisode précédent
   creditsDuration?: number // Durée du générique en secondes (temps avant la fin, défaut: 45)
+  // Props pour la navigation des épisodes (séries uniquement)
+  allSeasons?: SeasonInfo[] // Toutes les saisons avec leurs épisodes
+  currentEpisodeId?: string // ID de l'épisode en cours
+  onEpisodeSelect?: (episodeId: string, preferences: PlayerPreferences) => void // Callback pour sélectionner un épisode
 }
 
 interface AudioTrack {
@@ -190,7 +211,10 @@ export default function SimpleVideoPlayer({
   nextEpisode,
   onNextEpisode,
   initialPreferences,
-  creditsDuration = 45 // Durée du générique en secondes (défaut: 45s avant la fin)
+  creditsDuration = 45, // Durée du générique en secondes (défaut: 45s avant la fin)
+  allSeasons,
+  currentEpisodeId,
+  onEpisodeSelect
 }: SimpleVideoPlayerProps) {
   const { user } = useAuth()
   const userId = user?.id
@@ -240,6 +264,22 @@ export default function SimpleVideoPlayer({
   const [selectedSubtitle, setSelectedSubtitle] = useState<number | null>(null)
   const [isDownloadingSubtitles, setIsDownloadingSubtitles] = useState(false)
   const [subtitleOffset, setSubtitleOffset] = useState<number>(0) // Décalage en secondes pour synchroniser les sous-titres
+  
+  // Modale des épisodes (séries uniquement)
+  const [showEpisodesModal, setShowEpisodesModal] = useState(false)
+  const [selectedSeasonNumber, setSelectedSeasonNumber] = useState<number>(1)
+  
+  // Synchroniser la saison sélectionnée avec l'épisode en cours
+  useEffect(() => {
+    if (allSeasons && currentEpisodeId) {
+      for (const season of allSeasons) {
+        if (season.episodes.some(ep => ep.id === currentEpisodeId)) {
+          setSelectedSeasonNumber(season.seasonNumber)
+          break
+        }
+      }
+    }
+  }, [allSeasons, currentEpisodeId])
   
   // État fullscreen
   const [isFullscreen, setIsFullscreen] = useState(false)
@@ -2701,6 +2741,40 @@ export default function SimpleVideoPlayer({
           </div>
           
           <div className={styles.rightControls}>
+            {/* Boutons épisodes (séries uniquement) */}
+            {mediaType === 'episode' && onNextEpisode && nextEpisode && (
+              <button 
+                className={styles.episodeBtn}
+                onClick={() => {
+                  const preferences: PlayerPreferences = {
+                    audioTrackIndex: selectedAudio,
+                    subtitleTrackIndex: selectedSubtitle,
+                    wasFullscreen: isFullscreen
+                  }
+                  onNextEpisode(preferences)
+                }}
+                title={`Épisode suivant: S${nextEpisode.seasonNumber}E${nextEpisode.episodeNumber}`}
+              >
+                {/* Icône "Épisode suivant" */}
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+                </svg>
+              </button>
+            )}
+            
+            {mediaType === 'episode' && allSeasons && allSeasons.length > 0 && (
+              <button 
+                className={styles.episodeBtn}
+                onClick={() => setShowEpisodesModal(true)}
+                title="Liste des épisodes"
+              >
+                {/* Icône "Liste des épisodes" */}
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12zM10 9h8v2h-8V9zm0 3h4v2h-4v-2zm0-6h8v2h-8V6z"/>
+                </svg>
+              </button>
+            )}
+            
             {/* Settings */}
             {(audioTracks.length > 0 || subtitleTracks.length > 0) && (
               <div style={{ position: 'relative' }}>
@@ -3242,6 +3316,101 @@ export default function SimpleVideoPlayer({
           </div>
         </div>
       </div>
+      
+      {/* Modale des épisodes (séries uniquement) */}
+      {showEpisodesModal && allSeasons && allSeasons.length > 0 && (
+        <div 
+          className={styles.episodesModalOverlay}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowEpisodesModal(false)
+            }
+          }}
+        >
+          <div className={styles.episodesModal}>
+            {/* Header avec sélecteur de saison */}
+            <div className={styles.episodesModalHeader}>
+              <h3 className={styles.episodesModalTitle}>{title}</h3>
+              
+              <div className={styles.seasonSelector}>
+                <select 
+                  value={selectedSeasonNumber}
+                  onChange={(e) => setSelectedSeasonNumber(Number(e.target.value))}
+                >
+                  {allSeasons.map(season => (
+                    <option key={season.seasonNumber} value={season.seasonNumber}>
+                      Saison {season.seasonNumber}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              
+              <button 
+                className={styles.closeModalBtn}
+                onClick={() => setShowEpisodesModal(false)}
+              >
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/>
+                </svg>
+              </button>
+            </div>
+            
+            {/* Liste des épisodes */}
+            <div className={styles.episodesList}>
+              {allSeasons
+                .find(s => s.seasonNumber === selectedSeasonNumber)
+                ?.episodes.map(episode => {
+                  const isCurrent = episode.id === currentEpisodeId
+                  return (
+                    <div 
+                      key={episode.id}
+                      className={`${styles.episodeItem} ${isCurrent ? styles.currentEpisode : ''}`}
+                      onClick={() => {
+                        if (!isCurrent && onEpisodeSelect) {
+                          const preferences: PlayerPreferences = {
+                            audioTrackIndex: selectedAudio,
+                            subtitleTrackIndex: selectedSubtitle,
+                            wasFullscreen: isFullscreen
+                          }
+                          onEpisodeSelect(episode.id, preferences)
+                          setShowEpisodesModal(false)
+                        }
+                      }}
+                    >
+                      <span className={styles.episodeNumber}>{episode.episodeNumber}</span>
+                      
+                      <div className={styles.episodeThumbnail}>
+                        {episode.thumbnail ? (
+                          <img 
+                            src={episode.thumbnail} 
+                            alt={episode.title}
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className={styles.episodeThumbnailPlaceholder}>
+                            <svg viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/>
+                            </svg>
+                          </div>
+                        )}
+                      </div>
+                      
+                      <div className={styles.episodeInfo}>
+                        <h4 className={styles.episodeTitle}>{episode.title}</h4>
+                        {episode.runtime && (
+                          <span className={styles.episodeRuntime}>{episode.runtime} min</span>
+                        )}
+                        {episode.overview && (
+                          <p className={styles.episodeOverview}>{episode.overview}</p>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
