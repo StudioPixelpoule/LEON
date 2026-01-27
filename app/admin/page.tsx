@@ -3597,7 +3597,7 @@ function UsersView() {
   const [loading, setLoading] = useState(true)
   const [expandedUser, setExpandedUser] = useState<string | null>(null)
   const [deletingItem, setDeletingItem] = useState<string | null>(null)
-  const toast = useToast()
+  const { addToast } = useToast()
 
   useEffect(() => {
     loadUsers()
@@ -3613,7 +3613,7 @@ function UsersView() {
       }
     } catch (error) {
       console.error('Erreur chargement utilisateurs:', error)
-      toast.error('Erreur lors du chargement des utilisateurs')
+      addToast('error', 'Erreur', 'Chargement des utilisateurs échoué')
     } finally {
       setLoading(false)
     }
@@ -3640,13 +3640,13 @@ function UsersView() {
           }
           return user
         }))
-        toast.success(`"${title}" supprimé`)
+        addToast('success', 'Supprimé', `"${title}" retiré de la liste`)
       } else {
-        toast.error('Erreur lors de la suppression')
+        addToast('error', 'Erreur', 'Suppression échouée')
       }
     } catch (error) {
       console.error('Erreur suppression:', error)
-      toast.error('Erreur lors de la suppression')
+      addToast('error', 'Erreur', 'Suppression échouée')
     } finally {
       setDeletingItem(null)
     }
