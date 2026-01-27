@@ -3572,8 +3572,10 @@ function ActivityView() {
 interface UserData {
   id: string
   email: string
+  display_name: string | null
   created_at: string
   last_sign_in_at: string | null
+  email_confirmed: boolean
   in_progress_count: number
   completed_count: number
   total_watch_time_minutes: number
@@ -3705,7 +3707,7 @@ function UsersView() {
       {users.length === 0 ? (
         <div className={styles.emptyState}>
           <Users size={48} />
-          <p>Aucun utilisateur avec activité de visionnage</p>
+          <p>Aucun utilisateur inscrit</p>
         </div>
       ) : (
         <div className={styles.usersList}>
@@ -3717,24 +3719,38 @@ function UsersView() {
                 onClick={() => setExpandedUser(expandedUser === user.id ? null : user.id)}
               >
                 <div className={styles.userAvatar}>
-                  {user.email.charAt(0).toUpperCase()}
+                  {(user.display_name || user.email).charAt(0).toUpperCase()}
                 </div>
                 <div className={styles.userInfo}>
                   <div className={styles.userName}>
-                    {user.email}
+                    {user.display_name || user.email.split('@')[0]}
+                    {!user.email_confirmed && (
+                      <span className={styles.unverifiedBadge} title="Email non vérifié">
+                        <AlertCircle size={14} />
+                      </span>
+                    )}
                   </div>
+                  <div className={styles.userEmail}>{user.email}</div>
                   <div className={styles.userMeta}>
-                    <span>{user.in_progress_count} en cours</span>
-                    <span>•</span>
-                    <span>{user.completed_count} terminés</span>
-                    <span>•</span>
-                    <span>{formatDuration(user.total_watch_time_minutes)} regardé</span>
+                    <span>Inscrit le {new Date(user.created_at).toLocaleDateString('fr-FR')}</span>
+                    {user.in_progress_count > 0 && (
+                      <>
+                        <span>•</span>
+                        <span>{user.in_progress_count} en cours</span>
+                      </>
+                    )}
+                    {user.total_watch_time_minutes > 0 && (
+                      <>
+                        <span>•</span>
+                        <span>{formatDuration(user.total_watch_time_minutes)} regardé</span>
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className={styles.userLastActivity}>
                   {user.last_sign_in_at && (
                     <span className={styles.lastActivityBadge}>
-                      {formatDate(user.last_sign_in_at)}
+                      Dernière connexion: {formatDate(user.last_sign_in_at)}
                     </span>
                   )}
                   <ChevronRight 

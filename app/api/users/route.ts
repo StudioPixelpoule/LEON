@@ -1,18 +1,20 @@
 /**
  * API Route: Gestion des utilisateurs
- * GET - Liste tous les utilisateurs avec leurs statistiques de visionnage
+ * GET - Liste tous les utilisateurs inscrits avec leurs statistiques de visionnage
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { createSupabaseClient } from '@/lib/supabase'
+import { createSupabaseClient, createSupabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
 interface UserWithStats {
   id: string
   email: string
+  display_name: string | null
   created_at: string
   last_sign_in_at: string | null
+  email_confirmed: boolean
   // Statistiques de visionnage
   in_progress_count: number
   completed_count: number
@@ -35,15 +37,29 @@ interface UserWithStats {
 
 export async function GET(request: NextRequest) {
   try {
+    const supabaseAdmin = createSupabaseAdmin()
     const supabase = createSupabaseClient()
     const { searchParams } = new URL(request.url)
     const includeInProgress = searchParams.get('includeInProgress') === 'true'
 
-    // 1. Récupérer tous les utilisateurs depuis auth.users (via admin API)
-    // Note: On utilise une approche différente car on n'a pas accès direct à auth.users
-    // On récupère les utilisateurs depuis les positions de lecture (qui ont un user_id)
-    
-    // Récupérer les positions de lecture avec user_id
+    // 1. Récupérer tous les utilisateurs depuis Supabase Auth
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.listUsers({
+      page: 1,
+      perPage: 100
+    })
+
+    if (authError) {
+      console.error('[API] Erreur récupération utilisateurs auth:', authError)
+      return NextResponse.json(
+        { success: false, error: 'Erreur récupération utilisateurs', details: authError.message },
+        { status: 500 }
+      )
+    }
+
+    const authUsers = authData?.users || []
+    console.log(`[API] ${authUsers.length} utilisateurs trouvés dans Supabase Auth`)
+
+    // 2. Récupérer les positions de lecture pour tous les utilisateurs
     const { data: positions, error: posError } = await supabase
       .from('playback_positions')
       .select('user_id, media_id, media_type, position, duration, updated_at')
@@ -54,7 +70,7 @@ export async function GET(request: NextRequest) {
       console.error('[API] Erreur récupération positions:', posError)
     }
 
-    // Récupérer l'historique de visionnage
+    // 3. Récupérer l'historique de visionnage
     const { data: history, error: histError } = await supabase
       .from('watch_history')
       .select('user_id, media_id, media_type, watch_duration, completed, created_at')
@@ -64,15 +80,11 @@ export async function GET(request: NextRequest) {
       console.error('[API] Erreur récupération historique:', histError)
     }
 
-    // Construire la liste des utilisateurs uniques
-    const userIds = new Set<string>()
-    positions?.forEach(p => p.user_id && userIds.add(p.user_id))
-    history?.forEach(h => h.user_id && userIds.add(h.user_id))
-
-    // Pour chaque utilisateur, calculer les stats
+    // 4. Pour chaque utilisateur auth, calculer les stats
     const users: UserWithStats[] = []
 
-    for (const userId of userIds) {
+    for (const authUser of authUsers) {
+      const userId = authUser.id
       const userPositions = positions?.filter(p => p.user_id === userId) || []
       const userHistory = history?.filter(h => h.user_id === userId) || []
 
@@ -152,11 +164,19 @@ export async function GET(request: NextRequest) {
       // Calculer le temps total de visionnage
       const totalWatchTime = userHistory.reduce((acc, h) => acc + (h.watch_duration || 0), 0)
 
+      // Extraire le display_name des métadonnées utilisateur
+      const displayName = authUser.user_metadata?.display_name || 
+                         authUser.user_metadata?.full_name || 
+                         authUser.user_metadata?.name ||
+                         null
+
       users.push({
         id: userId,
-        email: `Utilisateur ${userId.slice(0, 8)}...`, // On n'a pas accès aux emails directement
-        created_at: userPositions[0]?.updated_at || userHistory[0]?.created_at || new Date().toISOString(),
-        last_sign_in_at: userPositions[0]?.updated_at || null,
+        email: authUser.email || 'Email non disponible',
+        display_name: displayName,
+        created_at: authUser.created_at,
+        last_sign_in_at: authUser.last_sign_in_at || null,
+        email_confirmed: !!authUser.email_confirmed_at,
         in_progress_count: userPositions.length,
         completed_count: userHistory.filter(h => h.completed).length,
         total_watch_time_minutes: Math.round(totalWatchTime / 60),
@@ -164,10 +184,10 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Trier par activité récente
+    // Trier par date d'inscription (plus récent en premier)
     users.sort((a, b) => {
-      const dateA = a.last_sign_in_at ? new Date(a.last_sign_in_at).getTime() : 0
-      const dateB = b.last_sign_in_at ? new Date(b.last_sign_in_at).getTime() : 0
+      const dateA = new Date(a.created_at).getTime()
+      const dateB = new Date(b.created_at).getTime()
       return dateB - dateA
     })
 
