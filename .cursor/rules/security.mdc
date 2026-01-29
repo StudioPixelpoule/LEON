@@ -1,0 +1,313 @@
+---
+description: Sécurité et bonnes pratiques LEON
+alwaysApply: true
+---
+
+# Sécurité — LEON
+
+## Vue d'Ensemble
+
+LEON est une application **privée** (~10 utilisateurs de confiance), mais les bonnes pratiques de sécurité restent essentielles.
+
+## Authentification
+
+### Supabase Auth
+
+```typescript
+// ✅ Vérification côté serveur
+const { data: { user }, error } = await supabase.auth.getUser()
+if (!user) {
+  return NextResponse.json({ error: 'Non authentifié' }, { status: 401 })
+}
+
+// ❌ Ne JAMAIS se fier uniquement au client
+// Le client peut être manipulé
+```
+
+### Sessions
+
+- Durée de session par défaut Supabase
+- Refresh automatique des tokens
+- Déconnexion sur fermeture navigateur (optionnel)
+
+## Row Level Security (RLS)
+
+### Tables avec RLS Actif
+
+| Table | RLS | Politique |
+|-------|-----|-----------|
+| `playback_positions` | ✅ | `auth.uid() = user_id` |
+| `favorites` | ✅ | `auth.uid() = user_id` |
+| `profiles` | ✅ | `auth.uid() = id` |
+| `manual_matches` | ✅ | Authentifiés |
+| `watch_history` | ✅ | `auth.uid() = user_id` |
+
+### Tables sans RLS (lecture publique)
+
+| Table | RLS | Raison |
+|-------|-----|--------|
+| `media` | ❌ | Catalogue partagé |
+| `series` | ❌ | Catalogue partagé |
+| `episodes` | ❌ | Catalogue partagé |
+
+### Exemple Policy RLS
+
+```sql
+-- Chaque utilisateur ne voit que ses positions
+CREATE POLICY "Users can view own playback_positions"
+  ON playback_positions FOR SELECT
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own playback_positions"
+  ON playback_positions FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own playback_positions"
+  ON playback_positions FOR UPDATE
+  USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own playback_positions"
+  ON playback_positions FOR DELETE
+  USING (auth.uid() = user_id);
+```
+
+## Variables d'Environnement
+
+### Côté Client (publiques)
+
+```bash
+# Peuvent être exposées dans le navigateur
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+NEXT_PUBLIC_SENTRY_DSN=https://xxx@sentry.io/xxx
+```
+
+### Côté Serveur (secrètes)
+
+```bash
+# JAMAIS exposées côté client
+SUPABASE_SERVICE_ROLE_KEY=xxx  # Bypass RLS
+TMDB_API_KEY=xxx
+OPENSUBTITLES_API_KEY=xxx
+SENTRY_AUTH_TOKEN=xxx
+```
+
+### Vérification
+
+```typescript
+// ❌ JAMAIS accéder à SUPABASE_SERVICE_ROLE_KEY côté client
+// Ce code NE DOIT PAS être dans un composant 'use client'
+const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+```
+
+## Validation des Inputs
+
+### Pattern avec Type Guards
+
+```typescript
+function isValidMediaType(type: unknown): type is 'movie' | 'tv' {
+  return type === 'movie' || type === 'tv'
+}
+
+export async function POST(request: NextRequest) {
+  const body = await request.json()
+  
+  // Validation
+  if (!body.mediaId || typeof body.mediaId !== 'string') {
+    return NextResponse.json({ error: 'mediaId invalide' }, { status: 400 })
+  }
+  
+  if (!isValidMediaType(body.mediaType)) {
+    return NextResponse.json({ error: 'mediaType invalide' }, { status: 400 })
+  }
+  
+  // Continuer avec types garantis
+}
+```
+
+### Pattern avec Zod (recommandé)
+
+```typescript
+import { z } from 'zod'
+
+const FavoriteSchema = z.object({
+  mediaId: z.string().uuid(),
+  mediaType: z.enum(['movie', 'tv'])
+})
+
+export async function POST(request: NextRequest) {
+  const body = await request.json()
+  
+  const result = FavoriteSchema.safeParse(body)
+  if (!result.success) {
+    return NextResponse.json(
+      { error: 'Données invalides', details: result.error.issues },
+      { status: 400 }
+    )
+  }
+  
+  // result.data est typé et validé
+  const { mediaId, mediaType } = result.data
+}
+```
+
+## Chemins de Fichiers
+
+### Validation des Chemins
+
+```typescript
+// ✅ Valider que le chemin est dans le dossier autorisé
+const ALLOWED_MEDIA_ROOT = '/leon/media'
+
+function isValidMediaPath(path: string): boolean {
+  const normalizedPath = path.normalize(path)
+  return normalizedPath.startsWith(ALLOWED_MEDIA_ROOT)
+}
+
+export async function GET(request: NextRequest) {
+  const path = searchParams.get('path')
+  
+  if (!path || !isValidMediaPath(path)) {
+    return new Response('Chemin non autorisé', { status: 403 })
+  }
+  
+  // Continuer...
+}
+```
+
+### Protection Path Traversal
+
+```typescript
+// ❌ Vulnérable au path traversal
+const filePath = `/leon/media/${userInput}`
+// Un attaquant pourrait envoyer: ../../../etc/passwd
+
+// ✅ Normaliser et vérifier
+import path from 'path'
+
+const safePath = path.normalize(userInput)
+const fullPath = path.join(MEDIA_ROOT, safePath)
+
+if (!fullPath.startsWith(MEDIA_ROOT)) {
+  throw new Error('Tentative de path traversal détectée')
+}
+```
+
+## XSS Prevention
+
+### Sanitization des Données Affichées
+
+```tsx
+// ✅ React échappe automatiquement
+<p>{movie.overview}</p>
+
+// ❌ ÉVITER dangerouslySetInnerHTML
+<div dangerouslySetInnerHTML={{ __html: userContent }} />
+
+// Si absolument nécessaire, sanitizer
+import DOMPurify from 'dompurify'
+<div dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(userContent) }} />
+```
+
+### Headers de Sécurité
+
+```typescript
+// next.config.js
+const securityHeaders = [
+  {
+    key: 'X-Content-Type-Options',
+    value: 'nosniff'
+  },
+  {
+    key: 'X-Frame-Options',
+    value: 'DENY'
+  },
+  {
+    key: 'X-XSS-Protection',
+    value: '1; mode=block'
+  }
+]
+
+module.exports = {
+  async headers() {
+    return [
+      {
+        source: '/(.*)',
+        headers: securityHeaders
+      }
+    ]
+  }
+}
+```
+
+## Logging Sécurisé
+
+### Ce qu'on Log
+
+```typescript
+// ✅ Logger les événements de sécurité
+console.log('[AUTH] Connexion réussie', { userId: user.id })
+console.log('[AUTH] Tentative de connexion échouée', { email })
+console.log('[SECURITY] Tentative d\'accès non autorisé', { path, userId })
+```
+
+### Ce qu'on ne Log PAS
+
+```typescript
+// ❌ JAMAIS logger
+console.log('Password:', password)           // Mots de passe
+console.log('Token:', token)                 // Tokens
+console.log('Service Key:', serviceKey)      // Clés secrètes
+console.log('Session:', fullSessionObject)   // Sessions complètes
+```
+
+## Checklist Sécurité
+
+### Avant Déploiement
+
+- [ ] RLS activé sur tables utilisateur
+- [ ] Variables secrètes non exposées côté client
+- [ ] Validation inputs côté serveur
+- [ ] Pas de `console.log` avec données sensibles
+- [ ] Headers de sécurité configurés
+- [ ] Chemins de fichiers validés
+
+### Code Review
+
+- [ ] Pas de `any` sur données utilisateur
+- [ ] Authentification vérifiée avant opérations
+- [ ] Erreurs non exposées en production
+- [ ] Pas de SQL injection (queries paramétrées)
+
+## Sentry (Monitoring Erreurs)
+
+```typescript
+// Capturer les erreurs sans données sensibles
+import * as Sentry from '@sentry/nextjs'
+
+try {
+  // Code risqué
+} catch (error) {
+  Sentry.captureException(error, {
+    tags: { feature: 'streaming' },
+    extra: { 
+      mediaId,  // OK - pas sensible
+      // ❌ Ne pas inclure: userId, email, token
+    }
+  })
+}
+```
+
+## Réseau et Accès
+
+### Cloudflare Tunnel
+
+- LEON accessible via `leon.direct` (Cloudflare Tunnel)
+- Pas d'exposition directe du NAS
+- SSL/TLS géré par Cloudflare
+
+### Tailscale (Alternative)
+
+- VPN pour accès direct au NAS
+- Plus performant (pas de latence Cloudflare)
+- Nécessite installation client

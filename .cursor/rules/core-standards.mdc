@@ -1,0 +1,99 @@
+---
+description: Standards fondamentaux du projet LEON
+alwaysApply: true
+---
+
+# Standards Fondamentaux — LEON
+
+## Identité Projet
+
+**LEON** est une plateforme de streaming vidéo auto-hébergée pour ~10 utilisateurs.
+Stack : Next.js 14 + Supabase + FFmpeg + HLS.js.
+
+## Philosophie
+
+**"Penser avant de faire"**
+
+### Valeurs
+
+- **Justesse** : fond et forme alignés, simplicité, cohérence
+- **Sobriété** : code épuré, pas de complexité artificielle
+- **Efficacité** : outils qui simplifient la vie de l'utilisateur
+- **Qualité** : code propre, documenté, structuré
+
+### Ce qu'on refuse
+
+- Code spaghetti ou "ça marche on verra"
+- `console.log` en production (utiliser le logger)
+- `any` TypeScript sans justification documentée
+- Dépendances inutiles
+- Solutions copiées-collées sans compréhension
+
+## Approche
+
+### Avant de coder
+
+1. Comprendre le vrai besoin
+2. Proposer l'architecture avant l'implémentation
+3. Identifier les cas limites (fichiers corrompus, réseau lent, etc.)
+4. Valider l'approche si doute
+
+### Pendant le développement
+
+- Petits changements validés > gros changements risqués
+- Documenter le "pourquoi", pas juste le "quoi"
+- Tester les chemins critiques (streaming, transcodage)
+- Code lisible par un humain
+
+### Communication
+
+- Logs structurés avec préfixes : `[PLAYER]`, `[TRANSCODE]`, `[API]`, `[DB]`
+- Messages d'erreur explicites pour l'utilisateur
+- Commentaires JSDoc pour fonctions publiques
+
+## Architecture LEON
+
+```
+LEON/
+├── app/                    # Pages Next.js (App Router)
+│   ├── api/                # 63 endpoints
+│   ├── admin/              # Panneau administration
+│   ├── films/              # Catalogue films
+│   ├── series/             # Catalogue séries
+│   └── ma-liste/           # Favoris utilisateur
+├── components/             # Composants React
+│   ├── SimpleVideoPlayer/  # Lecteur HLS principal
+│   └── [20+ composants]
+├── lib/                    # Services et utilitaires
+│   ├── transcoding-service.ts
+│   ├── ffmpeg-manager.ts
+│   ├── hardware-detection.ts
+│   ├── hls-config.ts
+│   ├── media-recognition/
+│   └── hooks/
+├── contexts/               # Contextes React
+├── types/                  # Types TypeScript
+└── supabase/               # Migrations SQL
+```
+
+## Règles Critiques
+
+### Performance Streaming
+
+- Segments HLS de 2 secondes pour démarrage rapide
+- Buffer adaptatif (30-120s selon connexion)
+- Préchargement des 3 prochains segments
+- Max 2 processus FFmpeg simultanés
+
+### Sécurité
+
+- RLS activé sur tables utilisateur (playback_positions, favorites)
+- Validation des inputs côté serveur
+- Pas de clés secrètes côté client
+- Sanitization des données affichées
+
+### Scalabilité
+
+- Singleton FFmpegManager pour survie au HMR
+- Cache LRU pour segments (max 10GB)
+- Timeout automatique sessions FFmpeg (30 min)

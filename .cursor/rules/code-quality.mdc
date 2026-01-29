@@ -1,0 +1,190 @@
+---
+description: Conventions et qualité de code
+alwaysApply: true
+---
+
+# Qualité de Code — LEON
+
+## TypeScript
+
+- Mode strict obligatoire
+- Pas de `any` sauf cas documentés (APIs externes FFmpeg/TMDB)
+- Types explicites pour fonctions publiques
+- Interfaces pour objets, types pour unions
+
+```typescript
+// ✅ Correct
+interface MovieCardProps {
+  movie: Media
+  onPlay: (id: string) => void
+  isLoading?: boolean
+}
+
+// ❌ Éviter
+function handleData(data: any) { ... }
+```
+
+## Conventions de Nommage
+
+| Élément | Convention | Exemple |
+|---------|------------|---------|
+| Fichiers composants | PascalCase | `MovieModal.tsx` |
+| Fichiers hooks | camelCase + use | `usePlaybackPosition.ts` |
+| Fichiers utilitaires | camelCase | `similarityUtils.ts` |
+| CSS Modules | Component.module.css | `MovieCard.module.css` |
+| Routes API | route.ts | `app/api/hls/route.ts` |
+| Composants | PascalCase | `SimpleVideoPlayer` |
+| Fonctions | camelCase | `handlePlayEpisode` |
+| Variables | camelCase | `currentEpisode` |
+| Constantes | UPPER_SNAKE | `MAX_CONCURRENT_TRANSCODES` |
+| Types/Interfaces | PascalCase | `EpisodeInfo` |
+| Hooks | use + camelCase | `useAuth` |
+
+## Organisation des Imports
+
+```typescript
+// 1. React et Next.js
+import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
+
+// 2. Librairies externes
+import Hls from 'hls.js'
+import { Play, Pause } from 'lucide-react'
+
+// 3. Composants internes
+import { MovieModal } from '@/components/MovieModal/MovieModal'
+
+// 4. Hooks et utilitaires
+import { usePlaybackPosition } from '@/lib/hooks/usePlaybackPosition'
+import { supabase } from '@/lib/supabase'
+
+// 5. Types
+import type { Media, Episode } from '@/lib/database.types'
+
+// 6. Styles
+import styles from './Component.module.css'
+```
+
+## Gestion des Erreurs
+
+### Pattern recommandé
+
+```typescript
+try {
+  const result = await riskyOperation()
+  return { success: true, data: result }
+} catch (error) {
+  console.error('[API] Erreur opération:', error)
+  
+  // Ne JAMAIS ignorer silencieusement
+  // ❌ catch (e) { /* Ignorer */ }
+  
+  return { success: false, error: 'Message utilisateur explicite' }
+}
+```
+
+### Logging structuré
+
+```typescript
+// Préfixes obligatoires par domaine
+console.log('[PLAYER]', 'Chargement segment', { index, url })
+console.log('[TRANSCODE]', 'Démarrage FFmpeg', { path, preset })
+console.log('[API]', 'Requête reçue', { endpoint, params })
+console.log('[DB]', 'Query exécutée', { table, operation })
+```
+
+## Structure Composant React
+
+```typescript
+// Utiliser les interfaces pour les props
+interface MovieCardProps {
+  movie: Media
+  onPlay: (id: string) => void
+  isLoading?: boolean
+}
+
+// Export nommé (pas default)
+export function MovieCard({ movie, onPlay, isLoading = false }: MovieCardProps) {
+  // 1. Hooks en premier
+  const [isHovered, setIsHovered] = useState(false)
+  const router = useRouter()
+  
+  // 2. Handlers
+  const handleClick = () => {
+    if (!isLoading) onPlay(movie.id)
+  }
+  
+  // 3. Render
+  return (
+    <div className={styles.card} onClick={handleClick}>
+      {/* ... */}
+    </div>
+  )
+}
+```
+
+## Bonnes Pratiques
+
+### Performance React
+
+- `useCallback` pour handlers passés en props
+- `useMemo` pour calculs coûteux
+- `React.memo` si composant reçoit props stables
+- Lazy load composants lourds (modales, lecteur vidéo)
+
+### Accessibilité
+
+- Attributs ARIA sur les contrôles
+- Support clavier (Enter, Escape, flèches)
+- Textes alternatifs sur images
+- Focus visible
+
+### Sécurité
+
+- Validation inputs côté serveur (jamais client seul)
+- Sanitization des données affichées
+- Pas de `dangerouslySetInnerHTML` sans sanitization
+- RLS Supabase sur tables utilisateur
+
+## Anti-Patterns à Éviter
+
+```typescript
+// ❌ any sans justification
+const data: any = response
+
+// ❌ Catch silencieux
+} catch (e) {
+  // Ignorer
+}
+
+// ❌ console.log en production
+console.log('debug', data)
+
+// ❌ @ts-ignore sans explication
+// @ts-ignore
+brokenCode()
+
+// ❌ Mutations d'état direct
+state.items.push(newItem)
+
+// ✅ Préférer
+setItems(prev => [...prev, newItem])
+```
+
+## Documentation
+
+### JSDoc pour fonctions publiques
+
+```typescript
+/**
+ * Calcule la similarité entre deux chaînes.
+ * Utilise l'algorithme de Jaro-Winkler.
+ * 
+ * @param str1 - Première chaîne
+ * @param str2 - Deuxième chaîne
+ * @returns Score de similarité (0-100)
+ */
+export function calculateSimilarity(str1: string, str2: string): number {
+  // ...
+}
+```

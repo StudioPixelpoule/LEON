@@ -1,0 +1,364 @@
+---
+description: Patterns Routes API LEON
+globs: ["**/app/api/**"]
+---
+
+# Patterns Routes API — LEON
+
+## Vue d'Ensemble
+
+LEON dispose de **63 endpoints API** répartis en 8 domaines.
+
+| Domaine | Routes | Description |
+|---------|--------|-------------|
+| `/api/hls/*` | 4 | Streaming HLS principal |
+| `/api/scan*` | 2 | Indexation médias |
+| `/api/transcode*` | 2 | Gestion transcodage |
+| `/api/media/*` | 6 | CRUD médias |
+| `/api/series/*` | 2 | CRUD séries |
+| `/api/favorites/*` | 4 | Gestion favoris |
+| `/api/playback-position` | 3 | Positions lecture |
+| `/api/admin/*` | 10+ | Administration |
+
+## Structure Standard
+
+### GET avec paramètres
+
+```typescript
+// app/api/media/search/route.ts
+import { NextRequest, NextResponse } from 'next/server'
+import { createSupabaseClient } from '@/lib/supabase'
+
+export const dynamic = 'force-dynamic'
+
+export async function GET(request: NextRequest) {
+  try {
+    const { searchParams } = new URL(request.url)
+    const query = searchParams.get('q')
+    const type = searchParams.get('type') // 'movie' | 'tv'
+    
+    // Validation
+    if (!query || query.length < 2) {
+      return NextResponse.json(
+        { error: 'Requête trop courte (min 2 caractères)' },
+        { status: 400 }
+      )
+    }
+    
+    const supabase = createSupabaseClient()
+    
+    let dbQuery = supabase
+      .from('media')
+      .select('id, title, poster_url, year, media_type')
+      .ilike('title', `%${query}%`)
+      .limit(20)
+    
+    if (type) {
+      dbQuery = dbQuery.eq('media_type', type)
+    }
+    
+    const { data, error } = await dbQuery
+    
+    if (error) throw error
+    
+    return NextResponse.json({ success: true, data })
+  } catch (error) {
+    console.error('[API] Erreur search:', error)
+    return NextResponse.json(
+      { error: 'Erreur de recherche' },
+      { status: 500 }
+    )
+  }
+}
+```
+
+### POST avec body JSON
+
+```typescript
+// app/api/favorites/route.ts
+import { NextRequest, NextResponse } from 'next/server'
+import { createSupabaseClient } from '@/lib/supabase'
+
+export async function POST(request: NextRequest) {
+  try {
+    const supabase = createSupabaseClient()
+    
+    // Vérifier authentification
+    const { data: { user }, error: authError } = await supabase.auth.getUser()
+    if (authError || !user) {
+      return NextResponse.json(
+        { error: 'Non authentifié' },
+        { status: 401 }
+      )
+    }
+    
+    // Parser body
+    const body = await request.json()
+    const { mediaId, mediaType } = body
+    
+    // Validation
+    if (!mediaId || !mediaType) {
+      return NextResponse.json(
+        { error: 'mediaId et mediaType requis' },
+        { status: 400 }
+      )
+    }
+    
+    if (!['movie', 'tv'].includes(mediaType)) {
+      return NextResponse.json(
+        { error: 'mediaType invalide' },
+        { status: 400 }
+      )
+    }
+    
+    // Insérer favori
+    const { error } = await supabase
+      .from('favorites')
+      .insert({
+        user_id: user.id,
+        media_id: mediaType === 'movie' ? mediaId : null,
+        series_id: mediaType === 'tv' ? mediaId : null,
+        media_type: mediaType
+      })
+    
+    if (error) {
+      // Gérer doublon
+      if (error.code === '23505') {
+        return NextResponse.json(
+          { error: 'Déjà en favoris' },
+          { status: 409 }
+        )
+      }
+      throw error
+    }
+    
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('[API] Erreur POST favorites:', error)
+    return NextResponse.json(
+      { error: 'Erreur serveur' },
+      { status: 500 }
+    )
+  }
+}
+```
+
+### DELETE
+
+```typescript
+// app/api/favorites/route.ts (suite)
+export async function DELETE(request: NextRequest) {
+  try {
+    const supabase = createSupabaseClient()
+    
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Non authentifié' }, { status: 401 })
+    }
+    
+    const { searchParams } = new URL(request.url)
+    const mediaId = searchParams.get('mediaId')
+    
+    if (!mediaId) {
+      return NextResponse.json({ error: 'mediaId requis' }, { status: 400 })
+    }
+    
+    const { error } = await supabase
+      .from('favorites')
+      .delete()
+      .eq('user_id', user.id)
+      .eq('media_id', mediaId)
+    
+    if (error) throw error
+    
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('[API] Erreur DELETE favorites:', error)
+    return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })
+  }
+}
+```
+
+## Routes Dynamiques
+
+```typescript
+// app/api/series/[seriesId]/route.ts
+import { NextRequest, NextResponse } from 'next/server'
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { seriesId: string } }
+) {
+  try {
+    const { seriesId } = params
+    
+    // Validation UUID
+    if (!isValidUUID(seriesId)) {
+      return NextResponse.json(
+        { error: 'ID série invalide' },
+        { status: 400 }
+      )
+    }
+    
+    const supabase = createSupabaseClient()
+    
+    const { data, error } = await supabase
+      .from('series')
+      .select(`
+        *,
+        episodes (
+          id,
+          season_number,
+          episode_number,
+          title,
+          overview,
+          still_path,
+          filepath,
+          duration
+        )
+      `)
+      .eq('id', seriesId)
+      .single()
+    
+    if (error) throw error
+    if (!data) {
+      return NextResponse.json(
+        { error: 'Série non trouvée' },
+        { status: 404 }
+      )
+    }
+    
+    return NextResponse.json({ success: true, data })
+  } catch (error) {
+    console.error('[API] Erreur GET series:', error)
+    return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })
+  }
+}
+```
+
+## Streaming Response (HLS)
+
+```typescript
+// app/api/hls/route.ts (simplifié)
+import { NextRequest } from 'next/server'
+import { ffmpegManager } from '@/lib/ffmpeg-manager'
+
+export const dynamic = 'force-dynamic'
+
+export async function GET(request: NextRequest) {
+  const { searchParams } = new URL(request.url)
+  const path = searchParams.get('path')
+  const segment = searchParams.get('segment')
+  const playlist = searchParams.get('playlist')
+  
+  if (!path) {
+    return new Response('Path requis', { status: 400 })
+  }
+  
+  // Servir playlist
+  if (playlist === 'true') {
+    const m3u8 = generatePlaylist(path)
+    return new Response(m3u8, {
+      headers: {
+        'Content-Type': 'application/vnd.apple.mpegurl',
+        'Cache-Control': 'no-cache',
+      }
+    })
+  }
+  
+  // Servir segment
+  if (segment) {
+    const stream = await ffmpegManager.getSegment(path, parseInt(segment))
+    
+    return new Response(stream, {
+      headers: {
+        'Content-Type': 'video/MP2T',
+        'Cache-Control': 'max-age=3600',
+      }
+    })
+  }
+  
+  return new Response('Paramètres invalides', { status: 400 })
+}
+```
+
+## Codes de Retour
+
+| Code | Usage |
+|------|-------|
+| 200 | Succès |
+| 201 | Créé (POST) |
+| 400 | Paramètres invalides |
+| 401 | Non authentifié |
+| 403 | Non autorisé (RLS) |
+| 404 | Ressource non trouvée |
+| 409 | Conflit (doublon) |
+| 500 | Erreur serveur |
+
+## Format Réponse Standard
+
+```typescript
+// Succès
+{ success: true, data: {...} }
+
+// Succès avec liste
+{ success: true, data: [...], count: 42 }
+
+// Erreur
+{ error: 'Message explicite pour l\'utilisateur' }
+
+// Erreur avec détails (dev only)
+{ 
+  error: 'Message utilisateur',
+  details: 'Stack trace...' // Uniquement en dev
+}
+```
+
+## Middleware Auth
+
+```typescript
+// lib/auth-middleware.ts
+import { NextRequest, NextResponse } from 'next/server'
+import { createSupabaseClient } from '@/lib/supabase'
+
+export async function withAuth(
+  request: NextRequest,
+  handler: (req: NextRequest, user: User) => Promise<Response>
+) {
+  const supabase = createSupabaseClient()
+  const { data: { user }, error } = await supabase.auth.getUser()
+  
+  if (error || !user) {
+    return NextResponse.json(
+      { error: 'Non authentifié' },
+      { status: 401 }
+    )
+  }
+  
+  return handler(request, user)
+}
+
+// Utilisation
+export async function GET(request: NextRequest) {
+  return withAuth(request, async (req, user) => {
+    // Code avec user garanti
+  })
+}
+```
+
+## Bonnes Pratiques
+
+### ✅ À faire
+
+- `export const dynamic = 'force-dynamic'` pour routes avec données temps réel
+- Toujours valider les inputs
+- Retourner des messages d'erreur explicites
+- Logger les erreurs avec préfixe `[API]`
+- Vérifier auth avant opérations sensibles
+
+### ❌ À éviter
+
+- Exposer les stack traces en production
+- Oublier les validations
+- Routes sans gestion d'erreur
+- Ignorer les codes HTTP appropriés

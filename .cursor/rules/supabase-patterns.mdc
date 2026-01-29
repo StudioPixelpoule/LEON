@@ -1,0 +1,352 @@
+---
+description: Patterns Supabase pour LEON
+globs: ["**/supabase/**", "**/lib/supabase*", "**/lib/auth*"]
+---
+
+# Patterns Supabase — LEON
+
+## Architecture Base de Données
+
+### Tables Principales
+
+| Table | RLS | Description |
+|-------|-----|-------------|
+| `media` | Non | Films indexés (accès lecture public) |
+| `series` | Non | Séries TV |
+| `episodes` | Non | Épisodes individuels |
+| `playback_positions` | **Oui** | Positions lecture par utilisateur |
+| `favorites` | **Oui** | Favoris par utilisateur |
+| `profiles` | **Oui** | Profils utilisateurs |
+| `manual_matches` | Oui | Cache corrections manuelles |
+| `watch_history` | Oui | Historique visionnage |
+
+### Relations
+
+```sql
+-- Séries -> Épisodes (1:N)
+episodes.series_id -> series.id
+
+-- Utilisateurs -> Positions (1:N)
+playback_positions.user_id -> auth.users.id
+
+-- Utilisateurs -> Favoris (1:N)
+favorites.user_id -> auth.users.id
+```
+
+## Clients Supabase
+
+### Client Public (navigateur)
+
+```typescript
+// lib/supabase.ts
+import { createClient } from '@supabase/supabase-js'
+import type { Database } from '@/types/database.types'
+
+export const supabase = createClient<Database>(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+)
+```
+
+### Client SSR (Next.js App Router)
+
+```typescript
+// lib/supabase-server.ts
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
+import type { Database } from '@/types/database.types'
+
+export async function createSupabaseClient() {
+  const cookieStore = await cookies()
+  
+  return createServerClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() {
+          return cookieStore.getAll()
+        },
+        setAll(cookiesToSet) {
+          cookiesToSet.forEach(({ name, value, options }) =>
+            cookieStore.set(name, value, options)
+          )
+        },
+      },
+    }
+  )
+}
+```
+
+### Client Admin (bypass RLS)
+
+```typescript
+// lib/supabase-admin.ts
+import { createClient } from '@supabase/supabase-js'
+import type { Database } from '@/types/database.types'
+
+export function createSupabaseAdmin() {
+  return createClient<Database>(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } }
+  )
+}
+```
+
+## Queries Typées
+
+### Lecture
+
+```typescript
+// Lecture simple
+const { data, error } = await supabase
+  .from('media')
+  .select('id, title, poster_url, year')
+  .eq('media_type', 'movie')
+  .order('created_at', { ascending: false })
+
+// Lecture avec jointure
+const { data, error } = await supabase
+  .from('series')
+  .select(`
+    *,
+    episodes (
+      id,
+      season_number,
+      episode_number,
+      title
+    )
+  `)
+  .eq('id', seriesId)
+  .single()
+
+// Lecture avec RLS (positions utilisateur)
+const { data, error } = await supabase
+  .from('playback_positions')
+  .select('*')
+  .eq('user_id', userId)
+  .eq('media_id', mediaId)
+  .single()
+```
+
+### Insertion
+
+```typescript
+const { data, error } = await supabase
+  .from('media')
+  .insert({
+    pcloud_fileid: filePath,
+    title: movieData.title,
+    tmdb_id: movieData.id,
+    poster_url: movieData.poster_path,
+    year: movieData.release_date?.split('-')[0]
+  })
+  .select()
+  .single()
+```
+
+### Mise à jour
+
+```typescript
+const { error } = await supabase
+  .from('playback_positions')
+  .upsert({
+    user_id: userId,
+    media_id: mediaId,
+    media_type: 'movie',
+    position: currentTime,
+    duration: totalDuration,
+    updated_at: new Date().toISOString()
+  })
+```
+
+### Suppression
+
+```typescript
+const { error } = await supabase
+  .from('favorites')
+  .delete()
+  .eq('user_id', userId)
+  .eq('media_id', mediaId)
+```
+
+## Row Level Security (RLS)
+
+### Politique Lecture (propre données)
+
+```sql
+-- Policy : users can view own positions
+CREATE POLICY "Users can view own playback_positions"
+  ON playback_positions FOR SELECT
+  USING (auth.uid() = user_id);
+```
+
+### Politique Écriture
+
+```sql
+-- Policy : users can insert own positions
+CREATE POLICY "Users can insert own playback_positions"
+  ON playback_positions FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
+
+-- Policy : users can update own positions
+CREATE POLICY "Users can update own playback_positions"
+  ON playback_positions FOR UPDATE
+  USING (auth.uid() = user_id);
+
+-- Policy : users can delete own positions
+CREATE POLICY "Users can delete own playback_positions"
+  ON playback_positions FOR DELETE
+  USING (auth.uid() = user_id);
+```
+
+### Politique Lecture Publique
+
+```sql
+-- Policy : all authenticated can read media
+CREATE POLICY "Authenticated can read media"
+  ON media FOR SELECT
+  TO authenticated
+  USING (true);
+```
+
+## Authentification
+
+### Login
+
+```typescript
+const { data, error } = await supabase.auth.signInWithPassword({
+  email: 'user@example.com',
+  password: 'password'
+})
+```
+
+### Logout
+
+```typescript
+await supabase.auth.signOut()
+```
+
+### Récupérer l'utilisateur
+
+```typescript
+// Côté client
+const { data: { user } } = await supabase.auth.getUser()
+
+// Côté serveur (App Router)
+const supabase = await createSupabaseClient()
+const { data: { user } } = await supabase.auth.getUser()
+```
+
+### Hook useAuth
+
+```typescript
+// lib/hooks/useAuth.ts
+import { useEffect, useState } from 'react'
+import { supabase } from '@/lib/supabase'
+import type { User } from '@supabase/supabase-js'
+
+export function useAuth() {
+  const [user, setUser] = useState<User | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setUser(data.session?.user ?? null)
+      setIsLoading(false)
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (_, session) => setUser(session?.user ?? null)
+    )
+    
+    return () => subscription.unsubscribe()
+  }, [])
+
+  return { user, isLoading, supabase }
+}
+```
+
+## Régénération des Types
+
+```bash
+# Générer les types depuis Supabase
+npm run gen:types
+
+# Commande complète
+npx supabase gen types typescript --project-id $SUPABASE_PROJECT_ID > lib/database.types.ts
+```
+
+## Migrations
+
+### Convention de nommage
+
+```
+supabase/migrations/
+├── 20241206_add_series_seasons.sql
+├── 20241207_create_playback_positions.sql
+├── 20241208_create_favorites.sql
+└── 20241209_add_media_optimization.sql
+```
+
+### Structure migration
+
+```sql
+-- 20241210_add_watch_history.sql
+
+-- Up
+CREATE TABLE IF NOT EXISTS watch_history (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users NOT NULL,
+  media_id UUID REFERENCES media,
+  media_type TEXT NOT NULL,
+  watch_duration INTEGER DEFAULT 0,
+  completed BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_watch_history_user ON watch_history(user_id);
+
+ALTER TABLE watch_history ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can manage own history"
+  ON watch_history
+  USING (auth.uid() = user_id);
+```
+
+## Fonctions SQL
+
+### Trigger updated_at
+
+```sql
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER set_updated_at
+  BEFORE UPDATE ON media
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+```
+
+## Bonnes Pratiques
+
+### ✅ À faire
+
+- Toujours typer avec `Database`
+- RLS sur toutes les tables avec données utilisateur
+- Index sur colonnes fréquemment filtrées
+- `upsert` pour positions de lecture
+- Gérer les erreurs Supabase explicitement
+
+### ❌ À éviter
+
+- Client admin côté client (fuite de clé)
+- Désactiver RLS sans justification
+- Queries sans limite sur grandes tables
+- Ignorer les erreurs Supabase

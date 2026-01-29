@@ -1,0 +1,305 @@
+---
+description: Patterns Next.js 14 App Router
+globs: ["**/app/**", "**/*.tsx", "next.config.*"]
+---
+
+# Patterns Next.js — LEON
+
+## Structure App Router
+
+```
+app/
+├── (auth)/                 # Groupe routes authentifiées
+│   ├── films/
+│   ├── series/
+│   ├── movie/[id]/
+│   ├── ma-liste/
+│   └── admin/
+├── login/                  # Route publique
+├── api/                    # 63 endpoints API
+│   ├── hls/                # Streaming principal
+│   ├── scan/               # Indexation médias
+│   ├── transcode/          # Gestion transcodage
+│   ├── media/              # CRUD médias
+│   ├── series/             # CRUD séries
+│   ├── favorites/          # Favoris
+│   ├── playback-position/  # Positions lecture
+│   └── admin/              # Routes administration
+├── layout.tsx              # Layout racine
+└── globals.css             # Styles globaux
+```
+
+## Server vs Client Components
+
+### Server Components (défaut)
+
+```tsx
+// app/films/page.tsx - Server Component par défaut
+import { createSupabaseClient } from '@/lib/supabase'
+
+export default async function FilmsPage() {
+  const supabase = createSupabaseClient()
+  const { data: films } = await supabase
+    .from('media')
+    .select('*')
+    .eq('media_type', 'movie')
+  
+  return <FilmGrid films={films} />
+}
+```
+
+### Client Components
+
+```tsx
+// components/SimpleVideoPlayer/SimpleVideoPlayer.tsx
+'use client'
+
+import { useState, useEffect, useRef } from 'react'
+import Hls from 'hls.js'
+
+export function SimpleVideoPlayer({ src }: { src: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const [isPlaying, setIsPlaying] = useState(false)
+  
+  useEffect(() => {
+    // Initialisation HLS.js côté client uniquement
+    if (Hls.isSupported() && videoRef.current) {
+      const hls = new Hls(HLS_CONFIG)
+      hls.loadSource(src)
+      hls.attachMedia(videoRef.current)
+    }
+  }, [src])
+  
+  return <video ref={videoRef} />
+}
+```
+
+### Règles Server/Client
+
+| Utiliser Server Component si... | Utiliser Client Component si... |
+|--------------------------------|--------------------------------|
+| Fetch données | useState, useEffect, useRef |
+| Accès backend sécurisé | Événements (onClick, onChange) |
+| Pas d'interactivité | Hooks personnalisés avec état |
+| Rendu statique | APIs navigateur (localStorage, etc.) |
+
+## API Routes
+
+### Pattern standard
+
+```typescript
+// app/api/media/route.ts
+import { NextRequest, NextResponse } from 'next/server'
+import { createSupabaseClient } from '@/lib/supabase'
+
+// Force dynamic pour routes avec données temps réel
+export const dynamic = 'force-dynamic'
+
+export async function GET(request: NextRequest) {
+  try {
+    const supabase = createSupabaseClient()
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get('id')
+    
+    // Validation input
+    if (!id) {
+      return NextResponse.json(
+        { error: 'ID requis' },
+        { status: 400 }
+      )
+    }
+    
+    const { data, error } = await supabase
+      .from('media')
+      .select('*')
+      .eq('id', id)
+      .single()
+    
+    if (error) throw error
+    
+    return NextResponse.json({ success: true, data })
+  } catch (error) {
+    console.error('[API] Erreur media:', error)
+    return NextResponse.json(
+      { error: 'Erreur serveur' },
+      { status: 500 }
+    )
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json()
+    // Validation avec Zod recommandée
+    // ...
+  } catch (error) {
+    console.error('[API] Erreur POST media:', error)
+    return NextResponse.json(
+      { error: 'Erreur serveur' },
+      { status: 500 }
+    )
+  }
+}
+```
+
+### Routes dynamiques
+
+```typescript
+// app/api/series/[seriesId]/route.ts
+import { NextRequest, NextResponse } from 'next/server'
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { seriesId: string } }
+) {
+  const { seriesId } = params
+  // ...
+}
+```
+
+### Streaming Response (pour HLS)
+
+```typescript
+// app/api/hls/route.ts
+export async function GET(request: NextRequest) {
+  // Créer un stream ReadableStream
+  const stream = new ReadableStream({
+    start(controller) {
+      // Envoyer les données FFmpeg
+    }
+  })
+  
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'application/vnd.apple.mpegurl',
+      'Cache-Control': 'no-cache',
+    }
+  })
+}
+```
+
+## Layouts et Loading
+
+### Layout avec auth
+
+```tsx
+// app/(auth)/layout.tsx
+import { redirect } from 'next/navigation'
+import { createSupabaseClient } from '@/lib/supabase'
+
+export default async function AuthLayout({
+  children,
+}: {
+  children: React.ReactNode
+}) {
+  const supabase = createSupabaseClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  
+  if (!user) {
+    redirect('/login')
+  }
+  
+  return (
+    <>
+      <Header user={user} />
+      <main>{children}</main>
+    </>
+  )
+}
+```
+
+### Loading state
+
+```tsx
+// app/films/loading.tsx
+export default function Loading() {
+  return (
+    <div className={styles.loading}>
+      <Spinner />
+      <p>Chargement des films...</p>
+    </div>
+  )
+}
+```
+
+## CSS Modules
+
+### Structure
+
+```css
+/* components/MovieCard/MovieCard.module.css */
+.card {
+  position: relative;
+  border-radius: 4px;
+  overflow: hidden;
+  transition: transform 0.2s ease;
+}
+
+.card:hover {
+  transform: scale(1.05);
+}
+
+.poster {
+  width: 100%;
+  aspect-ratio: 2/3;
+  object-fit: cover;
+}
+
+.title {
+  padding: 0.5rem;
+  font-weight: 500;
+}
+```
+
+### Utilisation
+
+```tsx
+import styles from './MovieCard.module.css'
+
+export function MovieCard({ movie }: Props) {
+  return (
+    <div className={styles.card}>
+      <img className={styles.poster} src={movie.poster_url} alt="" />
+      <h3 className={styles.title}>{movie.title}</h3>
+    </div>
+  )
+}
+```
+
+## Images avec next/image
+
+```tsx
+import Image from 'next/image'
+
+export function MoviePoster({ url, title }: Props) {
+  return (
+    <Image
+      src={url}
+      alt={`Affiche de ${title}`}
+      width={300}
+      height={450}
+      placeholder="blur"
+      blurDataURL="/placeholder.jpg"
+    />
+  )
+}
+```
+
+## Métadonnées
+
+```tsx
+// app/movie/[id]/page.tsx
+import type { Metadata } from 'next'
+
+export async function generateMetadata({ params }): Promise<Metadata> {
+  const movie = await getMovie(params.id)
+  
+  return {
+    title: `${movie.title} — LEON`,
+    description: movie.overview,
+    openGraph: {
+      images: [movie.backdrop_url],
+    },
+  }
+}
+```
