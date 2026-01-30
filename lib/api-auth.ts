@@ -94,14 +94,30 @@ export async function requireAuth(request?: Request): Promise<AuthResult> {
         
         if (cookieValue) {
           try {
-            // Le cookie contient un JSON avec access_token et refresh_token
+            // Essai 1: JSON direct
             const parsed = JSON.parse(cookieValue)
             token = parsed.access_token || parsed[0]?.access_token
-            console.log(`[AUTH] Token extrait du JSON: ${token ? 'oui' : 'non'}`)
+            console.log(`[AUTH] Token extrait du JSON direct: ${token ? 'oui' : 'non'}`)
           } catch {
-            // Si ce n'est pas du JSON, c'est peut-être directement le token
-            token = cookieValue
-            console.log('[AUTH] Cookie utilisé directement comme token')
+            try {
+              // Essai 2: Base64 encodé (format Supabase SSR)
+              const decoded = Buffer.from(cookieValue, 'base64').toString('utf-8')
+              const parsed = JSON.parse(decoded)
+              token = parsed.access_token || parsed[0]?.access_token
+              console.log(`[AUTH] Token extrait du Base64: ${token ? 'oui' : 'non'}`)
+            } catch {
+              // Essai 3: URL encoded puis JSON
+              try {
+                const decoded = decodeURIComponent(cookieValue)
+                const parsed = JSON.parse(decoded)
+                token = parsed.access_token || parsed[0]?.access_token
+                console.log(`[AUTH] Token extrait du URL-encoded: ${token ? 'oui' : 'non'}`)
+              } catch {
+                // Dernier recours: utiliser directement comme token
+                token = cookieValue
+                console.log('[AUTH] Cookie utilisé directement comme token (fallback)')
+              }
+            }
           }
         }
         

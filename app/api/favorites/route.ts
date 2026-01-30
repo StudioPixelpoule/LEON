@@ -39,7 +39,7 @@ interface MediaData {
 
 /**
  * GET - Récupérer tous les favoris (avec infos média)
- * 🚀 OPTIMISÉ: Utilise une jointure Supabase pour éviter les requêtes N+1
+ * Utilise la vue favorites_with_media pour éviter les problèmes de jointure
  */
 export async function GET(request: NextRequest) {
   try {
@@ -48,38 +48,10 @@ export async function GET(request: NextRequest) {
     const mediaType = searchParams.get('type') || 'movie'
     const userId = searchParams.get('userId')
     
-    // 🚀 OPTIMISATION: Une seule requête avec jointure
-    // La syntaxe media:media_id(*) fait une jointure sur la table media
+    // Essayer d'abord la vue favorites_with_media
     let query = supabase
-      .from('favorites')
-      .select(`
-        id,
-        media_id,
-        media_type,
-        user_id,
-        created_at,
-        media:media_id (
-          id,
-          title,
-          original_title,
-          year,
-          duration,
-          formatted_runtime,
-          file_size,
-          quality,
-          tmdb_id,
-          poster_url,
-          backdrop_url,
-          overview,
-          genres,
-          release_date,
-          rating,
-          vote_count,
-          tagline,
-          trailer_url,
-          pcloud_fileid
-        )
-      `)
+      .from('favorites_with_media')
+      .select('*')
       .eq('media_type', mediaType)
     
     // Filtrer par utilisateur
@@ -89,7 +61,54 @@ export async function GET(request: NextRequest) {
       query = query.is('user_id', null)
     }
     
-    const { data: favorites, error } = await query.order('created_at', { ascending: false })
+    let { data: favorites, error } = await query.order('created_at', { ascending: false })
+    
+    // Fallback: si la vue n'existe pas, utiliser deux requêtes
+    if (error && error.message.includes('does not exist')) {
+      console.log('[FAVORITES] Vue favorites_with_media non trouvée, fallback sur requêtes séparées')
+      
+      // Requête 1: récupérer les favoris
+      let favQuery = supabase
+        .from('favorites')
+        .select('id, media_id, media_type, user_id, created_at')
+        .eq('media_type', mediaType)
+      
+      if (userId) {
+        favQuery = favQuery.eq('user_id', userId)
+      } else {
+        favQuery = favQuery.is('user_id', null)
+      }
+      
+      const { data: favs, error: favError } = await favQuery.order('created_at', { ascending: false })
+      
+      if (favError) {
+        console.error('[FAVORITES] Erreur récupération:', favError.message)
+        return NextResponse.json(
+          { error: `Erreur base de données: ${favError.message}` },
+          { status: 500 }
+        )
+      }
+      
+      if (!favs || favs.length === 0) {
+        return NextResponse.json({ success: true, favorites: [] })
+      }
+      
+      // Requête 2: récupérer les médias correspondants
+      const mediaIds = favs.map(f => f.media_id).filter(Boolean)
+      const { data: medias } = await supabase
+        .from('media')
+        .select('*')
+        .in('id', mediaIds)
+      
+      // Combiner les résultats
+      const mediaMap = new Map((medias || []).map(m => [m.id, m]))
+      favorites = favs.map(fav => ({
+        ...fav,
+        ...(mediaMap.get(fav.media_id) || {}),
+        favorite_id: fav.id
+      }))
+      error = null
+    }
     
     if (error) {
       console.error('[FAVORITES] Erreur récupération:', error.message, error.details, error.hint)
@@ -109,34 +128,30 @@ export async function GET(request: NextRequest) {
     
     // Transformer les données pour le format attendu par le front
     const favoritesWithMedia = favorites
-      .filter(fav => fav.media) // Filtrer les médias non trouvés (supprimés)
-      .map(fav => {
-        // Typage sécurisé avec interface MediaData
-        const media: MediaData = (fav.media as MediaData) ?? {}
-        return {
-          id: media.id ?? '',
-          title: media.title ?? '',
-          original_title: media.original_title ?? null,
-          year: media.year ?? null,
-          duration: media.duration ?? null,
-          formatted_runtime: media.formatted_runtime ?? null,
-          file_size: media.file_size ?? null,
-          quality: media.quality ?? null,
-          tmdb_id: media.tmdb_id ?? null,
-          poster_url: media.poster_url ?? null,
-          backdrop_url: media.backdrop_url ?? null,
-          overview: media.overview ?? null,
-          genres: media.genres ?? [],
-          release_date: media.release_date ?? null,
-          rating: media.rating ?? null,
-          vote_count: media.vote_count ?? null,
-          tagline: media.tagline ?? null,
-          trailer_url: media.trailer_url ?? null,
-          pcloud_fileid: media.pcloud_fileid ?? '',
-          favorite_id: fav.id,
-          favorited_at: fav.created_at
-        }
-      })
+      .filter(fav => fav.title) // Filtrer les médias non trouvés
+      .map(fav => ({
+        id: fav.id || fav.media_id || '',
+        title: fav.title || '',
+        original_title: fav.original_title || null,
+        year: fav.year || null,
+        duration: fav.duration || null,
+        formatted_runtime: fav.formatted_runtime || null,
+        file_size: fav.file_size || null,
+        quality: fav.quality || null,
+        tmdb_id: fav.tmdb_id || null,
+        poster_url: fav.poster_url || null,
+        backdrop_url: fav.backdrop_url || null,
+        overview: fav.overview || null,
+        genres: fav.genres || [],
+        release_date: fav.release_date || null,
+        rating: fav.rating || null,
+        vote_count: fav.vote_count || null,
+        tagline: fav.tagline || null,
+        trailer_url: fav.trailer_url || null,
+        pcloud_fileid: fav.pcloud_fileid || '',
+        favorite_id: fav.favorite_id || fav.id,
+        favorited_at: fav.created_at
+      }))
     
     return NextResponse.json({
       success: true,
