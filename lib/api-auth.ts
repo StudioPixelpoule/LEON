@@ -8,7 +8,11 @@ import { cookies } from 'next/headers'
 import { NextResponse } from 'next/server'
 
 // Liste des emails admin (depuis les variables d'environnement)
-const ADMIN_EMAILS = process.env.ADMIN_EMAILS?.split(',').map(e => e.trim()) || []
+// Lue dynamiquement pour supporter les changements sans rebuild
+function getAdminEmails(): string[] {
+  const emails = process.env.ADMIN_EMAILS?.split(',').map(e => e.trim().toLowerCase()) || []
+  return emails
+}
 
 // Project ref extrait de l'URL Supabase (pour les noms de cookies)
 const SUPABASE_PROJECT_REF = process.env.NEXT_PUBLIC_SUPABASE_URL?.match(/https:\/\/([^.]+)/)?.[1] || ''
@@ -64,19 +68,40 @@ export async function requireAuth(request?: Request): Promise<AuthResult> {
     if (!token) {
       try {
         const cookieStore = await cookies()
+        const allCookies = cookieStore.getAll()
+        
+        // Debug: lister tous les cookies disponibles
+        const cookieNames = allCookies.map(c => c.name)
+        console.log(`[AUTH] Cookies disponibles: [${cookieNames.join(', ')}]`)
+        console.log(`[AUTH] Project ref: ${SUPABASE_PROJECT_REF}`)
         
         // Format Supabase SSR: sb-<project-ref>-auth-token
         const authCookieName = `sb-${SUPABASE_PROJECT_REF}-auth-token`
         const authCookie = cookieStore.get(authCookieName)?.value
         
-        if (authCookie) {
+        // Essayer aussi sans le préfixe (nouveau format Supabase)
+        const altCookieName = `sb-${SUPABASE_PROJECT_REF}-auth-token-code-verifier`
+        
+        // Chercher n'importe quel cookie Supabase auth
+        const sbAuthCookie = allCookies.find(c => 
+          c.name.startsWith('sb-') && c.name.includes('-auth-token')
+        )
+        
+        console.log(`[AUTH] Cookie recherché: ${authCookieName}, trouvé: ${!!authCookie}`)
+        console.log(`[AUTH] Cookie Supabase trouvé: ${sbAuthCookie?.name || 'aucun'}`)
+        
+        const cookieValue = authCookie || sbAuthCookie?.value
+        
+        if (cookieValue) {
           try {
             // Le cookie contient un JSON avec access_token et refresh_token
-            const parsed = JSON.parse(authCookie)
+            const parsed = JSON.parse(cookieValue)
             token = parsed.access_token || parsed[0]?.access_token
+            console.log(`[AUTH] Token extrait du JSON: ${token ? 'oui' : 'non'}`)
           } catch {
             // Si ce n'est pas du JSON, c'est peut-être directement le token
-            token = authCookie
+            token = cookieValue
+            console.log('[AUTH] Cookie utilisé directement comme token')
           }
         }
         
@@ -85,10 +110,11 @@ export async function requireAuth(request?: Request): Promise<AuthResult> {
           const accessToken = cookieStore.get('sb-access-token')?.value
           if (accessToken) {
             token = accessToken
+            console.log('[AUTH] Token trouvé dans sb-access-token')
           }
         }
-      } catch {
-        // cookies() peut échouer dans certains contextes
+      } catch (cookieError) {
+        console.error('[AUTH] Erreur lecture cookies:', cookieError)
       }
     }
     
@@ -125,18 +151,24 @@ export async function requireAdmin(request?: Request): Promise<AuthResult> {
   const authResult = await requireAuth(request)
   
   if (authResult.error) {
+    console.log(`[AUTH] Erreur auth: ${authResult.error}`)
     return authResult
   }
   
   if (!authResult.user) {
+    console.log('[AUTH] Pas d\'utilisateur authentifié')
     return { user: null, error: 'Non authentifié' }
   }
   
   // Vérifier si l'email est dans la liste des admins
-  const isAdmin = ADMIN_EMAILS.includes(authResult.user.email)
+  const adminEmails = getAdminEmails()
+  const userEmail = authResult.user.email.toLowerCase()
+  const isAdmin = adminEmails.includes(userEmail)
+  
+  console.log(`[AUTH] User: ${userEmail}, Admin emails: [${adminEmails.join(', ')}], isAdmin: ${isAdmin}`)
   
   if (!isAdmin) {
-    console.warn(`[AUTH] Accès admin refusé pour: ${authResult.user.email}`)
+    console.warn(`[AUTH] Accès admin refusé pour: ${userEmail}`)
     return { user: null, error: 'Accès réservé aux administrateurs' }
   }
   
