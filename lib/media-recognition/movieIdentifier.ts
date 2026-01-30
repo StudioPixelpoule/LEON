@@ -142,22 +142,62 @@ function cleanFilename(filename: string): CleanedInfo {
 }
 
 /**
+ * Normalise les numéros de suite pour la comparaison
+ * "Dune 2" → ["Dune 2", "Dune Part Two", "Dune Part 2", "Dune Deuxième Partie"]
+ */
+function normalizeSequelNumbers(title: string): string[] {
+  const variants = [title];
+  
+  // Mapping chiffres → texte
+  const numberWords: Record<string, string[]> = {
+    '2': ['Two', 'II', 'Deuxième Partie', 'Part Two', 'Part 2', 'Partie 2'],
+    '3': ['Three', 'III', 'Troisième Partie', 'Part Three', 'Part 3', 'Partie 3'],
+    '4': ['Four', 'IV', 'Part Four', 'Part 4', 'Partie 4'],
+    '5': ['Five', 'V', 'Part Five', 'Part 5', 'Partie 5'],
+  };
+  
+  // Chercher un chiffre à la fin du titre
+  const match = title.match(/^(.+?)\s*(\d)$/);
+  if (match) {
+    const baseName = match[1].trim();
+    const number = match[2];
+    
+    if (numberWords[number]) {
+      for (const word of numberWords[number]) {
+        variants.push(`${baseName} ${word}`);
+        variants.push(`${baseName}: ${word}`);
+      }
+    }
+  }
+  
+  return variants;
+}
+
+/**
  * Calcule le score de confiance d'une correspondance
  */
 function calculateConfidence(fileInfo: CleanedInfo, tmdbMovie: TMDBMovie): number {
   let score = 0;
   
+  // Générer les variantes du titre pour les suites
+  const titleVariants = normalizeSequelNumbers(fileInfo.title);
+  
   // Similarité du titre français (40 points max)
-  const titleSimilarity = calculateSimilarity(
-    fileInfo.title.toLowerCase(),
-    tmdbMovie.title.toLowerCase()
-  );
-  const jaroScore = jaroWinklerSimilarity(
-    fileInfo.title.toLowerCase(),
-    tmdbMovie.title.toLowerCase()
-  );
-  const combinedTitleScore = (titleSimilarity * 0.6 + jaroScore * 0.4);
-  score += combinedTitleScore * 40;
+  // Tester toutes les variantes et prendre le meilleur score
+  let bestTitleScore = 0;
+  for (const variant of titleVariants) {
+    const titleSimilarity = calculateSimilarity(
+      variant.toLowerCase(),
+      tmdbMovie.title.toLowerCase()
+    );
+    const jaroScore = jaroWinklerSimilarity(
+      variant.toLowerCase(),
+      tmdbMovie.title.toLowerCase()
+    );
+    const combinedScore = (titleSimilarity * 0.6 + jaroScore * 0.4);
+    bestTitleScore = Math.max(bestTitleScore, combinedScore);
+  }
+  score += bestTitleScore * 40;
   
   // Correspondance de l'année (30 points)
   if (fileInfo.year && tmdbMovie.release_date) {
@@ -182,11 +222,17 @@ function calculateConfidence(fileInfo: CleanedInfo, tmdbMovie: TMDBMovie): numbe
   
   // Titre original si différent (10 points bonus)
   if (tmdbMovie.original_title && tmdbMovie.original_title !== tmdbMovie.title) {
-    const origSimilarity = calculateSimilarity(
-      fileInfo.title.toLowerCase(),
-      tmdbMovie.original_title.toLowerCase()
-    );
-    if (origSimilarity > 0.8) score += 10;
+    // Tester toutes les variantes contre le titre original aussi
+    for (const variant of titleVariants) {
+      const origSimilarity = calculateSimilarity(
+        variant.toLowerCase(),
+        tmdbMovie.original_title.toLowerCase()
+      );
+      if (origSimilarity > 0.8) {
+        score += 10;
+        break;
+      }
+    }
   }
   
   return Math.min(100, Math.round(score));
@@ -196,10 +242,10 @@ function calculateConfidence(fileInfo: CleanedInfo, tmdbMovie: TMDBMovie): numbe
  * Extrait les mots-clés importants d'un titre
  */
 function extractKeywords(title: string): string {
-  // Garder seulement les mots importants (> 3 caractères)
+  // Garder les mots importants (> 3 caractères) ET les chiffres (pour les suites)
   const words = title.split(' ')
-    .filter(word => word.length > 3)
-    .slice(0, 3); // Max 3 mots-clés
+    .filter(word => word.length > 3 || /^\d+$/.test(word))
+    .slice(0, 4); // Max 4 mots-clés
   return words.join(' ');
 }
 
