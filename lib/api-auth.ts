@@ -73,49 +73,60 @@ export async function requireAuth(request?: Request): Promise<AuthResult> {
         // Debug: lister tous les cookies disponibles
         const cookieNames = allCookies.map(c => c.name)
         console.log(`[AUTH] Cookies disponibles: [${cookieNames.join(', ')}]`)
-        console.log(`[AUTH] Project ref: ${SUPABASE_PROJECT_REF}`)
         
-        // Format Supabase SSR: sb-<project-ref>-auth-token
-        const authCookieName = `sb-${SUPABASE_PROJECT_REF}-auth-token`
-        const authCookie = cookieStore.get(authCookieName)?.value
+        // Format Supabase SSR: les cookies peuvent être en chunks
+        // sb-<ref>-auth-token ou sb-<ref>-auth-token.0, sb-<ref>-auth-token.1, etc.
+        const authCookieBase = `sb-${SUPABASE_PROJECT_REF}-auth-token`
         
-        // Essayer aussi sans le préfixe (nouveau format Supabase)
-        const altCookieName = `sb-${SUPABASE_PROJECT_REF}-auth-token-code-verifier`
+        // Collecter tous les chunks du cookie
+        const chunks: string[] = []
+        const mainCookie = cookieStore.get(authCookieBase)?.value
+        if (mainCookie) {
+          chunks.push(mainCookie)
+        }
         
-        // Chercher n'importe quel cookie Supabase auth
-        const sbAuthCookie = allCookies.find(c => 
-          c.name.startsWith('sb-') && c.name.includes('-auth-token')
-        )
+        // Chercher les chunks numérotés (.0, .1, .2, etc.)
+        for (let i = 0; i < 10; i++) {
+          const chunkCookie = cookieStore.get(`${authCookieBase}.${i}`)?.value
+          if (chunkCookie) {
+            chunks[i] = chunkCookie
+          }
+        }
         
-        console.log(`[AUTH] Cookie recherché: ${authCookieName}, trouvé: ${!!authCookie}`)
-        console.log(`[AUTH] Cookie Supabase trouvé: ${sbAuthCookie?.name || 'aucun'}`)
+        // Combiner tous les chunks
+        const combinedCookie = chunks.filter(Boolean).join('')
+        console.log(`[AUTH] Cookie chunks: ${chunks.length}, taille combinée: ${combinedCookie.length}`)
         
-        const cookieValue = authCookie || sbAuthCookie?.value
-        
-        if (cookieValue) {
+        if (combinedCookie) {
+          // Le cookie Supabase SSR est au format: base64(JSON({access_token, refresh_token}))
           try {
             // Essai 1: JSON direct
-            const parsed = JSON.parse(cookieValue)
+            const parsed = JSON.parse(combinedCookie)
             token = parsed.access_token || parsed[0]?.access_token
-            console.log(`[AUTH] Token extrait du JSON direct: ${token ? 'oui' : 'non'}`)
+            console.log(`[AUTH] Token extrait du JSON direct: ${token ? 'oui (' + token.substring(0, 20) + '...)' : 'non'}`)
           } catch {
             try {
-              // Essai 2: Base64 encodé (format Supabase SSR)
-              const decoded = Buffer.from(cookieValue, 'base64').toString('utf-8')
+              // Essai 2: Base64 décodé
+              const decoded = Buffer.from(combinedCookie, 'base64').toString('utf-8')
               const parsed = JSON.parse(decoded)
               token = parsed.access_token || parsed[0]?.access_token
               console.log(`[AUTH] Token extrait du Base64: ${token ? 'oui' : 'non'}`)
             } catch {
-              // Essai 3: URL encoded puis JSON
               try {
-                const decoded = decodeURIComponent(cookieValue)
+                // Essai 3: URL decoded puis JSON
+                const decoded = decodeURIComponent(combinedCookie)
                 const parsed = JSON.parse(decoded)
                 token = parsed.access_token || parsed[0]?.access_token
-                console.log(`[AUTH] Token extrait du URL-encoded: ${token ? 'oui' : 'non'}`)
+                console.log(`[AUTH] Token extrait du URL-decoded: ${token ? 'oui' : 'non'}`)
               } catch {
-                // Dernier recours: utiliser directement comme token
-                token = cookieValue
-                console.log('[AUTH] Cookie utilisé directement comme token (fallback)')
+                // Essai 4: C'est peut-être déjà un JWT (commence par eyJ)
+                if (combinedCookie.startsWith('eyJ')) {
+                  token = combinedCookie
+                  console.log('[AUTH] Cookie est déjà un JWT')
+                } else {
+                  // Log le début du cookie pour debug
+                  console.log(`[AUTH] Format cookie inconnu, début: ${combinedCookie.substring(0, 50)}...`)
+                }
               }
             }
           }
