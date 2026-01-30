@@ -66,7 +66,7 @@ export default function MovieModal({ movie, onClose, onPlayClick, autoPlay = fal
         const result = await response.json()
         
         if (result.success && result.trailer?.key) {
-          console.log(`🎬 Trailer trouvé pour ${movie.title}: ${result.trailer.key}`)
+          console.log(`[MOVIE_MODAL] 🎬 Trailer trouvé pour ${movie.title}: ${result.trailer.key}`)
           setTrailerKey(result.trailer.key)
         } else {
           setTrailerKey(null)
@@ -156,7 +156,7 @@ export default function MovieModal({ movie, onClose, onPlayClick, autoPlay = fal
   
   // Afficher le lecteur vidéo pour les épisodes (tous formats)
   if (showPlayer && currentEpisode) {
-    console.log('✅ Lecteur épisode ouvert')
+    console.log('[MOVIE_MODAL] ✅ Lecteur épisode ouvert')
     
     const ext = currentEpisode.pcloud_fileid.toLowerCase().split('.').pop()
     const needsTranscode = ext === 'mkv' || ext === 'avi'
@@ -227,12 +227,12 @@ export default function MovieModal({ movie, onClose, onPlayClick, autoPlay = fal
                   <button 
                     className={styles.playButton}
                     onClick={() => {
-                      console.log('🎬 Bouton Lire cliqué (film)')
-                      console.log('Film:', movie.title)
-                      console.log('Fichier:', movie.pcloud_fileid)
+                      console.log('[MOVIE_MODAL] 🎬 Bouton Lire cliqué (film)')
+                      console.log('[MOVIE_MODAL] Film:', movie.title)
+                      console.log('[MOVIE_MODAL] Fichier:', movie.pcloud_fileid)
                       
                       const ext = movie.pcloud_fileid.toLowerCase().split('.').pop()
-                      console.log('Format détecté:', ext)
+                      console.log('[MOVIE_MODAL] Format détecté:', ext)
                       
                       // Tous les formats → Lecteur web avec transcodage si nécessaire
                       setShowPlayer(true)
@@ -253,7 +253,7 @@ export default function MovieModal({ movie, onClose, onPlayClick, autoPlay = fal
                     <button 
                       className={styles.muteButton}
                       onClick={() => {
-                        console.log('🔊 Click bouton son, ref:', trailerRef.current)
+                        console.log('[MOVIE_MODAL] 🔊 Click bouton son, ref:', trailerRef.current)
                         trailerRef.current?.toggleMute()
                       }}
                       aria-label={trailerMuted ? 'Activer le son' : 'Couper le son'}
@@ -379,7 +379,7 @@ export default function MovieModal({ movie, onClose, onPlayClick, autoPlay = fal
                       key={episode.id} 
                       className={styles.episodeCard}
                       onClick={() => {
-                        console.log('🎬 Épisode cliqué:', episode.title)
+                        console.log('[MOVIE_MODAL] 🎬 Épisode cliqué:', episode.title)
                         setCurrentEpisode(episode)
                         setShowPlayer(true)
                       }}

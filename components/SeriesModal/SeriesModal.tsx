@@ -156,7 +156,7 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
         const result = await response.json()
         
         if (result.success && result.trailer?.key) {
-          console.log(`🎬 Trailer trouvé pour ${series.title}: ${result.trailer.key}`)
+          console.log(`[SERIES_MODAL] 🎬 Trailer trouvé pour ${series.title}: ${result.trailer.key}`)
           setTrailerKey(result.trailer.key)
         } else {
           setTrailerKey(null)
@@ -237,10 +237,10 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
       const data = await response.json()
       if (data.success && data.credits_duration) {
         setCreditsDuration(data.credits_duration)
-        console.log(`🎬 Durée générique pour ${series.title} S${episode.season_number}: ${data.credits_duration}s (${data.level})`)
+        console.log(`[SERIES_MODAL] 🎬 Durée générique pour ${series.title} S${episode.season_number}: ${data.credits_duration}s (${data.level})`)
       }
     } catch (error) {
-      console.log('⚠️ Impossible de charger la durée du générique, utilisation du défaut (45s)')
+      console.log('[SERIES_MODAL] ⚠️ Impossible de charger la durée du générique, utilisation du défaut (45s)')
       setCreditsDuration(45)
     }
     
@@ -340,7 +340,7 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
       for (const season of seriesDetails.seasons) {
         const episode = season.episodes.find(ep => ep.id === episodeId)
         if (episode) {
-          console.log('[SERIES] 📺 Épisode sélectionné depuis player:', episode.title, 'avec préférences:', preferences)
+          console.log('[SERIES_MODAL] 📺 Épisode sélectionné depuis player:', episode.title, 'avec préférences:', preferences)
           handlePlayEpisode(episode, preferences)
           break
         }
@@ -372,7 +372,7 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
         } : undefined}
         onNextEpisode={nextEp ? (preferences: PlayerPreferences) => {
           // Passer à l'épisode suivant avec les préférences (audio, sous-titres, fullscreen)
-          console.log('[SERIES] ➡️ Passage à l\'épisode suivant:', nextEp.title, 'avec préférences:', preferences)
+          console.log('[SERIES_MODAL] ➡️ Passage à l\'épisode suivant:', nextEp.title, 'avec préférences:', preferences)
           handlePlayEpisode(nextEp, preferences)
         } : undefined}
         initialPreferences={playerPreferences}

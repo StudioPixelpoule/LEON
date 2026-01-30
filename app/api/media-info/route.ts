@@ -1,14 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { exec } from 'child_process'
-import { promisify } from 'util'
+import { spawn } from 'child_process'
 import { existsSync } from 'fs'
 import { readFile } from 'fs/promises'
 import path from 'path'
+import { validateMediaPath } from '@/lib/path-validator'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
 
-const execAsync = promisify(exec)
+// Helper pour exécuter ffprobe avec spawn (sécurisé)
+function runFFprobe(args: string[], filepath: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const ffprobe = spawn('ffprobe', [...args, filepath])
+    let stdout = ''
+    let stderr = ''
+
+    ffprobe.stdout.on('data', (data) => { stdout += data.toString() })
+    ffprobe.stderr.on('data', (data) => { stderr += data.toString() })
+
+    ffprobe.on('close', (code) => {
+      if (code === 0) {
+        resolve(stdout)
+      } else {
+        reject(new Error(stderr || `ffprobe exited with code ${code}`))
+      }
+    })
+
+    ffprobe.on('error', reject)
+  })
+}
 const TRANSCODED_DIR = process.env.TRANSCODED_DIR || '/leon/transcoded'
 
 interface StreamInfo {
@@ -102,8 +122,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Chemin manquant' }, { status: 400 })
   }
   
-  // NE PAS normaliser - utiliser le chemin tel quel
-  const filepath = filepathRaw
+  // Validation sécurisée du chemin
+  const pathValidation = validateMediaPath(filepathRaw)
+  if (!pathValidation.valid || !pathValidation.normalized) {
+    return NextResponse.json({ error: pathValidation.error || 'Chemin invalide' }, { status: 400 })
+  }
+  const filepath = pathValidation.normalized
 
   try {
     // 🆕 VÉRIFIER D'ABORD SI LE FICHIER EST PRÉ-TRANSCODÉ
@@ -175,8 +199,9 @@ export async function GET(request: NextRequest) {
     // SINON: Utiliser FFprobe sur le fichier original
     console.log(`[MEDIA-INFO] 🔍 FFprobe sur fichier original: ${filepath}`)
     
-    const { stdout } = await execAsync(
-      `ffprobe -v quiet -print_format json -show_streams "${filepath}"`
+    const stdout = await runFFprobe(
+      ['-v', 'quiet', '-print_format', 'json', '-show_streams'],
+      filepath
     )
 
     const data = JSON.parse(stdout)

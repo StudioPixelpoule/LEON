@@ -563,7 +563,9 @@ async function servePreTranscoded(
     try {
       const audioInfo = JSON.parse(await readFile(audioInfoPath, 'utf-8'))
       audioCount = Array.isArray(audioInfo) ? audioInfo.length : 0
-    } catch {}
+    } catch (error) {
+      console.warn('[HLS] Erreur lecture audio_info.json:', error instanceof Error ? error.message : error)
+    }
   }
   
   try {

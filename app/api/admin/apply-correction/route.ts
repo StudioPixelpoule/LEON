@@ -10,7 +10,8 @@
  * }
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
@@ -19,7 +20,13 @@ import { getMovieDetails, getTMDBImageUrl } from '@/lib/tmdb'
 
 const OMDB_API_KEY = process.env.OMDB_API_KEY || 'b9a5c8f8'
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  // Vérification admin OBLIGATOIRE
+  const { user, error: authError } = await requireAdmin(request)
+  if (authError || !user) {
+    return authErrorResponse(authError || 'Accès refusé', 403)
+  }
+
   try {
     const body = await request.json()
     const { mediaId, source, resultId, customPosterUrl, reason } = body

@@ -83,11 +83,34 @@ export async function GET(request: NextRequest) {
     // Transformer les données pour le format attendu par le front
     const favoritesWithMedia = favorites
       .filter(fav => fav.media) // Filtrer les médias non trouvés (supprimés)
-      .map(fav => ({
-        ...(fav.media as Record<string, unknown>),
-        favorite_id: fav.id,
-        favorited_at: fav.created_at
-      }))
+      .map(fav => {
+        const media = fav.media as {
+          id: string
+          title: string
+          original_title?: string
+          year?: number
+          duration?: number
+          formatted_runtime?: string
+          file_size?: number
+          quality?: string
+          tmdb_id?: number
+          poster_url?: string
+          backdrop_url?: string
+          overview?: string
+          genres?: string
+          release_date?: string
+          rating?: number
+          vote_count?: number
+          tagline?: string
+          trailer_url?: string
+          pcloud_fileid?: string
+        }
+        return {
+          ...media,
+          favorite_id: fav.id,
+          favorited_at: fav.created_at
+        }
+      })
     
     return NextResponse.json({
       success: true,

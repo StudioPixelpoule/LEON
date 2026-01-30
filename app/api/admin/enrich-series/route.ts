@@ -5,7 +5,8 @@
  * Récupère les genres depuis TMDB pour toutes les séries qui ont un tmdb_id
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
@@ -76,7 +77,13 @@ async function fetchTMDBGenres(tmdbId: number): Promise<string[]> {
   }
 }
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+  // Vérification admin OBLIGATOIRE
+  const { user, error: authError } = await requireAdmin(request)
+  if (authError || !user) {
+    return authErrorResponse(authError || 'Accès refusé', 403)
+  }
+
   try {
     if (!TMDB_API_KEY) {
       return NextResponse.json({ error: 'TMDB_API_KEY non configurée' }, { status: 500 })
@@ -151,7 +158,13 @@ export async function POST() {
 }
 
 // GET pour vérifier le statut
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // Vérification admin OBLIGATOIRE
+  const { user, error: authError } = await requireAdmin(request)
+  if (authError || !user) {
+    return authErrorResponse(authError || 'Accès refusé', 403)
+  }
+
   try {
     const supabase = getSupabaseAdmin()
     

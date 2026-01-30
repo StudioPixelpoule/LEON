@@ -37,8 +37,8 @@ export default function MovieModal({ movie, isOpen, onClose, onPlayClick }: Movi
   
   // Afficher le lecteur vidéo si demandé
   if (showPlayer && movie.pcloud_fileid) {
-    console.log('✅ Affichage du lecteur vidéo')
-    console.log('URL stream:', `/api/stream?path=${encodeURIComponent(movie.pcloud_fileid)}`)
+    console.log('[MOVIE_MODAL] ✅ Affichage du lecteur vidéo')
+    console.log('[MOVIE_MODAL] URL stream:', `/api/stream?path=${encodeURIComponent(movie.pcloud_fileid)}`)
     return (
       <SimpleVideoPlayer
         src={`/api/stream?path=${encodeURIComponent(movie.pcloud_fileid)}`}
@@ -87,9 +87,9 @@ export default function MovieModal({ movie, isOpen, onClose, onPlayClick }: Movi
               <button 
                 className={styles.playButton}
                 onClick={() => {
-                  console.log('🎬 Bouton Lire cliqué')
-                  console.log('Film:', movie.title)
-                  console.log('Fichier:', movie.pcloud_fileid)
+                  console.log('[MOVIE_MODAL] 🎬 Bouton Lire cliqué')
+                  console.log('[MOVIE_MODAL] Film:', movie.title)
+                  console.log('[MOVIE_MODAL] Fichier:', movie.pcloud_fileid)
                   setShowPlayer(true)
                 }}
               >

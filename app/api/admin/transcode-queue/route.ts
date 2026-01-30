@@ -8,11 +8,18 @@
  *   - jobIds: string[] (pour reorder, remove multiple)
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // Vérification admin OBLIGATOIRE
+  const { user, error: authError } = await requireAdmin(request)
+  if (authError || !user) {
+    return authErrorResponse(authError || 'Accès refusé', 403)
+  }
+
   try {
     const transcodingServiceModule = await import('@/lib/transcoding-service')
     const transcodingService = transcodingServiceModule.default
@@ -57,7 +64,13 @@ export async function GET() {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  // Vérification admin OBLIGATOIRE
+  const { user, error: authError } = await requireAdmin(request)
+  if (authError || !user) {
+    return authErrorResponse(authError || 'Accès refusé', 403)
+  }
+
   try {
     const body = await request.json()
     const { action, jobId, jobIds } = body

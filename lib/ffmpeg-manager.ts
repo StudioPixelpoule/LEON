@@ -291,7 +291,9 @@ class FFmpegManager {
                 continue
               }
             }
-          } catch {}
+          } catch (error) {
+            console.warn('[FFMPEG] Erreur vérification processus:', error instanceof Error ? error.message : error)
+          }
           
           console.log(`🎯 Processus non enregistré: ${pid}`)
           try {

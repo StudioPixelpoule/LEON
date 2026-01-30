@@ -4,6 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 import { createClient } from '@supabase/supabase-js'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
@@ -25,6 +26,12 @@ function getSupabaseAdmin() {
 }
 
 export async function POST(request: NextRequest) {
+  // Vérification admin OBLIGATOIRE
+  const { user, error: authError } = await requireAdmin(request)
+  if (authError || !user) {
+    return authErrorResponse(authError || 'Accès refusé', 403)
+  }
+
   try {
     const body = await request.json()
     const { seriesId, tmdbId } = body

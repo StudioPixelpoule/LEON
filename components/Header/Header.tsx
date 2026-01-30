@@ -58,7 +58,7 @@ export default function Header({ movies, onMovieClick, series, onSeriesClick, on
   const handleSettings = () => {
     setMenuOpen(false)
     // TODO: implémenter les paramètres
-    console.log('Paramètres à venir')
+    console.log('[HEADER] Paramètres à venir')
   }
 
   const handleLogout = async () => {

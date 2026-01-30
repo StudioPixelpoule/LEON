@@ -7,6 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 import { createClient } from '@supabase/supabase-js'
 
 export const dynamic = 'force-dynamic'
@@ -24,6 +25,12 @@ function getSupabaseAdmin() {
 
 // GET - Liste des paramètres
 export async function GET(request: NextRequest) {
+  // Vérification admin OBLIGATOIRE
+  const { user, error: authError } = await requireAdmin(request)
+  if (authError || !user) {
+    return authErrorResponse(authError || 'Accès refusé', 403)
+  }
+
   try {
     const { searchParams } = new URL(request.url)
     const showName = searchParams.get('show_name')
@@ -60,6 +67,12 @@ export async function GET(request: NextRequest) {
 
 // POST - Créer ou mettre à jour
 export async function POST(request: NextRequest) {
+  // Vérification admin OBLIGATOIRE
+  const { user, error: authError } = await requireAdmin(request)
+  if (authError || !user) {
+    return authErrorResponse(authError || 'Accès refusé', 403)
+  }
+
   try {
     const body = await request.json()
     const { show_name, season_number, credits_duration, timing_source } = body
@@ -109,6 +122,12 @@ export async function POST(request: NextRequest) {
 
 // DELETE - Supprimer un paramètre
 export async function DELETE(request: NextRequest) {
+  // Vérification admin OBLIGATOIRE
+  const { user, error: authError } = await requireAdmin(request)
+  if (authError || !user) {
+    return authErrorResponse(authError || 'Accès refusé', 403)
+  }
+
   try {
     const { searchParams } = new URL(request.url)
     const showName = searchParams.get('show_name')

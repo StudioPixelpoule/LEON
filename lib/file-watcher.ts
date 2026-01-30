@@ -690,7 +690,9 @@ class FileWatcher {
     for (const watcher of this.watchers) {
       try {
         watcher.close()
-      } catch {}
+      } catch (error) {
+        console.warn('[FILE_WATCHER] Erreur fermeture watcher:', error instanceof Error ? error.message : error)
+      }
     }
     
     this.watchers = []

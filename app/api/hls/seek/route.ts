@@ -172,13 +172,15 @@ export async function POST(request: NextRequest) {
             return NextResponse.json({
               success: true,
               playlistUrl: newPlaylistUrl,
-              seekTime: seekSeconds,
-              sessionId: seekSessionId,
-              waitTime: parseFloat(waitTime)
-            })
-          }
-        } catch {}
+            seekTime: seekSeconds,
+            sessionId: seekSessionId,
+            waitTime: parseFloat(waitTime)
+          })
+        }
+      } catch (error) {
+        console.warn('[HLS-SEEK] Erreur lecture playlist:', error instanceof Error ? error.message : error)
       }
+    }
     }
     
     // Timeout
