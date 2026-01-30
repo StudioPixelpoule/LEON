@@ -45,15 +45,16 @@ export function createSupabaseAdmin(): SupabaseClient {
 // Types TypeScript pour la base de données
 // Importés depuis les types générés par Supabase CLI
 // Pour régénérer : npm run gen:types
-export type { 
-  Database,
-  Media, 
-  MediaInsert,
-  MediaUpdate,
-  Profile,
-  PlaybackPosition,
-  Favorite 
-} from './database.types'
+import type { Database } from './database.types'
+export type { Database }
+
+// Types dérivés des tables Supabase
+export type Media = Database['public']['Tables']['media']['Row']
+export type MediaInsert = Database['public']['Tables']['media']['Insert']
+export type MediaUpdate = Database['public']['Tables']['media']['Update']
+export type Profile = Database['public']['Tables']['profiles']['Row']
+export type PlaybackPosition = Database['public']['Tables']['playback_positions']['Row']
+export type Favorite = Database['public']['Tables']['favorites']['Row']
 
 // Type pour rétrocompatibilité
 export type MediaType = 'movie' | 'tv'
