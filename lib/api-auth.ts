@@ -98,34 +98,46 @@ export async function requireAuth(request?: Request): Promise<AuthResult> {
         console.log(`[AUTH] Cookie chunks: ${chunks.length}, taille combinée: ${combinedCookie.length}`)
         
         if (combinedCookie) {
-          // Le cookie Supabase SSR est au format: base64(JSON({access_token, refresh_token}))
+          // Le cookie Supabase SSR peut avoir plusieurs formats :
+          // 1. "base64-" + base64(JSON) - format Supabase SSR récent
+          // 2. JSON direct
+          // 3. Base64(JSON)
+          
+          let cookieData = combinedCookie
+          
+          // Enlever le préfixe "base64-" si présent
+          if (cookieData.startsWith('base64-')) {
+            cookieData = cookieData.substring(7) // Enlever "base64-"
+            console.log('[AUTH] Préfixe base64- détecté et enlevé')
+          }
+          
           try {
-            // Essai 1: JSON direct
-            const parsed = JSON.parse(combinedCookie)
+            // Essai 1: Base64 décodé (format Supabase SSR avec préfixe)
+            const decoded = Buffer.from(cookieData, 'base64').toString('utf-8')
+            const parsed = JSON.parse(decoded)
             token = parsed.access_token || parsed[0]?.access_token
-            console.log(`[AUTH] Token extrait du JSON direct: ${token ? 'oui (' + token.substring(0, 20) + '...)' : 'non'}`)
+            console.log(`[AUTH] Token extrait du Base64: ${token ? 'oui' : 'non'}`)
           } catch {
             try {
-              // Essai 2: Base64 décodé
-              const decoded = Buffer.from(combinedCookie, 'base64').toString('utf-8')
-              const parsed = JSON.parse(decoded)
+              // Essai 2: JSON direct
+              const parsed = JSON.parse(cookieData)
               token = parsed.access_token || parsed[0]?.access_token
-              console.log(`[AUTH] Token extrait du Base64: ${token ? 'oui' : 'non'}`)
+              console.log(`[AUTH] Token extrait du JSON direct: ${token ? 'oui' : 'non'}`)
             } catch {
               try {
                 // Essai 3: URL decoded puis JSON
-                const decoded = decodeURIComponent(combinedCookie)
+                const decoded = decodeURIComponent(cookieData)
                 const parsed = JSON.parse(decoded)
                 token = parsed.access_token || parsed[0]?.access_token
                 console.log(`[AUTH] Token extrait du URL-decoded: ${token ? 'oui' : 'non'}`)
               } catch {
                 // Essai 4: C'est peut-être déjà un JWT (commence par eyJ)
-                if (combinedCookie.startsWith('eyJ')) {
-                  token = combinedCookie
+                if (cookieData.startsWith('eyJ')) {
+                  token = cookieData
                   console.log('[AUTH] Cookie est déjà un JWT')
                 } else {
                   // Log le début du cookie pour debug
-                  console.log(`[AUTH] Format cookie inconnu, début: ${combinedCookie.substring(0, 50)}...`)
+                  console.log(`[AUTH] Format cookie inconnu, début: ${cookieData.substring(0, 50)}...`)
                 }
               }
             }
