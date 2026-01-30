@@ -456,7 +456,8 @@ function DashboardView({ status, stats, loading, onNavigate, onRefresh }: Dashbo
       await fetch('/api/transcode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action })
+        body: JSON.stringify({ action }),
+        credentials: 'include'
       })
       onRefresh()
     } catch (error) {
@@ -706,7 +707,7 @@ function ScanView() {
     setScanningFilms(true)
     setFilmResult(null)
     try {
-      const response = await fetch('/api/scan', { method: 'POST' })
+      const response = await fetch('/api/scan', { method: 'POST', credentials: 'include' })
       const data = await response.json()
       setFilmResult(data)
     } catch (error) {
@@ -724,7 +725,7 @@ function ScanView() {
     
     try {
       // Lancer le scan en mode background pour éviter le timeout Cloudflare
-      const response = await fetch('/api/scan-series?background=true', { method: 'POST' })
+      const response = await fetch('/api/scan-series?background=true', { method: 'POST', credentials: 'include' })
       const data = await response.json()
       
       if (!data.success) {
@@ -776,7 +777,7 @@ function ScanView() {
     setCleaningUp(true)
     setCleanupResult(null)
     try {
-      const response = await fetch('/api/admin/cleanup-missing', { method: 'POST' })
+      const response = await fetch('/api/admin/cleanup-missing', { method: 'POST', credentials: 'include' })
       const data = await response.json()
       setCleanupResult(data)
     } catch (error) {
@@ -794,7 +795,8 @@ function ScanView() {
       const response = await fetch('/api/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'list-unimported' })
+        body: JSON.stringify({ mode: 'list-unimported' }),
+        credentials: 'include'
       })
       const data = await response.json()
       if (data.files) {
@@ -812,7 +814,7 @@ function ScanView() {
     setSearchingTMDB(true)
     setTmdbResults([])
     try {
-      const response = await fetch(`/api/import?query=${encodeURIComponent(query)}`)
+      const response = await fetch(`/api/import?query=${encodeURIComponent(query)}`, { credentials: 'include' })
       const data = await response.json()
       if (data.results) {
         setTmdbResults(data.results)
@@ -832,7 +834,8 @@ function ScanView() {
       const response = await fetch('/api/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'filepath', filepath: importPath })
+        body: JSON.stringify({ mode: 'filepath', filepath: importPath }),
+        credentials: 'include'
       })
       const data = await response.json()
       setImportResult(data)
@@ -854,7 +857,8 @@ function ScanView() {
       const response = await fetch('/api/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: 'tmdb', filepath, tmdbId })
+        body: JSON.stringify({ mode: 'tmdb', filepath, tmdbId }),
+        credentials: 'include'
       })
       const data = await response.json()
       setImportResult(data)
@@ -1397,7 +1401,9 @@ function PostersView() {
     setSearching(true)
     try {
       const query = searchQuery || (type === 'movie' ? selectedMovie?.title : selectedSeries?.title)
-      const response = await fetch(`/api/admin/search-tmdb?query=${encodeURIComponent(query || '')}&type=${type}`)
+      const response = await fetch(`/api/admin/search-tmdb?query=${encodeURIComponent(query || '')}&type=${type}`, {
+        credentials: 'include' // Envoyer les cookies d'auth
+      })
       const data = await response.json()
       if (data.results) {
         setSuggestions(data.results.slice(0, 8))
@@ -1420,7 +1426,8 @@ function PostersView() {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
+        body: JSON.stringify(body),
+        credentials: 'include'
       })
       
       if (response.ok) {
@@ -1920,7 +1927,8 @@ function TranscodeView() {
       await fetch('/api/transcode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action })
+        body: JSON.stringify({ action }),
+        credentials: 'include'
       })
       
       const messages: Record<string, { title: string; type: ToastType }> = {
@@ -1948,7 +1956,7 @@ function TranscodeView() {
   async function deleteTranscoded(folder: string, name: string) {
     if (!confirm(`Supprimer "${name}" ?`)) return
     try {
-      await fetch(`/api/transcode?folder=${encodeURIComponent(folder)}`, { method: 'DELETE' })
+      await fetch(`/api/transcode?folder=${encodeURIComponent(folder)}`, { method: 'DELETE', credentials: 'include' })
       addToast('success', 'Supprimé', name)
       await loadStats(false)
     } catch (error) {
@@ -1976,7 +1984,8 @@ function TranscodeView() {
       await fetch('/api/admin/transcode-queue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'move-to-top', jobId })
+        body: JSON.stringify({ action: 'move-to-top', jobId }),
+        credentials: 'include'
       })
       addToast('success', 'Placé en priorité')
     } catch (error) {
@@ -2006,7 +2015,8 @@ function TranscodeView() {
       await fetch('/api/admin/transcode-queue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'remove', jobId })
+        body: JSON.stringify({ action: 'remove', jobId }),
+        credentials: 'include'
       })
       addToast('info', 'Retiré de la file')
     } catch (error) {
@@ -2029,7 +2039,8 @@ function TranscodeView() {
       const response = await fetch('/api/admin/transcode-queue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'remove-duplicates' })
+        body: JSON.stringify({ action: 'remove-duplicates' }),
+        credentials: 'include'
       })
       const data = await response.json()
       if (data.success) {
@@ -2100,7 +2111,8 @@ function TranscodeView() {
       await fetch('/api/admin/transcode-queue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'reorder', jobIds: newOrder })
+        body: JSON.stringify({ action: 'reorder', jobIds: newOrder }),
+        credentials: 'include'
       })
       addToast('success', 'Ordre modifié')
     } catch (error) {
@@ -2548,7 +2560,8 @@ function CreditsSettingsView() {
           season_number: seasonNumber,
           credits_duration: duration,
           timing_source: 'manual'
-        })
+        }),
+        credentials: 'include'
       })
       
       if (response.ok) {
@@ -2584,7 +2597,8 @@ function CreditsSettingsView() {
       if (seasonNumber !== null) params.append('season_number', seasonNumber.toString())
       
       const response = await fetch(`/api/admin/credits-settings?${params.toString()}`, {
-        method: 'DELETE'
+        method: 'DELETE',
+        credentials: 'include'
       })
       
       if (response.ok) {
