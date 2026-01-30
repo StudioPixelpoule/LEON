@@ -11,6 +11,7 @@ export const dynamic = 'force-dynamic'
 import fs from 'fs'
 import { stat } from 'fs/promises'
 import path from 'path'
+import { validateMediaPath } from '@/lib/path-validator'
 
 export async function GET(request: NextRequest) {
   try {
@@ -24,23 +25,18 @@ export async function GET(request: NextRequest) {
       )
     }
     
-    // Normaliser pour gérer les caractères Unicode
-    const filepath = filepathRaw.normalize('NFD')
-    
-    console.log(`📂 Tentative d'accès au fichier: ${filepath}`)
-
-    // Vérifier que le fichier existe
-    try {
-      await stat(filepath)
-      console.log(`✅ Fichier trouvé: ${filepath}`)
-    } catch (error) {
-      console.error(`❌ Fichier non trouvé: ${filepath}`)
-      console.error(`   Erreur:`, error)
+    // Validation sécurisée du chemin (protection path traversal)
+    const pathValidation = validateMediaPath(filepathRaw, { requireExists: true })
+    if (!pathValidation.valid || !pathValidation.normalized) {
+      console.error('[STREAM] Chemin invalide:', pathValidation.error)
       return NextResponse.json(
-        { error: 'Fichier non trouvé', path: filepath },
-        { status: 404 }
+        { error: pathValidation.error || 'Chemin invalide' },
+        { status: pathValidation.error?.includes('non trouvé') ? 404 : 400 }
       )
     }
+    const filepath = pathValidation.normalized
+    
+    console.log(`[STREAM] 📂 Accès fichier: ${filepath}`)
 
     // Obtenir les informations du fichier
     const fileStats = await stat(filepath)

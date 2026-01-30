@@ -15,6 +15,7 @@ export const dynamic = 'force-dynamic'
 
 /**
  * GET - Récupérer tous les favoris (avec infos média)
+ * 🚀 OPTIMISÉ: Utilise une jointure Supabase pour éviter les requêtes N+1
  */
 export async function GET(request: NextRequest) {
   try {
@@ -23,7 +24,8 @@ export async function GET(request: NextRequest) {
     const mediaType = searchParams.get('type') || 'movie'
     const userId = searchParams.get('userId')
     
-    // Construire la requête de base
+    // 🚀 OPTIMISATION: Une seule requête avec jointure
+    // La syntaxe media:media_id(*) fait une jointure sur la table media
     let query = supabase
       .from('favorites')
       .select(`
@@ -31,7 +33,28 @@ export async function GET(request: NextRequest) {
         media_id,
         media_type,
         user_id,
-        created_at
+        created_at,
+        media:media_id (
+          id,
+          title,
+          original_title,
+          year,
+          duration,
+          formatted_runtime,
+          file_size,
+          quality,
+          tmdb_id,
+          poster_url,
+          backdrop_url,
+          overview,
+          genres,
+          release_date,
+          rating,
+          vote_count,
+          tagline,
+          trailer_url,
+          pcloud_fileid
+        )
       `)
       .eq('media_type', mediaType)
     
@@ -45,7 +68,7 @@ export async function GET(request: NextRequest) {
     const { data: favorites, error } = await query.order('created_at', { ascending: false })
     
     if (error) {
-      console.error('[API] Erreur récupération favoris:', error)
+      console.error('[FAVORITES] Erreur récupération:', error)
       throw error
     }
     
@@ -57,37 +80,24 @@ export async function GET(request: NextRequest) {
       })
     }
     
-    // Récupérer les infos des médias
-    const mediaIds = favorites.map(f => f.media_id)
-    
-    const { data: mediaList, error: mediaError } = await supabase
-      .from('media')
-      .select('*')
-      .in('id', mediaIds)
-    
-    if (mediaError) {
-      console.error('[API] Erreur récupération médias:', mediaError)
-      throw mediaError
-    }
-    
-    // Fusionner les données
-    const favoritesWithMedia = favorites.map(fav => {
-      const media = mediaList?.find(m => m.id === fav.media_id)
-      return {
-        ...media,
+    // Transformer les données pour le format attendu par le front
+    const favoritesWithMedia = favorites
+      .filter(fav => fav.media) // Filtrer les médias non trouvés (supprimés)
+      .map(fav => ({
+        ...(fav.media as Record<string, unknown>),
         favorite_id: fav.id,
         favorited_at: fav.created_at
-      }
-    }).filter(f => f.id) // Filtrer les médias non trouvés
+      }))
     
     return NextResponse.json({
       success: true,
       favorites: favoritesWithMedia
     })
-  } catch (error: any) {
-    console.error('[API] Erreur favoris GET:', error)
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue'
+    console.error('[FAVORITES] Erreur GET:', errorMessage)
     return NextResponse.json(
-      { error: 'Erreur serveur', details: error.message },
+      { error: 'Erreur serveur', details: errorMessage },
       { status: 500 }
     )
   }
@@ -161,10 +171,11 @@ export async function POST(request: NextRequest) {
       action: 'added',
       data
     })
-  } catch (error: any) {
-    console.error('[API] Erreur favoris POST:', error)
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue'
+    console.error('[FAVORITES] Erreur POST:', errorMessage)
     return NextResponse.json(
-      { error: 'Erreur serveur', details: error.message },
+      { error: 'Erreur serveur', details: errorMessage },
       { status: 500 }
     )
   }
@@ -214,10 +225,11 @@ export async function DELETE(request: NextRequest) {
       success: true,
       action: 'removed'
     })
-  } catch (error: any) {
-    console.error('[API] Erreur favoris DELETE:', error)
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue'
+    console.error('[FAVORITES] Erreur DELETE:', errorMessage)
     return NextResponse.json(
-      { error: 'Erreur serveur', details: error.message },
+      { error: 'Erreur serveur', details: errorMessage },
       { status: 500 }
     )
   }

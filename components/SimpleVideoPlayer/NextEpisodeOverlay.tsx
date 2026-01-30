@@ -6,6 +6,7 @@
 'use client'
 
 import { memo } from 'react'
+import Image from 'next/image'
 import styles from './SimpleVideoPlayer.module.css'
 
 export interface NextEpisodeInfo {
@@ -43,9 +44,12 @@ const NextEpisodeOverlay = memo(function NextEpisodeOverlay({
       <div className={styles.nextEpisodeCard}>
         {nextEpisode.thumbnail && (
           <div className={styles.nextEpisodeThumbnail}>
-            <img 
+            <Image 
               src={nextEpisode.thumbnail} 
               alt={nextEpisode.title}
+              fill
+              sizes="200px"
+              style={{ objectFit: 'cover' }}
             />
           </div>
         )}

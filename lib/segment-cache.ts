@@ -3,7 +3,7 @@
  * Réutilise les segments déjà transcodés pour économiser CPU et temps
  */
 
-import { access, mkdir, readdir, stat, rm } from 'fs/promises'
+import { access, mkdir, readdir, stat, rm, utimes, copyFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import crypto from 'crypto'
@@ -77,9 +77,9 @@ export class SegmentCache {
       // Mettre à jour l'access time pour le LRU
       try {
         const now = new Date()
-        await import('fs/promises').then(fs => fs.utimes(cachePath, now, now))
-      } catch {
-        // Ignorer les erreurs de touch
+        await utimes(cachePath, now, now)
+      } catch (error) {
+        // Ignorer les erreurs de touch (fichier peut être en cours d'utilisation)
       }
       
       return cachePath
@@ -103,7 +103,6 @@ export class SegmentCache {
       }
 
       // Copier le fichier
-      const { copyFile } = await import('fs/promises')
       await copyFile(sourcePath, cachePath)
       
       console.log(`[${new Date().toISOString()}] [CACHE] 💾 Sauvegarde segment${key.segmentIndex}`)
@@ -281,36 +280,59 @@ export class SegmentCache {
   }
 }
 
-// Instance singleton
-let cacheInstance: SegmentCache | null = null
+// Déclaration globale pour le singleton (évite les fuites mémoire en HMR)
+declare global {
+  var __segmentCacheSingleton: SegmentCache | undefined
+  var __segmentCacheCleanupInterval: NodeJS.Timeout | undefined
+}
 
 /**
  * Récupère l'instance singleton du cache
+ * Utilise globalThis pour éviter les instances multiples en HMR
  */
 export function getCacheInstance(): SegmentCache {
-  if (!cacheInstance) {
-    cacheInstance = new SegmentCache()
-    cacheInstance.init().catch(err => {
-      console.error(`[${new Date().toISOString()}] [CACHE] ❌ Erreur init:`, err.message)
+  if (!global.__segmentCacheSingleton) {
+    console.log('[CACHE] 🆕 Création du singleton SegmentCache')
+    global.__segmentCacheSingleton = new SegmentCache()
+    global.__segmentCacheSingleton.init().catch(err => {
+      console.error(`[CACHE] ❌ Erreur init:`, err instanceof Error ? err.message : err)
     })
   }
-  return cacheInstance
+  return global.__segmentCacheSingleton
 }
 
 /**
  * Démarre le nettoyage automatique périodique
+ * Nettoie l'ancien intervalle avant d'en créer un nouveau (évite les fuites mémoire)
  */
 export function startAutoCleaner(): void {
+  // Nettoyer l'ancien intervalle si présent (évite les doublons en HMR)
+  if (global.__segmentCacheCleanupInterval) {
+    clearInterval(global.__segmentCacheCleanupInterval)
+    console.log('[CACHE] 🧹 Ancien auto-cleanup nettoyé')
+  }
+  
   const cache = getCacheInstance()
   
   // Nettoyer les vieux segments toutes les 6 heures
-  setInterval(() => {
+  global.__segmentCacheCleanupInterval = setInterval(() => {
     cache.cleanOldSegments().catch(err => {
-      console.error(`[${new Date().toISOString()}] [CACHE] ❌ Erreur auto-cleanup:`, err.message)
+      console.error(`[CACHE] ❌ Erreur auto-cleanup:`, err instanceof Error ? err.message : err)
     })
   }, 6 * 60 * 60 * 1000)
 
-  console.log(`[${new Date().toISOString()}] [CACHE] ⏰ Auto-cleanup activé (toutes les 6h)`)
+  console.log(`[CACHE] ⏰ Auto-cleanup activé (toutes les 6h)`)
+}
+
+/**
+ * Arrête le nettoyage automatique (utile pour les tests)
+ */
+export function stopAutoCleaner(): void {
+  if (global.__segmentCacheCleanupInterval) {
+    clearInterval(global.__segmentCacheCleanupInterval)
+    global.__segmentCacheCleanupInterval = undefined
+    console.log('[CACHE] 🛑 Auto-cleanup arrêté')
+  }
 }
 
 

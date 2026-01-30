@@ -604,7 +604,9 @@ class TranscodingService {
           try {
             const content = await readFile(playlistPath, 'utf-8')
             playlistComplete = content.includes('#EXT-X-ENDLIST')
-          } catch {}
+          } catch (error) {
+            console.error('[TRANSCODE] Erreur lecture playlist:', error instanceof Error ? error.message : error)
+          }
         }
         
         // 🔧 FIX: Seuil réduit à 10 segments + playlist complet
@@ -682,7 +684,9 @@ class TranscodingService {
         const transcodingLockPath = path.join(job.outputDir, '.transcoding')
         try {
           await rm(transcodingLockPath, { force: true })
-        } catch {}
+        } catch (error) {
+          console.warn('[TRANSCODE] Erreur suppression lock:', error instanceof Error ? error.message : error)
+        }
         
         process.kill('SIGTERM')
         job.status = 'pending'
@@ -724,7 +728,9 @@ class TranscodingService {
       const transcodingLockPath = path.join(job.outputDir, '.transcoding')
       try {
         await rm(transcodingLockPath, { force: true })
-      } catch {}
+      } catch (error) {
+        console.warn('[TRANSCODE] Erreur suppression lock stop:', error instanceof Error ? error.message : error)
+      }
       
       // Tuer le processus
       const process = this.activeProcesses.get(jobId)
@@ -1220,7 +1226,9 @@ class TranscodingService {
       // Supprimer le verrou en cas d'erreur
       try {
         await rm(transcodingLockPath, { force: true })
-      } catch {}
+      } catch (rmError) {
+        console.warn('[TRANSCODE] Erreur suppression lock erreur:', rmError instanceof Error ? rmError.message : rmError)
+      }
       throw error
     }
   }
@@ -1328,7 +1336,9 @@ class TranscodingService {
       const stats = await stat(filepath)
       fileSize = stats.size
       mtime = stats.mtime.toISOString()
-    } catch {}
+    } catch (error) {
+      console.warn('[TRANSCODE] Impossible d\'obtenir stats fichier:', error instanceof Error ? error.message : error)
+    }
 
     const job: TranscodeJob = {
       id: crypto.randomUUID(),
@@ -1580,7 +1590,9 @@ class TranscodingService {
     try {
       const fileWatcherModule = await import('./file-watcher')
       watcherActive = fileWatcherModule.default.isActive()
-    } catch {}
+    } catch (error) {
+      console.warn('[TRANSCODE] Erreur vérification watcher:', error instanceof Error ? error.message : error)
+    }
 
     return {
       totalFiles: this.queue.length + this.completedJobs.length + this.activeJobs.size,
@@ -1763,14 +1775,18 @@ class TranscodingService {
             try {
               const audioInfo = JSON.parse(await readFile(path.join(folderPath, 'audio_info.json'), 'utf-8'))
               audioCount = Array.isArray(audioInfo) ? audioInfo.length : 1
-            } catch {}
+            } catch (error) {
+              // Fichier corrompu ou illisible, utiliser valeur par défaut
+            }
           }
           
           if (files.includes('subtitles.json')) {
             try {
               const subsInfo = JSON.parse(await readFile(path.join(folderPath, 'subtitles.json'), 'utf-8'))
               subtitleCount = Array.isArray(subsInfo) ? subsInfo.length : 0
-            } catch {}
+            } catch (error) {
+              // Fichier corrompu ou illisible, utiliser valeur par défaut
+            }
           }
           
           return {

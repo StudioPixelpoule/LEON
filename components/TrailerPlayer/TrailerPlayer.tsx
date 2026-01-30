@@ -7,6 +7,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHandle } from 'react'
+import Image from 'next/image'
 import styles from './TrailerPlayer.module.css'
 
 // 🔊 Icônes SVG minimalistes et élégantes
@@ -186,10 +187,13 @@ const TrailerPlayer = forwardRef<TrailerPlayerRef, TrailerPlayerProps>(({
     return (
       <div className={`${styles.container} ${className}`}>
         <div className={styles.backdrop}>
-          <img 
+          <Image 
             src={backdropUrl} 
-            alt="" 
-            className={styles.image}
+            alt=""
+            fill
+            sizes="100vw"
+            style={{ objectFit: 'cover' }}
+            priority
           />
         </div>
       </div>
@@ -202,10 +206,13 @@ const TrailerPlayer = forwardRef<TrailerPlayerRef, TrailerPlayerProps>(({
       <div 
         className={`${styles.backdrop} ${!showImage ? styles.hidden : ''}`}
       >
-        <img 
+        <Image 
           src={backdropUrl} 
-          alt="" 
-          className={styles.image}
+          alt=""
+          fill
+          sizes="100vw"
+          style={{ objectFit: 'cover' }}
+          priority
         />
       </div>
 

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
+import Image from 'next/image'
 import Hls from 'hls.js'
 import styles from './SimpleVideoPlayer.module.css'
 import menuStyles from './SettingsMenu.module.css'
@@ -2601,9 +2602,12 @@ export default function SimpleVideoPlayer({
           <div className={styles.nextEpisodeCard}>
             {nextEpisode.thumbnail && (
               <div className={styles.nextEpisodeThumbnail}>
-                <img 
+                <Image 
                   src={nextEpisode.thumbnail} 
                   alt={nextEpisode.title}
+                  fill
+                  sizes="200px"
+                  style={{ objectFit: 'cover' }}
                 />
               </div>
             )}
@@ -3381,10 +3385,12 @@ export default function SimpleVideoPlayer({
                       
                       <div className={styles.episodeThumbnail}>
                         {episode.thumbnail ? (
-                          <img 
+                          <Image 
                             src={episode.thumbnail} 
                             alt={episode.title}
-                            loading="lazy"
+                            fill
+                            sizes="150px"
+                            style={{ objectFit: 'cover' }}
                           />
                         ) : (
                           <div className={styles.episodeThumbnailPlaceholder}>

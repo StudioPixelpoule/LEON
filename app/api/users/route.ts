@@ -1,9 +1,11 @@
 /**
  * API Route: Gestion des utilisateurs
  * GET - Liste tous les utilisateurs inscrits avec leurs statistiques de visionnage
+ * ⚠️ Route admin - Authentification requise
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 import { createSupabaseClient, createSupabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
@@ -36,6 +38,13 @@ interface UserWithStats {
 }
 
 export async function GET(request: NextRequest) {
+  // Vérification admin OBLIGATOIRE
+  const { user, error: authError } = await requireAdmin(request)
+  if (authError || !user) {
+    console.warn('[USERS] Tentative GET non autorisée')
+    return authErrorResponse(authError || 'Accès refusé', 403)
+  }
+  
   try {
     const supabaseAdmin = createSupabaseAdmin()
     const supabase = createSupabaseClient()
@@ -210,6 +219,13 @@ export async function GET(request: NextRequest) {
  * DELETE - Supprimer une position de lecture pour un utilisateur (admin)
  */
 export async function DELETE(request: NextRequest) {
+  // Vérification admin OBLIGATOIRE
+  const { user, error: authError } = await requireAdmin(request)
+  if (authError || !user) {
+    console.warn('[USERS] Tentative DELETE non autorisée')
+    return authErrorResponse(authError || 'Accès refusé', 403)
+  }
+  
   try {
     const { searchParams } = new URL(request.url)
     const userId = searchParams.get('userId')
@@ -221,6 +237,8 @@ export async function DELETE(request: NextRequest) {
         { status: 400 }
       )
     }
+    
+    console.log(`[USERS] DELETE position par admin: ${user.email}`, { userId, mediaId })
 
     const supabase = createSupabaseClient()
 

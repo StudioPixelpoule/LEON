@@ -2,17 +2,26 @@
  * API Route: Vider la table media
  * POST /api/truncate
  * ⚠️ ATTENTION : Supprime TOUS les films de la base !
+ * ⚠️ Route CRITIQUE - Authentification admin requise
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
 import { supabase } from '@/lib/supabase'
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+  // Vérification admin OBLIGATOIRE
+  const { user, error: authError } = await requireAdmin(request)
+  if (authError || !user) {
+    console.warn('[TRUNCATE] Tentative non autorisée')
+    return authErrorResponse(authError || 'Accès refusé', 403)
+  }
+  
   try {
-    console.log('⚠️  TRUNCATE TABLE media demandé...')
+    console.log(`[TRUNCATE] ⚠️ Demandé par admin: ${user.email}`)
     
     // Vider la table media avec une requête SQL brute
     const { error } = await supabase.rpc('truncate_media_table')

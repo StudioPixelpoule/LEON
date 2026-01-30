@@ -22,6 +22,7 @@ import { detectHardwareCapabilities } from '@/lib/hardware-detection'
 import { getBufferInstance, cleanupBufferInstance } from '@/lib/adaptive-buffer'
 import { getCacheInstance } from '@/lib/segment-cache'
 import transcodingService, { TRANSCODED_DIR } from '@/lib/transcoding-service'
+import { validateMediaPath } from '@/lib/path-validator'
 
 // Répertoire temporaire pour les segments HLS
 const HLS_TEMP_DIR = '/tmp/leon-hls'
@@ -78,8 +79,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Chemin manquant' }, { status: 400 })
   }
   
-  // NE PAS NORMALISER - utiliser le chemin tel quel
-  const filepath = filepathRaw
+  // Validation sécurisée du chemin (protection path traversal)
+  const pathValidation = validateMediaPath(filepathRaw)
+  if (!pathValidation.valid || !pathValidation.normalized) {
+    console.error('[HLS] Chemin invalide:', pathValidation.error)
+    return NextResponse.json({ error: pathValidation.error || 'Chemin invalide' }, { status: 400 })
+  }
+  const filepath = pathValidation.normalized
 
   // VÉRIFIER SI UN FICHIER PRÉ-TRANSCODÉ EXISTE
   const usePreTranscoded = await hasPreTranscoded(filepath)
@@ -199,7 +205,9 @@ export async function GET(request: NextRequest) {
       try {
         const content = await readFile(playlistPath, 'utf-8')
         playlistHasSegments = content.includes('.ts')
-      } catch {}
+      } catch (error) {
+        console.warn('[HLS] Erreur lecture playlist existant:', error instanceof Error ? error.message : error)
+      }
     }
     
     // 🔧 CRITICAL: Nettoyer les sessions fantômes (processus mort mais session enregistrée)
@@ -408,7 +416,9 @@ export async function GET(request: NextRequest) {
               playlistHasSegments = true
               break
             }
-          } catch {}
+          } catch (error) {
+            // Fichier en cours d'écriture, on réessaie
+          }
         }
       }
       

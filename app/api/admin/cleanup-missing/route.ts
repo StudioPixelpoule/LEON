@@ -4,14 +4,20 @@
  * 
  * Vérifie que chaque fichier référencé dans la base existe sur le disque
  * et supprime les entrées orphelines
+ * 
+ * ⚠️ Route admin - Authentification requise
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 import { createClient } from '@supabase/supabase-js'
 import fs from 'fs/promises'
 
 // Forcer le rendu dynamique
 export const dynamic = 'force-dynamic'
+
+// Taille des lots pour parallélisation
+const BATCH_SIZE = 50
 
 // Client Supabase avec service role pour contourner RLS
 const supabaseAdmin = createClient(
@@ -41,13 +47,20 @@ async function fileExists(filePath: string): Promise<boolean> {
   }
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  // Vérification admin OBLIGATOIRE
+  const { user, error: authError } = await requireAdmin(request)
+  if (authError || !user) {
+    console.warn('[CLEANUP] Tentative non autorisée')
+    return authErrorResponse(authError || 'Accès refusé', 403)
+  }
+  
   try {
     // Option pour simuler sans supprimer (dry run)
     const { searchParams } = new URL(request.url)
     const dryRun = searchParams.get('dryRun') === 'true'
     
-    console.log(`🧹 Début du nettoyage des médias manquants ${dryRun ? '(simulation)' : ''}`)
+    console.log(`[CLEANUP] 🧹 Démarré par admin: ${user.email} ${dryRun ? '(simulation)' : ''}`)
     
     // Récupérer tous les médias (films)
     // Note: pcloud_fileid contient le chemin du fichier (héritage de l'ancien système pCloud)
@@ -57,7 +70,7 @@ export async function POST(request: Request) {
       .order('title')
     
     if (fetchError) {
-      console.error('❌ Erreur récupération médias:', fetchError)
+      console.error('[CLEANUP] ❌ Erreur récupération médias:', fetchError)
       return NextResponse.json({ error: fetchError.message }, { status: 500 })
     }
     
@@ -69,7 +82,7 @@ export async function POST(request: Request) {
       })
     }
     
-    console.log(`📊 ${allMedia.length} médias à vérifier`)
+    console.log(`[CLEANUP] 📊 ${allMedia.length} médias à vérifier`)
     
     const result: CleanupResult = {
       checked: allMedia.length,
@@ -79,53 +92,88 @@ export async function POST(request: Request) {
       details: []
     }
     
-    // Vérifier chaque fichier
-    for (const media of allMedia) {
-      if (!media.pcloud_fileid) continue
+    // Filtrer les médias avec un chemin de fichier
+    const mediaWithPath = allMedia.filter(m => m.pcloud_fileid)
+    
+    // 🚀 OPTIMISATION: Vérifier les fichiers par lots en parallèle
+    const missingMedia: typeof mediaWithPath = []
+    
+    for (let i = 0; i < mediaWithPath.length; i += BATCH_SIZE) {
+      const batch = mediaWithPath.slice(i, i + BATCH_SIZE)
       
-      const exists = await fileExists(media.pcloud_fileid)
+      // Vérifier tous les fichiers du lot en parallèle
+      const existsResults = await Promise.all(
+        batch.map(async (media) => ({
+          media,
+          exists: await fileExists(media.pcloud_fileid)
+        }))
+      )
       
-      if (!exists) {
-        result.missing++
-        console.log(`❌ Fichier manquant: ${media.title} (${media.pcloud_fileid})`)
-        
-        if (!dryRun) {
-          // Supprimer de la base de données
-          const { error: deleteError } = await supabaseAdmin
-            .from('media')
-            .delete()
-            .eq('id', media.id)
-          
-          if (deleteError) {
-            result.errors++
-            result.details.push({
-              title: media.title,
-              filepath: media.pcloud_fileid,
-              status: 'error',
-              error: deleteError.message
-            })
-            console.error(`❌ Erreur suppression ${media.title}:`, deleteError)
-          } else {
-            result.deleted++
-            result.details.push({
-              title: media.title,
-              filepath: media.pcloud_fileid,
-              status: 'deleted'
-            })
-            console.log(`🗑️ Supprimé: ${media.title}`)
-          }
-        } else {
-          // Mode simulation
+      // Collecter les fichiers manquants
+      for (const { media, exists } of existsResults) {
+        if (!exists) {
+          missingMedia.push(media)
+        }
+      }
+      
+      // Log de progression
+      if ((i + BATCH_SIZE) % 500 === 0 || i + BATCH_SIZE >= mediaWithPath.length) {
+        console.log(`[CLEANUP] 📊 Vérifié ${Math.min(i + BATCH_SIZE, mediaWithPath.length)}/${mediaWithPath.length} fichiers`)
+      }
+    }
+    
+    result.missing = missingMedia.length
+    console.log(`[CLEANUP] ❌ ${missingMedia.length} fichiers manquants trouvés`)
+    
+    // Traiter les fichiers manquants
+    if (missingMedia.length > 0) {
+      if (dryRun) {
+        // Mode simulation : juste lister
+        for (const media of missingMedia) {
           result.details.push({
             title: media.title,
             filepath: media.pcloud_fileid,
             status: 'deleted'
           })
         }
+      } else {
+        // Mode réel : supprimer par lots
+        for (let i = 0; i < missingMedia.length; i += BATCH_SIZE) {
+          const batch = missingMedia.slice(i, i + BATCH_SIZE)
+          const ids = batch.map(m => m.id)
+          
+          const { error: deleteError } = await supabaseAdmin
+            .from('media')
+            .delete()
+            .in('id', ids)
+          
+          if (deleteError) {
+            result.errors += batch.length
+            for (const media of batch) {
+              result.details.push({
+                title: media.title,
+                filepath: media.pcloud_fileid,
+                status: 'error',
+                error: deleteError.message
+              })
+            }
+            console.error(`[CLEANUP] ❌ Erreur suppression batch:`, deleteError)
+          } else {
+            result.deleted += batch.length
+            for (const media of batch) {
+              result.details.push({
+                title: media.title,
+                filepath: media.pcloud_fileid,
+                status: 'deleted'
+              })
+            }
+            console.log(`[CLEANUP] 🗑️ Supprimé ${batch.length} médias`)
+          }
+        }
       }
     }
     
-    console.log(`✅ Nettoyage terminé: ${result.missing} manquants, ${result.deleted} supprimés`)
+    console.log(`[CLEANUP] ✅ Terminé: ${result.missing} manquants, ${result.deleted} supprimés`)
     
     return NextResponse.json({
       success: true,
@@ -137,7 +185,7 @@ export async function POST(request: Request) {
     })
     
   } catch (error) {
-    console.error('❌ Erreur nettoyage:', error)
+    console.error('[CLEANUP] ❌ Erreur:', error)
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Erreur inconnue' },
       { status: 500 }
@@ -146,9 +194,13 @@ export async function POST(request: Request) {
 }
 
 // GET pour avoir un aperçu sans supprimer
-export async function GET() {
-  // Rediriger vers POST avec dryRun=true
-  const response = await POST(new Request('http://localhost/api/admin/cleanup-missing?dryRun=true'))
-  return response
+export async function GET(request: NextRequest) {
+  // Créer une nouvelle requête avec dryRun=true
+  const url = new URL(request.url)
+  url.searchParams.set('dryRun', 'true')
+  const dryRunRequest = new NextRequest(url, {
+    headers: request.headers
+  })
+  return POST(dryRunRequest)
 }
 

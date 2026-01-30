@@ -2,9 +2,11 @@
  * API Route: Scan du dossier films sur le NAS avec reconnaissance intelligente
  * Détecte les nouveaux fichiers vidéo et les indexe dans Supabase
  * Utilise le système de reconnaissance intelligente pour améliorer la précision
+ * ⚠️ Route admin - Authentification requise
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
@@ -38,7 +40,16 @@ export interface ProcessedFile {
   reason?: string
 }
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+  // Vérification admin OBLIGATOIRE
+  const { user, error: authError } = await requireAdmin(request)
+  if (authError || !user) {
+    console.warn('[SCAN] Tentative non autorisée')
+    return authErrorResponse(authError || 'Accès refusé', 403)
+  }
+  
+  console.log(`[SCAN] Démarré par admin: ${user.email}`)
+  
   try {
     // 1. Vérifier que le dossier films est accessible
     const filmsPath = process.env.PCLOUD_LOCAL_PATH || '/leon/media/films'

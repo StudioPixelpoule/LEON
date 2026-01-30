@@ -4,15 +4,18 @@
  * GET /api/transcode - Obtenir les statistiques et la queue
  * POST /api/transcode - Actions: start, pause, resume, stop, scan
  * DELETE /api/transcode?jobId=xxx - Annuler un job
+ * ⚠️ Route admin - Authentification requise pour POST et DELETE
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 import transcodingService from '@/lib/transcoding-service'
 import fileWatcher from '@/lib/file-watcher'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
+  // GET est public pour afficher les stats dans le dashboard
   try {
     const searchParams = request.nextUrl.searchParams
     const quick = searchParams.get('quick') === 'true'
@@ -46,9 +49,18 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  // Vérification admin OBLIGATOIRE
+  const { user, error: authError } = await requireAdmin(request)
+  if (authError || !user) {
+    console.warn('[TRANSCODE] Tentative POST non autorisée')
+    return authErrorResponse(authError || 'Accès refusé', 403)
+  }
+  
   try {
     const body = await request.json()
     const { action, filepath, priority } = body
+    
+    console.log(`[TRANSCODE] Action "${action}" par admin: ${user.email}`)
 
     switch (action) {
       case 'start':
@@ -143,11 +155,20 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  // Vérification admin OBLIGATOIRE
+  const { user, error: authError } = await requireAdmin(request)
+  if (authError || !user) {
+    console.warn('[TRANSCODE] Tentative DELETE non autorisée')
+    return authErrorResponse(authError || 'Accès refusé', 403)
+  }
+  
   try {
     const searchParams = request.nextUrl.searchParams
     const jobId = searchParams.get('jobId')
     const filepath = searchParams.get('filepath')
     const folder = searchParams.get('folder')
+    
+    console.log(`[TRANSCODE] DELETE par admin: ${user.email}`, { jobId, filepath, folder })
 
     if (jobId) {
       const success = await transcodingService.cancelJob(jobId)

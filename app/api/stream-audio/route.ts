@@ -14,6 +14,7 @@ import { spawn } from 'child_process'
 import path from 'path'
 import fs from 'fs'
 import crypto from 'crypto'
+import { validateMediaPath } from '@/lib/path-validator'
 
 export async function GET(request: NextRequest) {
   try {
@@ -28,18 +29,16 @@ export async function GET(request: NextRequest) {
       )
     }
     
-    // Normaliser pour gérer les caractères Unicode
-    const filepath = filepathRaw.normalize('NFD')
-    
-    // Vérifier que le fichier existe
-    try {
-      await stat(filepath)
-    } catch {
+    // Validation sécurisée du chemin (protection path traversal)
+    const pathValidation = validateMediaPath(filepathRaw, { requireExists: true })
+    if (!pathValidation.valid || !pathValidation.normalized) {
+      console.error('[STREAM-AUDIO] Chemin invalide:', pathValidation.error)
       return NextResponse.json(
-        { error: 'Fichier non trouvé' },
-        { status: 404 }
+        { error: pathValidation.error || 'Chemin invalide' },
+        { status: pathValidation.error?.includes('non trouvé') ? 404 : 400 }
       )
     }
+    const filepath = pathValidation.normalized
     
     // Si pas de audioTrack spécifié, servir le fichier original
     if (!audioTrackRaw) {
@@ -132,18 +131,39 @@ export async function GET(request: NextRequest) {
       console.log(`🔊 Remuxage MP4 avec piste audio ${audioTrackIndex}: ${path.basename(filepath)}`)
       console.log(`   📁 Fichier temporaire: ${tempPath}`)
       
-      // Détecter les pistes de sous-titres dans le fichier source avec leurs métadonnées
-      const { execSync } = require('child_process')
+      // Détecter les pistes de sous-titres dans le fichier source avec leurs métadonnées (utilise spawn pour sécurité)
       let subtitleStreams: Array<{ index: number; language: string; title: string }> = []
       
       try {
-        const probeOutput = execSync(
-          `ffprobe -v quiet -select_streams s -show_entries stream=index,tags=language,tags=title -of json ${JSON.stringify(filepath)}`,
-          { encoding: 'utf-8', maxBuffer: 10 * 1024 * 1024 }
-        )
+        const probeOutput = await new Promise<string>((resolve, reject) => {
+          const ffprobe = spawn('ffprobe', [
+            '-v', 'quiet',
+            '-select_streams', 's',
+            '-show_entries', 'stream=index,tags=language,tags=title',
+            '-of', 'json',
+            filepath
+          ])
+          
+          let stdout = ''
+          let stderr = ''
+          
+          ffprobe.stdout.on('data', (data) => { stdout += data.toString() })
+          ffprobe.stderr.on('data', (data) => { stderr += data.toString() })
+          
+          ffprobe.on('close', (code) => {
+            if (code === 0) {
+              resolve(stdout)
+            } else {
+              reject(new Error(`ffprobe exited with code ${code}: ${stderr}`))
+            }
+          })
+          
+          ffprobe.on('error', reject)
+        })
+        
         const probeData = JSON.parse(probeOutput)
         if (probeData.streams && Array.isArray(probeData.streams)) {
-          subtitleStreams = probeData.streams.map((s: any, idx: number) => ({
+          subtitleStreams = probeData.streams.map((s: { index: number; tags?: { language?: string; title?: string } }, idx: number) => ({
             index: s.index,
             // Si pas de langue dans les tags, utiliser des valeurs par défaut basées sur l'index
             // (généralement, la première piste est FR, la deuxième peut être EN ou autre)
@@ -153,7 +173,7 @@ export async function GET(request: NextRequest) {
           console.log(`   📝 ${subtitleStreams.length} pistes de sous-titres détectées`)
         }
       } catch (err) {
-        console.warn('⚠️ Erreur détection sous-titres (continuera sans):', err)
+        console.warn('[STREAM-AUDIO] ⚠️ Erreur détection sous-titres (continuera sans):', err instanceof Error ? err.message : err)
       }
       
       // Construire la commande FFmpeg pour remuxer rapidement (copy, pas encode)
@@ -202,11 +222,15 @@ export async function GET(request: NextRequest) {
           if (!hasResolved) {
             hasResolved = true
             ffmpeg.kill('SIGTERM')
-            // Tuer aussi tous les processus FFmpeg enfants
-            try {
-              require('child_process').execSync('pkill -9 ffmpeg', { stdio: 'ignore' })
-            } catch {}
-            console.error('❌ Timeout FFmpeg (5 min)')
+            // Tuer le processus par son PID plutôt que pkill global (plus sûr)
+            if (ffmpeg.pid) {
+              try {
+                process.kill(ffmpeg.pid, 'SIGKILL')
+              } catch {
+                // Processus déjà terminé
+              }
+            }
+            console.error('[STREAM-AUDIO] ❌ Timeout FFmpeg (5 min)')
             reject(new Error('TIMEOUT: Le remuxage prend trop de temps (plus de 5 minutes). Le fichier est peut-être trop volumineux.'))
           }
         }, 300000) // 5 minutes

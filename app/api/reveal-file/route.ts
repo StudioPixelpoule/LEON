@@ -4,13 +4,11 @@
  */
 
 import { NextResponse } from 'next/server'
+import { spawn } from 'child_process'
+import { validateMediaPath } from '@/lib/path-validator'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
-import { exec } from 'child_process'
-import { promisify } from 'util'
-
-const execAsync = promisify(exec)
 
 export async function POST(request: Request) {
   try {
@@ -23,6 +21,17 @@ export async function POST(request: Request) {
       )
     }
     
+    // Validation sécurisée du chemin (protection path traversal)
+    const pathValidation = validateMediaPath(filepath)
+    if (!pathValidation.valid || !pathValidation.normalized) {
+      console.error('[REVEAL-FILE] Chemin invalide:', pathValidation.error)
+      return NextResponse.json(
+        { error: pathValidation.error || 'Chemin invalide' },
+        { status: 400 }
+      )
+    }
+    const validatedPath = pathValidation.normalized
+    
     // Vérifier que nous sommes sur macOS
     if (process.platform !== 'darwin') {
       return NextResponse.json(
@@ -31,13 +40,26 @@ export async function POST(request: Request) {
       )
     }
     
-    // Échapper les caractères spéciaux pour le shell
-    const escapedPath = filepath.replace(/'/g, "'\\''")
-    
-    // Utiliser AppleScript pour révéler le fichier dans le Finder
-    const command = `osascript -e 'tell application "Finder" to reveal POSIX file "${escapedPath}"' -e 'tell application "Finder" to activate'`
-    
-    await execAsync(command)
+    // Utiliser spawn avec osascript pour éviter l'injection de commandes
+    await new Promise<void>((resolve, reject) => {
+      const osascript = spawn('osascript', [
+        '-e', `tell application "Finder" to reveal POSIX file "${validatedPath}"`,
+        '-e', 'tell application "Finder" to activate'
+      ])
+      
+      let stderr = ''
+      osascript.stderr.on('data', (data) => { stderr += data.toString() })
+      
+      osascript.on('close', (code) => {
+        if (code === 0) {
+          resolve()
+        } else {
+          reject(new Error(`osascript exited with code ${code}: ${stderr}`))
+        }
+      })
+      
+      osascript.on('error', reject)
+    })
     
     return NextResponse.json({
       success: true,

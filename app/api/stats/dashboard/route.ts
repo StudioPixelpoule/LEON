@@ -100,10 +100,14 @@ async function getDirectorySize(dirPath: string): Promise<{ files: number; sizeB
           const stats = await stat(fullPath)
           totalSize += stats.size
           totalFiles++
-        } catch {}
+        } catch (error) {
+          // Fichier inaccessible ou supprimé entre le readdir et le stat
+        }
       }
     }
-  } catch {}
+  } catch (error) {
+    console.error('[DASHBOARD] Erreur scan répertoire:', error instanceof Error ? error.message : error)
+  }
 
   // Mettre en cache
   storageCache = { files: totalFiles, sizeBytes: totalSize, timestamp: Date.now() }
@@ -134,7 +138,9 @@ async function getTranscodedStats(): Promise<{ completed: number; folders: strin
         }
       }
     }
-  } catch {}
+  } catch (error) {
+    console.error('[DASHBOARD] Erreur scan transcodés:', error instanceof Error ? error.message : error)
+  }
 
   // Mettre en cache
   transcodedCache = { completed, folders, timestamp: Date.now() }
@@ -170,13 +176,27 @@ export async function GET() {
         .select('media_id')
     ])
 
+    // Vérifier les erreurs individuelles de chaque requête
+    if (moviesResult.error) {
+      console.error('[DASHBOARD] Erreur récupération films:', moviesResult.error.message)
+    }
+    if (seriesResult.error) {
+      console.error('[DASHBOARD] Erreur récupération séries:', seriesResult.error.message)
+    }
+    if (playbackResult.error) {
+      console.error('[DASHBOARD] Erreur récupération positions:', playbackResult.error.message)
+    }
+    if (favoritesResult.error) {
+      console.error('[DASHBOARD] Erreur récupération favoris:', favoritesResult.error.message)
+    }
+
     const movies = moviesResult.data || []
     const series = seriesResult.data || []
     const playbacks = playbackResult.data || []
     const favorites = favoritesResult.data || []
 
     // Debug log
-    console.log(`[DASHBOARD] Films: ${movies.length}, Séries: ${series.length}, Erreur séries: ${seriesResult.error?.message || 'aucune'}`)
+    console.log(`[DASHBOARD] Films: ${movies.length}, Séries: ${series.length}`)
 
     // Stats bibliothèque
     const totalDuration = movies.reduce((acc, m) => acc + (m.duration || 0), 0)

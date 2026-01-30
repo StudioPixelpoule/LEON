@@ -1,12 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { spawn } from 'child_process'
-import { exec } from 'child_process'
-import { promisify } from 'util'
+import { validateMediaPath } from '@/lib/path-validator'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
-
-const execAsync = promisify(exec)
 
 export async function GET(request: NextRequest) {
   const startTime = Date.now()
@@ -24,16 +21,43 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400 })
   }
   
-  // Normaliser pour gérer les caractères Unicode
-  const filepath = filepathRaw.normalize('NFD')
+  // Validation sécurisée du chemin (protection path traversal)
+  const pathValidation = validateMediaPath(filepathRaw, { requireExists: true })
+  if (!pathValidation.valid || !pathValidation.normalized) {
+    console.error('[SUBTITLES] Chemin invalide:', pathValidation.error)
+    return NextResponse.json({ error: pathValidation.error || 'Chemin invalide' }, { status: 400 })
+  }
+  const filepath = pathValidation.normalized
 
   try {
-    // 🔍 ÉTAPE 1 : Vérifier le codec du sous-titre AVANT extraction
+    // 🔍 ÉTAPE 1 : Vérifier le codec du sous-titre AVANT extraction (utilise spawn pour sécurité)
     console.log(`[${new Date().toISOString()}] [SUBTITLES] 🔍 Vérification codec piste ${trackIndex}`)
     
-    const { stdout: probeOutput } = await execAsync(
-      `ffprobe -v quiet -print_format json -show_streams -select_streams ${trackIndex} "${filepath}"`
-    )
+    const probeOutput = await new Promise<string>((resolve, reject) => {
+      const ffprobe = spawn('ffprobe', [
+        '-v', 'quiet',
+        '-print_format', 'json',
+        '-show_streams',
+        '-select_streams', trackIndex,
+        filepath
+      ])
+      
+      let stdout = ''
+      let stderr = ''
+      
+      ffprobe.stdout.on('data', (data) => { stdout += data.toString() })
+      ffprobe.stderr.on('data', (data) => { stderr += data.toString() })
+      
+      ffprobe.on('close', (code) => {
+        if (code === 0) {
+          resolve(stdout)
+        } else {
+          reject(new Error(`ffprobe exited with code ${code}: ${stderr}`))
+        }
+      })
+      
+      ffprobe.on('error', reject)
+    })
     
     const streamInfo = JSON.parse(probeOutput)
     const stream = streamInfo?.streams?.[0]
