@@ -1369,9 +1369,11 @@ function PostersView() {
     setFilteredSeries(series)
   }, [searchFilter, allSeries, posterFilter])
 
-  async function loadMovies() {
+  async function loadMovies(forceRefresh = false) {
     try {
-      const response = await fetch('/api/media/grouped?type=movie')
+      // Ajouter nocache=true pour forcer le rafraîchissement après mise à jour
+      const url = forceRefresh ? '/api/media/grouped?type=movie&nocache=true' : '/api/media/grouped?type=movie'
+      const response = await fetch(url)
       const data = await response.json()
       if (data.success) {
         setAllMovies(data.media.sort((a: MediaToValidate, b: MediaToValidate) => a.title.localeCompare(b.title)))
@@ -1432,8 +1434,8 @@ function PostersView() {
       
       if (response.ok) {
         closeModal()
-        if (type === 'movie') await loadMovies()
-        else await loadSeries(true) // 🔧 FIX: Forcer le rafraîchissement du cache
+        if (type === 'movie') await loadMovies(true) // Forcer le rafraîchissement du cache
+        else await loadSeries(true)
         alert('✅ Affiche mise à jour !')
       } else {
         const data = await response.json()
