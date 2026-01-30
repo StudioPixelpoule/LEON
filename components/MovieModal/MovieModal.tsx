@@ -127,7 +127,7 @@ export default function MovieModal({ movie, isOpen, onClose, onPlayClick }: Movi
           {/* Genres */}
           {movie.genres && movie.genres.length > 0 && (
             <div className={styles.genres}>
-              {movie.genres.slice(0, 3).map((genre, i) => (
+              {movie.genres.slice(0, 3).map((genre: string, i: number) => (
                 <span key={i} className={styles.genre}>{genre}</span>
               ))}
             </div>
