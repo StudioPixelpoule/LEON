@@ -296,6 +296,7 @@ export default function SimpleVideoPlayer({
   const selectedSubtitleRef = useRef<number | null>(null)
   const isFullscreenRef = useRef(false)
   const showNextEpisodeUIRef = useRef(false) // Pour handleTimeUpdate
+  const creditsDurationRef = useRef(creditsDuration) // 🎬 Durée du générique (ref pour closure)
   // 🆕 Refs pour éviter que le countdown se réinitialise quand les props changent
   const nextEpisodeRef = useRef(nextEpisode)
   const onNextEpisodeRef = useRef(onNextEpisode)
@@ -432,7 +433,8 @@ export default function SimpleVideoPlayer({
     nextEpisodeRef.current = nextEpisode
     onNextEpisodeRef.current = onNextEpisode
     markAsFinishedRef.current = markAsFinished
-  }, [selectedAudio, selectedSubtitle, isFullscreen, showNextEpisodeUI, nextEpisode, onNextEpisode, markAsFinished])
+    creditsDurationRef.current = creditsDuration // 🎬 Durée du générique configurée
+  }, [selectedAudio, selectedSubtitle, isFullscreen, showNextEpisodeUI, nextEpisode, onNextEpisode, markAsFinished, creditsDuration])
 
   // 🔧 Sauvegarder les préférences quand elles changent (localStorage) - avec debounce
   const savePrefsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -1317,16 +1319,17 @@ export default function SimpleVideoPlayer({
       // Ne pas afficher l'UI pour les vidéos trop courtes (< 60s) ou si durée inconnue
       if (nextEpisode && onNextEpisode && !isNextEpisodeCancelled && totalDuration > 60) {
         // 🎯 Calculer le moment de déclenchement: durée totale - durée du générique
-        const triggerTime = totalDuration - creditsDuration
+        // 🔧 FIX: Utiliser la ref pour éviter closure stale (handleTimeUpdate est défini avec [src])
+        const triggerTime = totalDuration - creditsDurationRef.current
         const shouldShowUI = currentPos >= triggerTime && currentPos < totalDuration
         
         // 🔧 FIX: Utiliser la ref pour éviter closure stale (handleTimeUpdate est défini avec [src] uniquement)
         const isUICurrentlyShown = showNextEpisodeUIRef.current
         
-        // Afficher l'UI au début du générique (timing précis ou 45s avant la fin)
+        // Afficher l'UI au début du générique (timing précis configurable via admin)
         // Le countdown de 5s démarre automatiquement via useEffect
         if (shouldShowUI && !isUICurrentlyShown) {
-          console.log('[PLAYER] 🎬 Déclenchement UI épisode suivant à', currentPos.toFixed(1), 's (trigger:', triggerTime.toFixed(1), 's)')
+          console.log(`[PLAYER] 🎬 Déclenchement UI épisode suivant à ${currentPos.toFixed(1)}s (trigger: ${triggerTime.toFixed(1)}s, générique: ${creditsDurationRef.current}s)`)
           setShowNextEpisodeUI(true)
         }
         
