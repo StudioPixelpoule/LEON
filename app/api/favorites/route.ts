@@ -14,26 +14,27 @@ import { createSupabaseAdmin } from '@/lib/supabase'
 export const dynamic = 'force-dynamic'
 
 // Interface pour les données média de la jointure Supabase
+// Types alignés avec database.types.ts
 interface MediaData {
   id?: string
   title?: string
   original_title?: string
-  year?: number
-  duration?: number
-  formatted_runtime?: string
-  file_size?: number
-  quality?: string
-  tmdb_id?: number
-  poster_url?: string
-  backdrop_url?: string
-  overview?: string
-  genres?: string
-  release_date?: string
-  rating?: number
-  vote_count?: number
-  tagline?: string
-  trailer_url?: string
-  pcloud_fileid?: string
+  year?: number | null
+  duration?: number | null
+  formatted_runtime?: string | null
+  file_size?: string | null  // string dans la DB
+  quality?: string | null
+  tmdb_id?: number | null
+  poster_url?: string | null
+  backdrop_url?: string | null
+  overview?: string | null
+  genres?: string[] | null  // array dans la DB
+  release_date?: string | null
+  rating?: number | null
+  vote_count?: number | null
+  tagline?: string | null
+  trailer_url?: string | null
+  pcloud_fileid?: string | null
 }
 
 /**
@@ -112,22 +113,22 @@ export async function GET(request: NextRequest) {
         return {
           id: media.id ?? '',
           title: media.title ?? '',
-          original_title: media.original_title ?? '',
+          original_title: media.original_title ?? null,
           year: media.year ?? null,
           duration: media.duration ?? null,
-          formatted_runtime: media.formatted_runtime ?? '',
+          formatted_runtime: media.formatted_runtime ?? null,
           file_size: media.file_size ?? null,
-          quality: media.quality ?? '',
+          quality: media.quality ?? null,
           tmdb_id: media.tmdb_id ?? null,
-          poster_url: media.poster_url ?? '',
-          backdrop_url: media.backdrop_url ?? '',
-          overview: media.overview ?? '',
-          genres: media.genres ?? '',
-          release_date: media.release_date ?? '',
+          poster_url: media.poster_url ?? null,
+          backdrop_url: media.backdrop_url ?? null,
+          overview: media.overview ?? null,
+          genres: media.genres ?? [],
+          release_date: media.release_date ?? null,
           rating: media.rating ?? null,
           vote_count: media.vote_count ?? null,
-          tagline: media.tagline ?? '',
-          trailer_url: media.trailer_url ?? '',
+          tagline: media.tagline ?? null,
+          trailer_url: media.trailer_url ?? null,
           pcloud_fileid: media.pcloud_fileid ?? '',
           favorite_id: fav.id,
           favorited_at: fav.created_at

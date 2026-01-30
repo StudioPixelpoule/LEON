@@ -10,6 +10,9 @@ import { NextResponse } from 'next/server'
 // Liste des emails admin (depuis les variables d'environnement)
 const ADMIN_EMAILS = process.env.ADMIN_EMAILS?.split(',').map(e => e.trim()) || []
 
+// Project ref extrait de l'URL Supabase (pour les noms de cookies)
+const SUPABASE_PROJECT_REF = process.env.NEXT_PUBLIC_SUPABASE_URL?.match(/https:\/\/([^.]+)/)?.[1] || ''
+
 export type AuthResult = {
   user: {
     id: string
@@ -57,19 +60,32 @@ export async function requireAuth(request?: Request): Promise<AuthResult> {
       }
     }
     
-    // Si pas de token dans le header, essayer les cookies
+    // Si pas de token dans le header, essayer les cookies Supabase
     if (!token) {
       try {
         const cookieStore = await cookies()
-        const accessToken = cookieStore.get('sb-access-token')?.value
-        const refreshToken = cookieStore.get('sb-refresh-token')?.value
         
-        if (accessToken) {
-          token = accessToken
-        } else if (refreshToken) {
-          // Tenter de rafraîchir le token
-          const { data } = await supabase.auth.refreshSession({ refresh_token: refreshToken })
-          token = data.session?.access_token || null
+        // Format Supabase SSR: sb-<project-ref>-auth-token
+        const authCookieName = `sb-${SUPABASE_PROJECT_REF}-auth-token`
+        const authCookie = cookieStore.get(authCookieName)?.value
+        
+        if (authCookie) {
+          try {
+            // Le cookie contient un JSON avec access_token et refresh_token
+            const parsed = JSON.parse(authCookie)
+            token = parsed.access_token || parsed[0]?.access_token
+          } catch {
+            // Si ce n'est pas du JSON, c'est peut-être directement le token
+            token = authCookie
+          }
+        }
+        
+        // Fallback: anciens noms de cookies
+        if (!token) {
+          const accessToken = cookieStore.get('sb-access-token')?.value
+          if (accessToken) {
+            token = accessToken
+          }
         }
       } catch {
         // cookies() peut échouer dans certains contextes
