@@ -52,7 +52,7 @@ ENV PCLOUD_LOCAL_PATH=/leon/media/films
 ENV HLS_TEMP_DIR=/tmp/leon-hls
 ENV TRANSCODED_DIR=/leon/transcoded
 
-# Installation de FFmpeg et des drivers VAAPI pour Intel Quick Sync
+# Installation de FFmpeg, drivers VAAPI et dépendances sharp
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     intel-media-va-driver \
@@ -60,7 +60,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libva2 \
     vainfo \
     curl \
+    # Dépendances pour sharp (optimisation images Next.js)
+    libvips-dev \
     && rm -rf /var/lib/apt/lists/*
+
+# Installer sharp pour l'optimisation d'images Next.js en mode standalone
+RUN npm install --os=linux --cpu=x64 sharp
 
 # Création de l'utilisateur non-root
 RUN groupadd --gid 1001 leon && \

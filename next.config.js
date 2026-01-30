@@ -38,9 +38,18 @@ if (gitCommit === 'dev') {
 const nextConfig = {
   output: 'standalone',
   images: {
-    domains: [
-      'image.tmdb.org',              // TMDB images (posters auto)
-      'vjgflvphprmuxsfwmhyo.supabase.co' // Supabase Storage (jaquettes manuelles)
+    // Utiliser remotePatterns (domains est deprecated)
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'image.tmdb.org',
+        pathname: '/t/p/**',
+      },
+      {
+        protocol: 'https',
+        hostname: '*.supabase.co',
+        pathname: '/storage/v1/object/**',
+      },
     ],
     formats: ['image/webp'], // Optimisation WebP
   },
