@@ -13,6 +13,29 @@ import { createSupabaseAdmin } from '@/lib/supabase'
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
 
+// Interface pour les données média de la jointure Supabase
+interface MediaData {
+  id?: string
+  title?: string
+  original_title?: string
+  year?: number
+  duration?: number
+  formatted_runtime?: string
+  file_size?: number
+  quality?: string
+  tmdb_id?: number
+  poster_url?: string
+  backdrop_url?: string
+  overview?: string
+  genres?: string
+  release_date?: string
+  rating?: number
+  vote_count?: number
+  tagline?: string
+  trailer_url?: string
+  pcloud_fileid?: string
+}
+
 /**
  * GET - Récupérer tous les favoris (avec infos média)
  * 🚀 OPTIMISÉ: Utilise une jointure Supabase pour éviter les requêtes N+1
@@ -84,28 +107,28 @@ export async function GET(request: NextRequest) {
     const favoritesWithMedia = favorites
       .filter(fav => fav.media) // Filtrer les médias non trouvés (supprimés)
       .map(fav => {
-        // Typage sécurisé avec valeurs par défaut
-        const media = (fav.media ?? {}) as Record<string, unknown>
+        // Typage sécurisé avec interface MediaData
+        const media: MediaData = (fav.media as MediaData) ?? {}
         return {
-          id: (media.id as string) ?? '',
-          title: (media.title as string) ?? '',
-          original_title: (media.original_title as string) ?? '',
-          year: (media.year as number) ?? null,
-          duration: (media.duration as number) ?? null,
-          formatted_runtime: (media.formatted_runtime as string) ?? '',
-          file_size: (media.file_size as number) ?? null,
-          quality: (media.quality as string) ?? '',
-          tmdb_id: (media.tmdb_id as number) ?? null,
-          poster_url: (media.poster_url as string) ?? '',
-          backdrop_url: (media.backdrop_url as string) ?? '',
-          overview: (media.overview as string) ?? '',
-          genres: (media.genres as string) ?? '',
-          release_date: (media.release_date as string) ?? '',
-          rating: (media.rating as number) ?? null,
-          vote_count: (media.vote_count as number) ?? null,
-          tagline: (media.tagline as string) ?? '',
-          trailer_url: (media.trailer_url as string) ?? '',
-          pcloud_fileid: (media.pcloud_fileid as string) ?? '',
+          id: media.id ?? '',
+          title: media.title ?? '',
+          original_title: media.original_title ?? '',
+          year: media.year ?? null,
+          duration: media.duration ?? null,
+          formatted_runtime: media.formatted_runtime ?? '',
+          file_size: media.file_size ?? null,
+          quality: media.quality ?? '',
+          tmdb_id: media.tmdb_id ?? null,
+          poster_url: media.poster_url ?? '',
+          backdrop_url: media.backdrop_url ?? '',
+          overview: media.overview ?? '',
+          genres: media.genres ?? '',
+          release_date: media.release_date ?? '',
+          rating: media.rating ?? null,
+          vote_count: media.vote_count ?? null,
+          tagline: media.tagline ?? '',
+          trailer_url: media.trailer_url ?? '',
+          pcloud_fileid: media.pcloud_fileid ?? '',
           favorite_id: fav.id,
           favorited_at: fav.created_at
         }
