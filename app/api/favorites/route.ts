@@ -92,8 +92,11 @@ export async function GET(request: NextRequest) {
     const { data: favorites, error } = await query.order('created_at', { ascending: false })
     
     if (error) {
-      console.error('[FAVORITES] Erreur récupération:', error)
-      throw error
+      console.error('[FAVORITES] Erreur récupération:', error.message, error.details, error.hint)
+      return NextResponse.json(
+        { error: `Erreur base de données: ${error.message}`, details: error.details },
+        { status: 500 }
+      )
     }
     
     // Si pas de favoris, retourner liste vide
