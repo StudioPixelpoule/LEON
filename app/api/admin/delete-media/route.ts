@@ -102,20 +102,20 @@ export async function DELETE(request: NextRequest) {
         if (episodes && episodes.length > 0) {
           // Supprimer les positions de lecture des épisodes
           const episodeIds = episodes.map(e => e.id)
-          const { count: posCount } = await supabase
+          const { data: deletedPos } = await supabase
             .from('playback_positions')
             .delete()
             .in('media_id', episodeIds)
-            .select('*', { count: 'exact', head: true })
-          result.deleted.playbackPositions = posCount || 0
+            .select()
+          result.deleted.playbackPositions = deletedPos?.length || 0
 
           // Supprimer les favoris des épisodes
-          const { count: favCount } = await supabase
+          const { data: deletedFav } = await supabase
             .from('favorites')
             .delete()
             .in('media_id', episodeIds)
-            .select('*', { count: 'exact', head: true })
-          result.deleted.favorites = favCount || 0
+            .select()
+          result.deleted.favorites = deletedFav?.length || 0
 
           // Supprimer les transcodages et fichiers sources des épisodes
           for (const ep of episodes) {
@@ -147,12 +147,12 @@ export async function DELETE(request: NextRequest) {
         }
 
         // Supprimer les favoris de la série elle-même
-        const { count: seriesFavCount } = await supabase
+        const { data: deletedSeriesFav } = await supabase
           .from('favorites')
           .delete()
           .eq('media_id', mediaId)
-          .select('*', { count: 'exact', head: true })
-        result.deleted.favorites += seriesFavCount || 0
+          .select()
+        result.deleted.favorites += deletedSeriesFav?.length || 0
 
         // Supprimer la série
         const { error: seriesError } = await supabase
@@ -178,20 +178,20 @@ export async function DELETE(request: NextRequest) {
         mediaInfo = { title: media.title, filepath: media.pcloud_fileid }
 
         // Supprimer les positions de lecture
-        const { count: posCount } = await supabase
+        const { data: deletedMoviePos } = await supabase
           .from('playback_positions')
           .delete()
           .eq('media_id', mediaId)
-          .select('*', { count: 'exact', head: true })
-        result.deleted.playbackPositions = posCount || 0
+          .select()
+        result.deleted.playbackPositions = deletedMoviePos?.length || 0
 
         // Supprimer les favoris
-        const { count: favCount } = await supabase
+        const { data: deletedMovieFav } = await supabase
           .from('favorites')
           .delete()
           .eq('media_id', mediaId)
-          .select('*', { count: 'exact', head: true })
-        result.deleted.favorites = favCount || 0
+          .select()
+        result.deleted.favorites = deletedMovieFav?.length || 0
 
         // Supprimer les transcodages
         if (deleteTranscoded && media.pcloud_fileid) {

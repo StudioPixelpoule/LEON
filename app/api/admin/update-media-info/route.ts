@@ -15,7 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 import { createClient } from '@supabase/supabase-js'
-import { getMovieDetails, getSeriesDetails, getTMDBImageUrl } from '@/lib/tmdb'
+import { getMovieDetails, getTVShowDetails, getTMDBImageUrl } from '@/lib/tmdb'
 
 export const dynamic = 'force-dynamic'
 
@@ -68,7 +68,7 @@ export async function PATCH(request: NextRequest) {
       
       try {
         if (type === 'series') {
-          const tmdbData = await getSeriesDetails(updates.tmdb_id)
+          const tmdbData = await getTVShowDetails(updates.tmdb_id)
           if (tmdbData) {
             updates.title = tmdbData.name
             updates.year = tmdbData.first_air_date ? parseInt(tmdbData.first_air_date.substring(0, 4), 10) : null
