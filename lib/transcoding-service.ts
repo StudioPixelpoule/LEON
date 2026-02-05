@@ -484,10 +484,13 @@ class TranscodingService {
     }
     
     // 2. Trouver une playlist (ancien ou nouveau format)
-    const oldPlaylistPath = path.join(outputDir, 'playlist.m3u8')
+    // Priorité: video.m3u8 (nouveau format) > stream_0.m3u8 > playlist.m3u8 (master)
+    const videoPlaylistPath = path.join(outputDir, 'video.m3u8')
     const newPlaylistPath = path.join(outputDir, 'stream_0.m3u8')
+    const oldPlaylistPath = path.join(outputDir, 'playlist.m3u8')
     
-    const playlistPath = existsSync(newPlaylistPath) ? newPlaylistPath : 
+    const playlistPath = existsSync(videoPlaylistPath) ? videoPlaylistPath :
+                         existsSync(newPlaylistPath) ? newPlaylistPath : 
                          existsSync(oldPlaylistPath) ? oldPlaylistPath : null
     
     if (!playlistPath) {
@@ -578,7 +581,9 @@ class TranscodingService {
         const dirPath = path.join(baseDir, entry.name)
         const donePath = path.join(dirPath, '.done')
         const transcodingPath = path.join(dirPath, '.transcoding')
-        const playlistPath = path.join(dirPath, 'playlist.m3u8')
+        const masterPlaylistPath = path.join(dirPath, 'playlist.m3u8')
+        const videoPlaylistPath = path.join(dirPath, 'video.m3u8')
+        const streamPlaylistPath = path.join(dirPath, 'stream_0.m3u8')
         
         // Si .transcoding existe, c'est un transcodage interrompu - supprimer
         if (existsSync(transcodingPath)) {
@@ -594,15 +599,22 @@ class TranscodingService {
           continue
         }
         
-        // Compter les segments
+        // Compter les segments (tous formats)
         const files = await readdir(dirPath)
-        const segmentCount = files.filter(f => f.match(/^segment\d+\.ts$/)).length
+        const oldSegments = files.filter(f => f.match(/^segment\d+\.ts$/)).length
+        const videoSegments = files.filter(f => f.match(/^video_segment\d+\.ts$/)).length
+        const segmentCount = oldSegments + videoSegments
         
         // Vérifier si le playlist est complet
+        // Priorité: video.m3u8 > stream_0.m3u8 > playlist.m3u8
         let playlistComplete = false
-        if (existsSync(playlistPath)) {
+        const playlistToCheck = existsSync(videoPlaylistPath) ? videoPlaylistPath :
+                                existsSync(streamPlaylistPath) ? streamPlaylistPath :
+                                existsSync(masterPlaylistPath) ? masterPlaylistPath : null
+        
+        if (playlistToCheck) {
           try {
-            const content = await readFile(playlistPath, 'utf-8')
+            const content = await readFile(playlistToCheck, 'utf-8')
             playlistComplete = content.includes('#EXT-X-ENDLIST')
           } catch (error) {
             console.error('[TRANSCODE] Erreur lecture playlist:', error instanceof Error ? error.message : error)

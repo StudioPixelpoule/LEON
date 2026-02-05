@@ -53,13 +53,41 @@ function getPreTranscodedDir(filepath: string): string {
 
 /**
  * Vérifier si un fichier pré-transcodé est disponible
+ * Crée automatiquement .done si le transcodage est complet mais le marqueur manque
  */
 async function hasPreTranscoded(filepath: string): Promise<boolean> {
   const preTranscodedDir = getPreTranscodedDir(filepath)
   const donePath = path.join(preTranscodedDir, '.done')
   const playlistPath = path.join(preTranscodedDir, 'playlist.m3u8')
+  const videoPlaylistPath = path.join(preTranscodedDir, 'video.m3u8')
   
-  return existsSync(donePath) && existsSync(playlistPath)
+  // Vérifier si le dossier et le master playlist existent
+  if (!existsSync(playlistPath)) {
+    return false
+  }
+  
+  // Si .done existe, c'est bon
+  if (existsSync(donePath)) {
+    return true
+  }
+  
+  // Sinon, vérifier si video.m3u8 contient #EXT-X-ENDLIST (transcodage terminé)
+  // et créer automatiquement .done
+  if (existsSync(videoPlaylistPath)) {
+    try {
+      const videoContent = await readFile(videoPlaylistPath, 'utf-8')
+      if (videoContent.includes('#EXT-X-ENDLIST')) {
+        // Transcodage terminé ! Créer le marqueur .done
+        await writeFile(donePath, new Date().toISOString())
+        console.log(`[HLS] 📝 .done créé automatiquement pour: ${preTranscodedDir}`)
+        return true
+      }
+    } catch (err) {
+      console.warn(`[HLS] ⚠️ Erreur vérification video.m3u8:`, err)
+    }
+  }
+  
+  return false
 }
 
 export async function GET(request: NextRequest) {
