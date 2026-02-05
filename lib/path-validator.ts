@@ -61,8 +61,9 @@ export function validateMediaPath(
     return { valid: false, error: 'Chemin manquant ou invalide' }
   }
   
-  // Normaliser le chemin (gère Unicode et caractères spéciaux)
-  const normalizedInput = filepath.normalize('NFD')
+  // Normaliser le chemin en NFC (forme composée, standard Linux/Windows/NAS)
+  // NFD décomposerait é en e+accent, ce qui ne matcherait pas les fichiers NFC
+  const normalizedInput = filepath.normalize('NFC')
   
   // Détection path traversal - CRITIQUE
   if (normalizedInput.includes('..')) {
