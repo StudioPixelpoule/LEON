@@ -427,10 +427,11 @@ async function runScanInBackground() {
       let seriesId: string
 
       if (existingSeries) {
-        // Mettre à jour (incluant les genres et trailer depuis TMDB)
+        // Mettre à jour (incluant tmdb_id, genres et trailer depuis TMDB)
         const { error: updateError } = await supabase
           .from('series')
           .update({
+            tmdb_id: tmdbData.id, // 🔑 Important pour le lien TMDB
             title: tmdbData.name,
             original_title: tmdbData.original_name,
             overview: tmdbData.overview,
