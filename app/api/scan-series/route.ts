@@ -694,13 +694,32 @@ async function searchSeriesOnTMDB(seriesName: string): Promise<any | null> {
       if (detailsData && detailsData.id) {
         console.log(`   🎬 Genres TMDB: ${detailsData.genres?.map((g: any) => g.name).join(', ') || 'aucun'}`)
         
-        // Extraire le trailer YouTube
-        const trailer = detailsData.videos?.results?.find((v: { type: string; site: string }) => 
+        // Extraire le trailer YouTube (priorité: français, puis anglais)
+        let trailer = detailsData.videos?.results?.find((v: { type: string; site: string }) => 
           v.type === 'Trailer' && v.site === 'YouTube'
         )
+        
+        // Fallback: chercher les vidéos en anglais si pas de trailer français
+        if (!trailer) {
+          try {
+            const enVideosUrl = `https://api.themoviedb.org/3/tv/${seriesId}/videos?api_key=${TMDB_API_KEY}&language=en-US`
+            const enVideosResponse = await fetch(enVideosUrl)
+            const enVideosData = await enVideosResponse.json()
+            trailer = enVideosData.results?.find((v: { type: string; site: string }) => 
+              v.type === 'Trailer' && v.site === 'YouTube'
+            )
+            if (trailer) {
+              console.log(`   🎬 Bande-annonce: trouvée (EN)`)
+            }
+          } catch (e) {
+            // Ignore l'erreur du fallback
+          }
+        } else {
+          console.log(`   🎬 Bande-annonce: trouvée`)
+        }
+        
         if (trailer) {
           detailsData.trailer_url = `https://www.youtube.com/watch?v=${trailer.key}`
-          console.log(`   🎬 Bande-annonce: trouvée`)
         }
         
         return detailsData
