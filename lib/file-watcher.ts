@@ -126,6 +126,60 @@ class FileWatcher {
   }
 
   /**
+   * Vérifier au démarrage s'il y a des séries sans poster
+   * Si oui, déclencher automatiquement un scan d'enrichissement
+   */
+  private async checkSeriesNeedingEnrichment(): Promise<void> {
+    try {
+      const { supabase } = await import('./supabase')
+      
+      // Compter les séries sans poster_url
+      const { data: seriesWithoutPoster, error } = await supabase
+        .from('series')
+        .select('id, title')
+        .is('poster_url', null)
+      
+      if (error) {
+        console.error('❌ Erreur vérification séries sans poster:', error.message)
+        return
+      }
+      
+      if (!seriesWithoutPoster || seriesWithoutPoster.length === 0) {
+        console.log('✅ Toutes les séries ont un poster')
+        return
+      }
+      
+      console.log(`🎬 ${seriesWithoutPoster.length} série(s) sans poster détectée(s):`)
+      seriesWithoutPoster.slice(0, 5).forEach(s => {
+        console.log(`   📺 ${s.title}`)
+      })
+      if (seriesWithoutPoster.length > 5) {
+        console.log(`   ... et ${seriesWithoutPoster.length - 5} autre(s)`)
+      }
+      
+      // Déclencher le scan d'enrichissement
+      console.log('🔄 Déclenchement du scan d\'enrichissement automatique...')
+      
+      try {
+        const response = await fetch('http://localhost:3000/api/scan-series?background=true', {
+          method: 'POST'
+        })
+        
+        if (response.ok) {
+          console.log('✅ Scan d\'enrichissement lancé pour récupérer les posters')
+        } else {
+          console.log('⚠️ Échec du déclenchement du scan d\'enrichissement')
+        }
+      } catch (fetchError) {
+        console.error('❌ Erreur appel API scan-series:', fetchError)
+      }
+      
+    } catch (error) {
+      console.error('❌ Erreur checkSeriesNeedingEnrichment:', error)
+    }
+  }
+
+  /**
    * Charger l'état sauvegardé
    */
   private async loadState(): Promise<void> {
@@ -195,6 +249,13 @@ class FileWatcher {
           console.error('❌ Erreur vérification cohérence:', err)
         })
       }, 15000) // Attendre 15s que l'app soit stable
+      
+      // Vérification des séries sans métadonnées (poster) après 30s
+      setTimeout(() => {
+        this.checkSeriesNeedingEnrichment().catch(err => {
+          console.error('❌ Erreur vérification enrichissement:', err)
+        })
+      }, 30000) // Attendre 30s pour laisser la cohérence se faire d'abord
       
     } catch (error) {
       console.error('❌ Erreur démarrage watcher:', error)
