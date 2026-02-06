@@ -188,8 +188,95 @@ class FileWatcher {
       
       this.isWatching = true
       console.log(`✅ Surveillance active (${this.watchedDirs.size} dossiers, ${this.knownFiles.size} fichiers connus)`)
+      
+      // Vérification de cohérence asynchrone (ne bloque pas le démarrage)
+      setTimeout(() => {
+        this.checkMissingInDatabase().catch(err => {
+          console.error('❌ Erreur vérification cohérence:', err)
+        })
+      }, 15000) // Attendre 15s que l'app soit stable
+      
     } catch (error) {
       console.error('❌ Erreur démarrage watcher:', error)
+    }
+  }
+  
+  /**
+   * Vérifier si des fichiers connus manquent en base de données
+   * et les ajouter automatiquement
+   */
+  private async checkMissingInDatabase(): Promise<void> {
+    console.log('🔍 Vérification cohérence fichiers/BDD...')
+    
+    try {
+      const { supabase } = await import('./supabase')
+      
+      // Récupérer tous les épisodes en BDD avec leur filepath
+      const { data: episodes } = await supabase
+        .from('episodes')
+        .select('filepath')
+      
+      const episodesInDb = new Set((episodes || []).map(e => e.filepath).filter(Boolean))
+      
+      // Récupérer tous les films en BDD avec leur filepath
+      const { data: movies } = await supabase
+        .from('media')
+        .select('filepath')
+      
+      const moviesInDb = new Set((movies || []).map(m => m.filepath).filter(Boolean))
+      
+      // Trouver les fichiers sur disque qui ne sont pas en BDD
+      const missingFiles: string[] = []
+      
+      for (const filepath of this.knownFiles) {
+        // Vérifier si c'est un épisode (dans le dossier séries)
+        if (filepath.startsWith(SERIES_DIR)) {
+          if (!episodesInDb.has(filepath)) {
+            missingFiles.push(filepath)
+          }
+        } else if (filepath.startsWith(MEDIA_DIR)) {
+          // C'est un film
+          if (!moviesInDb.has(filepath)) {
+            missingFiles.push(filepath)
+          }
+        }
+      }
+      
+      if (missingFiles.length === 0) {
+        console.log('✅ Cohérence OK : tous les fichiers sont en BDD')
+        return
+      }
+      
+      console.log(`⚠️ ${missingFiles.length} fichier(s) manquant(s) en BDD, traitement automatique...`)
+      
+      // Traiter les fichiers manquants (avec un délai entre chaque pour ne pas surcharger)
+      let processed = 0
+      for (const filepath of missingFiles) {
+        try {
+          // Retirer temporairement des fichiers connus pour forcer le traitement
+          this.knownFiles.delete(filepath)
+          await this.processNewFile(filepath)
+          processed++
+          
+          // Pause de 500ms entre chaque fichier
+          await new Promise(resolve => setTimeout(resolve, 500))
+        } catch (err) {
+          console.error(`❌ Erreur traitement ${path.basename(filepath)}:`, err)
+        }
+      }
+      
+      console.log(`✅ Cohérence restaurée : ${processed}/${missingFiles.length} fichiers ajoutés`)
+      
+      // Sauvegarder l'état mis à jour
+      await this.saveState()
+      
+      // Programmer un scan d'enrichissement pour récupérer les métadonnées
+      if (processed > 0) {
+        this.scheduleEnrichmentScan()
+      }
+      
+    } catch (error) {
+      console.error('❌ Erreur vérification cohérence:', error)
     }
   }
 
