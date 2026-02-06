@@ -596,7 +596,8 @@ class FileWatcher {
           season_number: seasonNumber,
           episode_number: episodeNumber,
           title: cleanTitle,
-          filepath: filepath
+          filepath: filepath,
+          is_transcoded: false // Masqué jusqu'à la fin du transcodage
         }
         
         // Récupérer les métadonnées TMDB si la série a un tmdb_id
@@ -661,7 +662,8 @@ class FileWatcher {
             season_number: seasonNumber,
             episode_number: episodeNumber,
             title: cleanTitle,
-            filepath: filepath
+            filepath: filepath,
+            is_transcoded: false // Masqué jusqu'à la fin du transcodage
           })
           
           console.log(`✅ Épisode ajouté: ${seriesName} S${seasonNumber}E${episodeNumber}`)
@@ -817,7 +819,8 @@ class FileWatcher {
           return trailer?.key ? `https://www.youtube.com/watch?v=${trailer.key}` : null
         })(),
         media_type: 'movie',
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
+        is_transcoded: false // Masqué jusqu'à la fin du transcodage
       }
 
       // Insérer en base

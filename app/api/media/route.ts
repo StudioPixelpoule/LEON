@@ -11,9 +11,11 @@ import { supabase } from '@/lib/supabase'
 
 export async function GET() {
   try {
+    // Ne montrer que les médias transcodés (is_transcoded = true ou null pour rétrocompatibilité)
     const { data: media, error } = await supabase
       .from('media')
       .select('*')
+      .or('is_transcoded.eq.true,is_transcoded.is.null')
       .order('created_at', { ascending: false })
     
     if (error) {

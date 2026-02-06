@@ -38,14 +38,15 @@ export async function GET(request: Request) {
       })
     }
 
-    // Requête optimisée : récupérer séries ET épisodes en une seule requête
+    // Requête optimisée : récupérer séries ET épisodes transcodés en une seule requête
     const { data: series, error: seriesError } = await supabase
       .from('series')
       .select(`
         *,
         episodes (
           season_number,
-          episode_number
+          episode_number,
+          is_transcoded
         )
       `)
       .order('title', { ascending: true })
@@ -58,32 +59,39 @@ export async function GET(request: Request) {
       )
     }
 
-    // Transformer les données
-    const seriesWithEpisodes = (series || []).map((serie: any) => {
-      const episodes = serie.episodes || []
-      
-      // Grouper par saison
-      const seasonMap: Record<number, number> = {}
-      episodes.forEach((ep: any) => {
-        seasonMap[ep.season_number] = (seasonMap[ep.season_number] || 0) + 1
+    // Transformer les données - ne garder que les épisodes transcodés
+    const seriesWithEpisodes = (series || [])
+      .map((serie: any) => {
+        const allEpisodes = serie.episodes || []
+        // Filtrer : garder seulement les épisodes transcodés (ou null pour rétrocompatibilité)
+        const episodes = allEpisodes.filter((ep: any) => 
+          ep.is_transcoded === true || ep.is_transcoded === null
+        )
+        
+        // Grouper par saison
+        const seasonMap: Record<number, number> = {}
+        episodes.forEach((ep: any) => {
+          seasonMap[ep.season_number] = (seasonMap[ep.season_number] || 0) + 1
+        })
+
+        const seasons = Object.entries(seasonMap)
+          .map(([season, count]) => ({
+            season: parseInt(season),
+            episodeCount: count
+          }))
+          .sort((a, b) => a.season - b.season)
+
+        // Supprimer les épisodes détaillés pour alléger la réponse
+        const { episodes: _, ...serieWithoutEpisodes } = serie
+
+        return {
+          ...serieWithoutEpisodes,
+          seasons,
+          totalEpisodes: episodes.length
+        }
       })
-
-      const seasons = Object.entries(seasonMap)
-        .map(([season, count]) => ({
-          season: parseInt(season),
-          episodeCount: count
-        }))
-        .sort((a, b) => a.season - b.season)
-
-      // Supprimer les épisodes détaillés pour alléger la réponse
-      const { episodes: _, ...serieWithoutEpisodes } = serie
-
-      return {
-        ...serieWithoutEpisodes,
-        seasons,
-        totalEpisodes: episodes.length
-      }
-    })
+      // Ne garder que les séries qui ont au moins un épisode transcodé
+      .filter((serie: any) => serie.totalEpisodes > 0)
     
     // Mettre à jour le cache
     seriesCache = {

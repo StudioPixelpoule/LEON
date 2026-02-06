@@ -651,6 +651,50 @@ class TranscodingService {
   }
 
   /**
+   * Marquer un média comme transcodé en BDD
+   * Met à jour is_transcoded = true pour permettre l'affichage dans l'interface
+   */
+  private async markAsTranscoded(filepath: string): Promise<void> {
+    try {
+      const { supabase } = await import('./supabase')
+      
+      // Déterminer si c'est un film ou un épisode de série
+      const isSeries = filepath.includes('/series/')
+      
+      if (isSeries) {
+        // C'est un épisode - mettre à jour dans la table episodes
+        const { data, error } = await supabase
+          .from('episodes')
+          .update({ is_transcoded: true })
+          .eq('filepath', filepath)
+          .select('id')
+        
+        if (error) {
+          console.warn(`[TRANSCODE] ⚠️ Erreur mise à jour is_transcoded épisode:`, error.message)
+        } else if (data && data.length > 0) {
+          console.log(`[TRANSCODE] ✅ Épisode marqué comme transcodé (visible dans l'interface)`)
+        }
+      } else {
+        // C'est un film - mettre à jour dans la table media
+        // Le filepath en BDD est stocké dans pcloud_fileid
+        const { data, error } = await supabase
+          .from('media')
+          .update({ is_transcoded: true })
+          .eq('pcloud_fileid', filepath)
+          .select('id, title')
+        
+        if (error) {
+          console.warn(`[TRANSCODE] ⚠️ Erreur mise à jour is_transcoded film:`, error.message)
+        } else if (data && data.length > 0) {
+          console.log(`[TRANSCODE] ✅ Film "${data[0].title}" marqué comme transcodé (visible dans l'interface)`)
+        }
+      }
+    } catch (error) {
+      console.error(`[TRANSCODE] ❌ Erreur markAsTranscoded:`, error)
+    }
+  }
+
+  /**
    * Obtenir le chemin du fichier transcodé si disponible
    */
   async getTranscodedPath(originalPath: string): Promise<string | null> {
@@ -1233,6 +1277,9 @@ class TranscodingService {
       // Supprimer le verrou et créer .done
       await rm(transcodingLockPath, { force: true })
       await writeFile(path.join(job.outputDir, '.done'), new Date().toISOString())
+      
+      // Marquer comme transcodé en BDD pour l'affichage dans l'interface
+      await this.markAsTranscoded(job.filepath)
       
     } catch (error) {
       // Supprimer le verrou en cas d'erreur

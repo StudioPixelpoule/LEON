@@ -30,11 +30,12 @@ export async function GET(
       )
     }
 
-    // Récupérer tous les épisodes groupés par saison
+    // Récupérer tous les épisodes transcodés groupés par saison
     const { data: episodes, error: episodesError } = await supabase
       .from('episodes')
       .select('*')
       .eq('series_id', seriesId)
+      .or('is_transcoded.eq.true,is_transcoded.is.null') // Rétrocompatibilité
       .order('season_number', { ascending: true })
       .order('episode_number', { ascending: true })
 
