@@ -202,8 +202,47 @@ class FileWatcher {
   }
   
   /**
+   * Extraire le titre d'un film depuis le nom de fichier
+   */
+  private extractMovieTitle(filename: string): string {
+    let title = filename
+    // Retirer l'extension
+    title = title.replace(/\.(mkv|mp4|avi|mov|m4v|webm|flv|wmv)$/i, '')
+    // Retirer l'année entre parenthèses ou après un point
+    title = title.replace(/[\s._-]*\(?\d{4}\)?[\s._-]*$/, '')
+    // Nettoyer les séparateurs
+    title = title.replace(/[._]/g, ' ').trim()
+    return title.toLowerCase()
+  }
+  
+  /**
+   * Extraire les infos d'un épisode depuis le chemin
+   */
+  private extractEpisodeInfo(filepath: string): { seriesName: string; season: number; episode: number } | null {
+    const filename = path.basename(filepath)
+    const episodeMatch = filename.match(/S(\d{1,2})E(\d{1,2})/i)
+    if (!episodeMatch) return null
+    
+    const season = parseInt(episodeMatch[1])
+    const episode = parseInt(episodeMatch[2])
+    
+    // Extraire le nom de la série depuis le dossier parent
+    let seriesPath = path.dirname(filepath)
+    let seriesName = path.basename(seriesPath)
+    
+    // Si dans un dossier de saison, remonter
+    const seasonPatterns = [/^Season\s*\d+$/i, /^Saison\s*\d+$/i, /^S\d{1,2}$/i, /\sS\d{1,2}$/i]
+    if (seasonPatterns.some(p => p.test(seriesName))) {
+      seriesPath = path.dirname(seriesPath)
+      seriesName = path.basename(seriesPath)
+    }
+    
+    return { seriesName: seriesName.toLowerCase(), season, episode }
+  }
+
+  /**
    * Vérifier si des fichiers connus manquent en base de données
-   * et les ajouter automatiquement
+   * et les ajouter automatiquement (version optimisée)
    */
   private async checkMissingInDatabase(): Promise<void> {
     console.log('🔍 Vérification cohérence fichiers/BDD...')
@@ -211,34 +250,59 @@ class FileWatcher {
     try {
       const { supabase } = await import('./supabase')
       
-      // Récupérer tous les épisodes en BDD avec leur filepath
-      const { data: episodes } = await supabase
-        .from('episodes')
-        .select('filepath')
-      
-      const episodesInDb = new Set((episodes || []).map(e => e.filepath).filter(Boolean))
-      
-      // Récupérer tous les films en BDD avec leur filepath
+      // Récupérer tous les films en BDD avec titre ET filepath
       const { data: movies } = await supabase
         .from('media')
-        .select('filepath')
+        .select('title, filepath')
       
-      const moviesInDb = new Set((movies || []).map(m => m.filepath).filter(Boolean))
+      // Créer des sets pour recherche rapide (par filepath ET par titre normalisé)
+      const movieFilepaths = new Set((movies || []).map(m => m.filepath).filter(Boolean))
+      const movieTitles = new Set((movies || []).map(m => m.title?.toLowerCase()).filter(Boolean))
       
-      // Trouver les fichiers sur disque qui ne sont pas en BDD
+      // Récupérer tous les épisodes avec série, saison, numéro
+      const { data: episodes } = await supabase
+        .from('episodes')
+        .select('filepath, series_id, season_number, episode_number, series:series_id(title)')
+      
+      // Créer un set d'épisodes par clé unique (série+saison+episode)
+      const episodeFilepaths = new Set((episodes || []).map(e => e.filepath).filter(Boolean))
+      const episodeKeys = new Set((episodes || []).map(e => {
+        const seriesTitle = (e.series as { title?: string })?.title?.toLowerCase() || ''
+        return `${seriesTitle}|s${e.season_number}e${e.episode_number}`
+      }))
+      
+      // Trouver les VRAIS fichiers manquants (ni par filepath, ni par titre/clé)
       const missingFiles: string[] = []
       
       for (const filepath of this.knownFiles) {
-        // Vérifier si c'est un épisode (dans le dossier séries)
+        const filename = path.basename(filepath)
+        
         if (filepath.startsWith(SERIES_DIR)) {
-          if (!episodesInDb.has(filepath)) {
-            missingFiles.push(filepath)
+          // C'est un épisode
+          // Vérifier par filepath d'abord
+          if (episodeFilepaths.has(filepath)) continue
+          
+          // Vérifier par clé série+saison+episode
+          const info = this.extractEpisodeInfo(filepath)
+          if (info) {
+            const key = `${info.seriesName}|s${info.season}e${info.episode}`
+            if (episodeKeys.has(key)) continue
           }
+          
+          // Vraiment manquant
+          missingFiles.push(filepath)
+          
         } else if (filepath.startsWith(MEDIA_DIR)) {
           // C'est un film
-          if (!moviesInDb.has(filepath)) {
-            missingFiles.push(filepath)
-          }
+          // Vérifier par filepath d'abord
+          if (movieFilepaths.has(filepath)) continue
+          
+          // Vérifier par titre normalisé
+          const title = this.extractMovieTitle(filename)
+          if (movieTitles.has(title)) continue
+          
+          // Vraiment manquant
+          missingFiles.push(filepath)
         }
       }
       
@@ -247,30 +311,37 @@ class FileWatcher {
         return
       }
       
-      console.log(`⚠️ ${missingFiles.length} fichier(s) manquant(s) en BDD, traitement automatique...`)
+      // Séparer séries et films pour affichage
+      const missingSeries = missingFiles.filter(f => f.startsWith(SERIES_DIR))
+      const missingMovies = missingFiles.filter(f => f.startsWith(MEDIA_DIR))
       
-      // Traiter les fichiers manquants (avec un délai entre chaque pour ne pas surcharger)
+      console.log(`⚠️ ${missingFiles.length} fichier(s) manquant(s) en BDD:`)
+      console.log(`   📺 ${missingSeries.length} épisode(s) de série`)
+      console.log(`   🎬 ${missingMovies.length} film(s)`)
+      console.log(`   Traitement automatique...`)
+      
+      // Traiter les fichiers manquants (séries d'abord, puis films)
+      // Séries en priorité car généralement ce qu'on veut voir rapidement
+      const sortedMissing = [...missingSeries, ...missingMovies]
+      
       let processed = 0
-      for (const filepath of missingFiles) {
+      for (const filepath of sortedMissing) {
         try {
-          // Retirer temporairement des fichiers connus pour forcer le traitement
           this.knownFiles.delete(filepath)
           await this.processNewFile(filepath)
           processed++
           
-          // Pause de 500ms entre chaque fichier
-          await new Promise(resolve => setTimeout(resolve, 500))
+          // Pause courte entre chaque fichier (100ms au lieu de 500ms)
+          await new Promise(resolve => setTimeout(resolve, 100))
         } catch (err) {
           console.error(`❌ Erreur traitement ${path.basename(filepath)}:`, err)
         }
       }
       
-      console.log(`✅ Cohérence restaurée : ${processed}/${missingFiles.length} fichiers ajoutés`)
+      console.log(`✅ Cohérence restaurée : ${processed}/${missingFiles.length} fichiers traités`)
       
-      // Sauvegarder l'état mis à jour
       await this.saveState()
       
-      // Programmer un scan d'enrichissement pour récupérer les métadonnées
       if (processed > 0) {
         this.scheduleEnrichmentScan()
       }
