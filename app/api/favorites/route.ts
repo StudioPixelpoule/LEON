@@ -93,12 +93,13 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ success: true, favorites: [] })
       }
       
-      // Requête 2: récupérer les médias correspondants
+      // Requête 2: récupérer les médias correspondants (transcodés uniquement)
       const mediaIds = favs.map(f => f.media_id).filter(Boolean)
       const { data: medias } = await supabase
         .from('media')
         .select('*')
         .in('id', mediaIds)
+        .or('is_transcoded.eq.true,is_transcoded.is.null')
       
       // Combiner les résultats
       const mediaMap = new Map((medias || []).map(m => [m.id, m]))

@@ -53,13 +53,14 @@ export async function GET(request: NextRequest) {
     const movieIds = moviePositions.map(p => p.media_id)
     const episodeIds = episodePositions.map(p => p.media_id)
 
-    // 2. Récupérer les films
+    // 2. Récupérer les films (transcodés uniquement)
     let mediaList: any[] = []
     if (movieIds.length > 0) {
       const { data: movies, error: mediaError } = await supabase
         .from('media')
         .select('*')
         .in('id', movieIds)
+        .or('is_transcoded.eq.true,is_transcoded.is.null')
 
       if (!mediaError && movies) {
         mediaList = movies.map(m => ({ ...m, content_type: 'movie' }))
