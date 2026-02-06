@@ -427,7 +427,7 @@ async function runScanInBackground() {
       let seriesId: string
 
       if (existingSeries) {
-        // Mettre à jour (incluant les genres depuis TMDB)
+        // Mettre à jour (incluant les genres et trailer depuis TMDB)
         const { error: updateError } = await supabase
           .from('series')
           .update({
@@ -438,7 +438,8 @@ async function runScanInBackground() {
             backdrop_url: tmdbData.backdrop_path ? `https://image.tmdb.org/t/p/original${tmdbData.backdrop_path}` : null,
             rating: tmdbData.vote_average,
             first_air_date: tmdbData.first_air_date,
-            genres: tmdbData.genres?.map((g: any) => g.name) || [], // 🎬 Ajout des genres
+            genres: tmdbData.genres?.map((g: any) => g.name) || [],
+            trailer_url: tmdbData.trailer_url || null, // 🎬 Bande-annonce
             local_folder_path: seriesPath,
             updated_at: new Date().toISOString()
           })
@@ -454,7 +455,7 @@ async function runScanInBackground() {
         seriesId = existingSeries.id
         stats.updatedSeries++
       } else {
-        // Créer
+        // Créer avec toutes les métadonnées TMDB
         const { data: newSeries, error: insertError } = await supabase
           .from('series')
           .insert({
@@ -467,6 +468,7 @@ async function runScanInBackground() {
             rating: tmdbData.vote_average,
             first_air_date: tmdbData.first_air_date,
             genres: tmdbData.genres?.map((g: any) => g.name) || [],
+            trailer_url: tmdbData.trailer_url || null, // 🎬 Bande-annonce
             local_folder_path: seriesPath
           })
           .select('id')
@@ -684,13 +686,23 @@ async function searchSeriesOnTMDB(seriesName: string): Promise<any | null> {
     if (data.results && data.results.length > 0) {
       const seriesId = data.results[0].id
       
-      // 2. Récupérer les détails complets (avec genres en noms, pas en IDs)
-      const detailsUrl = `https://api.themoviedb.org/3/tv/${seriesId}?api_key=${TMDB_API_KEY}&language=fr-FR`
+      // 2. Récupérer les détails complets (avec genres, vidéos pour les trailers)
+      const detailsUrl = `https://api.themoviedb.org/3/tv/${seriesId}?api_key=${TMDB_API_KEY}&language=fr-FR&append_to_response=videos`
       const detailsResponse = await fetch(detailsUrl)
       const detailsData = await detailsResponse.json()
       
       if (detailsData && detailsData.id) {
         console.log(`   🎬 Genres TMDB: ${detailsData.genres?.map((g: any) => g.name).join(', ') || 'aucun'}`)
+        
+        // Extraire le trailer YouTube
+        const trailer = detailsData.videos?.results?.find((v: { type: string; site: string }) => 
+          v.type === 'Trailer' && v.site === 'YouTube'
+        )
+        if (trailer) {
+          detailsData.trailer_url = `https://www.youtube.com/watch?v=${trailer.key}`
+          console.log(`   🎬 Bande-annonce: trouvée`)
+        }
+        
         return detailsData
       }
       

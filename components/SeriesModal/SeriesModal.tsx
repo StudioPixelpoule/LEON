@@ -38,6 +38,7 @@ interface SeriesDetails {
   overview: string
   poster_url: string | null
   backdrop_url: string | null
+  trailer_url: string | null // 🎬 Bande-annonce YouTube
   rating: number
   first_air_date: string
   seasons: Season[]
@@ -144,7 +145,18 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
   // 🎬 Charger le trailer de la série
   useEffect(() => {
     async function loadTrailer() {
-      // Utiliser tmdb_id de la série (passé en props)
+      // 1. Utiliser d'abord le trailer stocké en BDD (plus rapide)
+      if (series.trailer_url) {
+        // Extraire la key YouTube de l'URL (format: https://www.youtube.com/watch?v=KEY)
+        const match = series.trailer_url.match(/[?&]v=([^&]+)/)
+        if (match && match[1]) {
+          console.log(`[SERIES_MODAL] 🎬 Trailer stocké pour ${series.title}: ${match[1]}`)
+          setTrailerKey(match[1])
+          return
+        }
+      }
+      
+      // 2. Fallback: appel API TMDB si pas de trailer stocké
       const tmdbId = series.tmdb_id
       if (!tmdbId) {
         setTrailerKey(null)
@@ -156,7 +168,7 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
         const result = await response.json()
         
         if (result.success && result.trailer?.key) {
-          console.log(`[SERIES_MODAL] 🎬 Trailer trouvé pour ${series.title}: ${result.trailer.key}`)
+          console.log(`[SERIES_MODAL] 🎬 Trailer API pour ${series.title}: ${result.trailer.key}`)
           setTrailerKey(result.trailer.key)
         } else {
           setTrailerKey(null)
@@ -169,7 +181,7 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
     
     loadTrailer()
     setTrailerEnded(false) // Reset quand la série change
-  }, [series.id, series.tmdb_id, series.title])
+  }, [series.id, series.tmdb_id, series.title, series.trailer_url])
 
   async function loadSeriesDetails() {
     try {
