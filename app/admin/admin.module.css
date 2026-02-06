@@ -1057,6 +1057,180 @@
   gap: 32px;
 }
 
+/* Modal Overlay pour le déplacement */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.15s ease;
+}
+
+.modalOverlay .modalContent {
+  width: 100%;
+  max-width: 420px;
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 16px;
+  overflow: hidden;
+  animation: slideUp 0.2s ease;
+}
+
+.modalHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid #2a2a2a;
+}
+
+.modalHeader h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+}
+
+.modalBody {
+  padding: 24px;
+}
+
+.modalFilename {
+  margin: 0 0 8px 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: #fff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modalCurrentPos {
+  margin: 0 0 20px 0;
+  font-size: 13px;
+  color: rgba(255,255,255,0.5);
+}
+
+.positionInputGroup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.positionInputGroup label {
+  font-size: 14px;
+  color: rgba(255,255,255,0.7);
+  white-space: nowrap;
+}
+
+.positionInput {
+  width: 80px;
+  padding: 10px 12px;
+  background: #0a0a0a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  text-align: center;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.positionInput:focus {
+  border-color: #3b82f6;
+}
+
+.positionMax {
+  font-size: 14px;
+  color: rgba(255,255,255,0.4);
+}
+
+.quickPositions {
+  display: flex;
+  gap: 8px;
+}
+
+.quickPosBtn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(255,255,255,0.7);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.quickPosBtn:hover:not(:disabled) {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+}
+
+.quickPosBtn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.modalFooter {
+  display: flex;
+  gap: 12px;
+  padding: 16px 24px;
+  background: rgba(0,0,0,0.3);
+  border-top: 1px solid #2a2a2a;
+}
+
+.modalFooter button {
+  flex: 1;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.modalFooter .btnSecondary {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid #333;
+  color: rgba(255,255,255,0.7);
+}
+
+.modalFooter .btnSecondary:hover {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+}
+
+.modalFooter .btnPrimary {
+  background: #3b82f6;
+  border: none;
+  color: #fff;
+}
+
+.modalFooter .btnPrimary:hover:not(:disabled) {
+  background: #2563eb;
+}
+
+.modalFooter .btnPrimary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 /* ============================================
    États
    ============================================ */
@@ -2149,6 +2323,34 @@
   flex-shrink: 0;
 }
 
+/* Bouton de position cliquable */
+.queueItemPositionBtn {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: rgba(255,255,255,0.5);
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.queueItemPositionBtn:hover {
+  background: rgba(59,130,246,0.15);
+  border-color: rgba(59,130,246,0.3);
+  color: #3b82f6;
+}
+
+.queueItemPositionBtn:active {
+  transform: scale(0.95);
+}
+
 .queueItemContent {
   flex: 1;
   min-width: 0;
@@ -2214,6 +2416,16 @@
 
 .queueActionBtn.primary:hover {
   background: rgba(59,130,246,0.25);
+}
+
+.queueActionBtn.secondary {
+  background: rgba(255,255,255,0.03);
+  color: rgba(255,255,255,0.4);
+}
+
+.queueActionBtn.secondary:hover {
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.8);
 }
 
 .queueActionBtn.danger {
