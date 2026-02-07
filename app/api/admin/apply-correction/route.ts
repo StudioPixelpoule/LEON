@@ -199,7 +199,7 @@ export async function POST(request: NextRequest) {
       // Non bloquant
     }
     
-    console.log(`✅ Correction appliquée pour "${existingMedia.title}" (${source})`)
+    console.log(`[ADMIN] Correction appliquée pour "${existingMedia.title}" (${source})`)
     
     return NextResponse.json({
       success: true,

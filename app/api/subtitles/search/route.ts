@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
       videoDir
     )
     
-    console.log('📋 Sortie subliminal:', stdout)
+    console.log('[SUBTITLES] Sortie subliminal:', stdout)
     
     if (stderr && !stderr.includes('Downloaded')) {
       console.warn('⚠️ Avertissement:', stderr)
@@ -80,7 +80,7 @@ export async function GET(request: NextRequest) {
     
     // Vérifier si le téléchargement a réussi
     if (stdout.includes('Downloaded') || stdout.includes('1 video collected')) {
-      console.log('✅ Sous-titres téléchargés avec succès')
+      console.log('[SUBTITLES] Sous-titres téléchargés avec succès')
       
       // Le fichier .srt devrait maintenant exister
       // Rediriger vers l'API externe qui va le charger

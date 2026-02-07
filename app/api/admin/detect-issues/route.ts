@@ -190,11 +190,11 @@ export async function GET(request: NextRequest) {
     const severityOrder = { high: 0, medium: 1, low: 2 }
     issues.sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity])
     
-    console.log(`✅ ${issues.length} problèmes détectés`)
-    console.log(`   - ${summary.no_tmdb} sans TMDB`)
-    console.log(`   - ${summary.no_poster} sans jaquette`)
-    console.log(`   - ${summary.duplicates} duplicatas`)
-    console.log(`   - ${summary.suspicious} matchs suspects`)
+    console.log(`[ADMIN] ${issues.length} problèmes détectés`)
+    console.log(`[ADMIN]   - ${summary.no_tmdb} sans TMDB`)
+    console.log(`[ADMIN]   - ${summary.no_poster} sans jaquette`)
+    console.log(`[ADMIN]   - ${summary.duplicates} duplicatas`)
+    console.log(`[ADMIN]   - ${summary.suspicious} matchs suspects`)
     
     return NextResponse.json({
       success: true,

@@ -124,8 +124,8 @@ async function importByFilepath(filepath: string) {
     const filename = path.basename(fullPath)
     const { cleanName, year } = sanitizeFilename(filename)
     
-    console.log(`📥 Import: ${filename}`)
-    console.log(`📝 Nom nettoyé: "${cleanName}"${year ? ` (${year})` : ''}`)
+    console.log(`[IMPORT] Import: ${filename}`)
+    console.log(`[IMPORT] Nom nettoyé: "${cleanName}"${year ? ` (${year})` : ''}`)
 
     // Rechercher sur TMDB
     const movieResults = await searchMovie(cleanName, year ?? undefined)
@@ -171,7 +171,7 @@ async function importWithTMDB(filepath: string, tmdbId: number, fileSize?: numbe
   const filename = path.basename(fullPath)
   const quality = detectVideoQuality(filename, size)
 
-  console.log(`🌐 Récupération détails TMDB ID: ${tmdbId}`)
+  console.log(`[IMPORT] Récupération détails TMDB ID: ${tmdbId}`)
   const mediaDetails = await getMovieDetails(tmdbId)
   
   if (!mediaDetails) {
@@ -232,7 +232,7 @@ async function importWithTMDB(filepath: string, tmdbId: number, fileSize?: numbe
     return NextResponse.json({ error: `Erreur base de données: ${error.message}` }, { status: 500 })
   }
 
-  console.log(`✅ Film importé: ${mediaDetails.title}`)
+  console.log(`[IMPORT] Film importé: ${mediaDetails.title}`)
 
   // Ajouter automatiquement à la queue de transcodage
   let transcodingQueued = false
@@ -249,7 +249,7 @@ async function importWithTMDB(filepath: string, tmdbId: number, fileSize?: numbe
     
     if (transcodingResponse.ok) {
       transcodingQueued = true
-      console.log(`📥 Ajouté à la queue de transcodage: ${filename}`)
+      console.log(`[IMPORT] Ajouté à la queue de transcodage: ${filename}`)
     }
   } catch (error) {
     console.warn('⚠️ Impossible d\'ajouter à la queue de transcodage:', error)

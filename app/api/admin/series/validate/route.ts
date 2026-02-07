@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
     
     // Cas 1: Validation avec TMDB ID
     if (tmdbId) {
-      console.log(`📥 Récupération métadonnées TMDB série ID: ${tmdbId}`)
+      console.log(`[ADMIN] Récupération métadonnées TMDB série ID: ${tmdbId}`)
       
       const tmdbUrl = `https://api.themoviedb.org/3/tv/${tmdbId}?api_key=${TMDB_API_KEY}&language=fr-FR`
       const response = await fetch(tmdbUrl)
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
         )
       }
       
-      console.log(`✅ Métadonnées récupérées: ${tmdbData.name}`)
+      console.log(`[ADMIN] Métadonnées récupérées: ${tmdbData.name}`)
       
       // Mettre à jour la série
       const { error: updateError } = await supabase
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
         )
       }
       
-      console.log(`✅ Série validée: ${seriesId}`)
+      console.log(`[ADMIN] Série validée: ${seriesId}`)
       
       return NextResponse.json({
         success: true,
@@ -107,7 +107,7 @@ export async function POST(request: NextRequest) {
         )
       }
       
-      console.log(`✅ Série validée avec jaquette personnalisée: ${seriesId}`)
+      console.log(`[ADMIN] Série validée avec jaquette personnalisée: ${seriesId}`)
       
       return NextResponse.json({
         success: true,

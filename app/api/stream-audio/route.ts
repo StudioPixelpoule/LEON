@@ -74,7 +74,7 @@ export async function GET(request: NextRequest) {
     const tempFilename = `${fileHash}-audio${audioTrackIndex}.mp4`
     const tempPath = path.join(tempDir, tempFilename)
     
-    console.log(`🔍 Hash fichier: ${fileHash.substring(0, 8)}... (${path.basename(filepath)})`)
+    console.log(`[AUDIO] Hash fichier: ${fileHash.substring(0, 8)}... (${path.basename(filepath)})`)
     
     // Créer le dossier temporaire s'il n'existe pas
     try {
@@ -122,7 +122,7 @@ export async function GET(request: NextRequest) {
         fileExists = false
       } else {
         fileExists = true
-        console.log(`✅ Fichier temporaire existant trouvé: ${tempFilename} (${sizeMB.toFixed(1)} MB)`)
+        console.log(`[AUDIO] Fichier temporaire existant trouvé: ${tempFilename} (${sizeMB.toFixed(1)} MB)`)
       }
     } catch {
       // Fichier n'existe pas, on va le créer
@@ -130,8 +130,8 @@ export async function GET(request: NextRequest) {
     }
     
     if (!fileExists) {
-      console.log(`🔊 Remuxage MP4 avec piste audio ${audioTrackIndex}: ${path.basename(filepath)}`)
-      console.log(`   📁 Fichier temporaire: ${tempPath}`)
+      console.log(`[AUDIO] Remuxage MP4 avec piste audio ${audioTrackIndex}: ${path.basename(filepath)}`)
+      console.log(`[AUDIO]   Fichier temporaire: ${tempPath}`)
       
       // Détecter les pistes de sous-titres dans le fichier source avec leurs métadonnées (utilise spawn pour sécurité)
       let subtitleStreams: Array<{ index: number; language: string; title: string }> = []
@@ -172,7 +172,7 @@ export async function GET(request: NextRequest) {
             language: s.tags?.language || (idx === 0 ? 'fr' : idx === 1 ? 'en' : 'und'),
             title: s.tags?.title || (idx === 0 ? 'Français' : idx === 1 ? 'English' : `Subtitle ${idx + 1}`)
           }))
-          console.log(`   📝 ${subtitleStreams.length} pistes de sous-titres détectées`)
+          console.log(`[AUDIO]   ${subtitleStreams.length} pistes de sous-titres détectées`)
         }
       } catch (err) {
         console.warn('[STREAM-AUDIO] ⚠️ Erreur détection sous-titres (continuera sans):', err instanceof Error ? err.message : err)
@@ -195,7 +195,7 @@ export async function GET(request: NextRequest) {
         if (sub.title) {
           ffmpegArgs.push(`-metadata:s:s:${idx}`, `title=${sub.title}`)
         }
-        console.log(`   📝 Mappage sous-titre ${idx}: index ${sub.index}, langue: ${sub.language}, titre: ${sub.title || 'N/A'}`)
+        console.log(`[AUDIO]   Mappage sous-titre ${idx}: index ${sub.index}, langue: ${sub.language}, titre: ${sub.title || 'N/A'}`)
       })
       
       // Options finales
@@ -253,7 +253,7 @@ export async function GET(request: NextRequest) {
           }
           // Log les informations sur les sous-titres mappés
           if (output.includes('Stream #0') && output.includes('subtitle')) {
-            console.log('📝 FFmpeg sous-titre:', output.trim())
+            console.log('[AUDIO] FFmpeg sous-titre:', output.trim())
           }
         })
         
@@ -308,7 +308,7 @@ export async function GET(request: NextRequest) {
                   await fs.promises.unlink(tempPath).catch(() => {})
                   reject(new Error(`Fichier temporaire corrompu (${sizeMB.toFixed(1)} MB)`))
                 } else {
-                  console.log(`✅ Remuxage terminé: ${tempFilename} (${sizeMB.toFixed(1)} MB)`)
+                  console.log(`[AUDIO] Remuxage terminé: ${tempFilename} (${sizeMB.toFixed(1)} MB)`)
                   resolve()
                 }
               }).catch((err) => {

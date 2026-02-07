@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     for (const cmd of killCommands) {
       try {
         await execAsync(cmd)
-        console.log(`✅ ${cmd} exécuté`)
+        console.log(`[CLEANUP] ${cmd} exécuté`)
       } catch {
         // Ignorer les erreurs (processus non trouvé)
       }
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
     for (const dir of cacheDirs) {
       try {
         await rm(dir, { recursive: true, force: true })
-        console.log(`✅ Cache nettoyé: ${dir}`)
+        console.log(`[CLEANUP] Cache nettoyé: ${dir}`)
       } catch {
         // Ignorer si le dossier n'existe pas
       }
@@ -60,7 +60,7 @@ export async function POST(request: NextRequest) {
         method: 'DELETE'
       })
       if (response.ok) {
-        console.log('✅ Processus internes HLS-v2 nettoyés')
+        console.log('[CLEANUP] Processus internes HLS-v2 nettoyés')
       }
     } catch {
       // Ignorer si l'API n'est pas accessible

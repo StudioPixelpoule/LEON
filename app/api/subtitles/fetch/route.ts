@@ -90,7 +90,7 @@ export async function GET(request: NextRequest) {
     
     // Télécharger les sous-titres avec subliminal
     // Utiliser plusieurs refiners pour améliorer la correspondance : hash, metadata, tmdb
-    console.log(`📥 Téléchargement sous-titres ${subliminalLang} avec subliminal...`)
+    console.log(`[SUBTITLES] Téléchargement sous-titres ${subliminalLang} avec subliminal...`)
     
     // ⚠️ IMPORTANT: Supprimer les anciens fichiers SRT qui pourraient être incorrects
     // avant de télécharger de nouveaux sous-titres
@@ -104,7 +104,7 @@ export async function GET(request: NextRequest) {
     for (const oldPath of oldSrtPaths) {
       try {
         await fs.access(oldPath)
-        console.log(`   🗑️ Suppression ancien fichier SRT: ${path.basename(oldPath)}`)
+        console.log(`[SUBTITLES]   Suppression ancien fichier SRT: ${path.basename(oldPath)}`)
         await fs.unlink(oldPath)
       } catch {
         // Fichier n'existe pas, c'est OK
@@ -130,7 +130,7 @@ export async function GET(request: NextRequest) {
       try {
         const { stdout, stderr } = await runSubliminal(subliminalArgs, videoDir)
         
-        console.log(`📋 Sortie subliminal (tentative ${attempts}):`, stdout)
+        console.log(`[SUBTITLES] Sortie subliminal (tentative ${attempts}):`, stdout)
         
         if (stderr && !stderr.includes('Downloaded')) {
           console.warn('⚠️ Avertissement:', stderr)
@@ -148,7 +148,7 @@ export async function GET(request: NextRequest) {
           try {
             await fs.access(p)
             srtPath = p
-            console.log(`✅ Fichier SRT trouvé: ${path.basename(p)}`)
+            console.log(`[SUBTITLES] Fichier SRT trouvé: ${path.basename(p)}`)
             break
           } catch {
             // Fichier n'existe pas, continuer
@@ -226,16 +226,16 @@ export async function GET(request: NextRequest) {
         return idx > 1 && !/^\d+$/.test(line.trim()) && !line.includes('-->') && line.trim().length > 0
       }) || lines.slice(0, 3).join(' ')
       
-      console.log(`   ✅ Contenu SRT valide: ${trimmedContent.length} caractères`)
-      console.log(`   📝 Échantillon (première ligne de sous-titre): ${firstSubtitleText.substring(0, 100)}...`)
+      console.log(`[SUBTITLES]   Contenu SRT valide: ${trimmedContent.length} caractères`)
+      console.log(`[SUBTITLES]   Échantillon (première ligne de sous-titre): ${firstSubtitleText.substring(0, 100)}...`)
       
       // Convertir SRT en WebVTT avec offset si nécessaire
       const vttContent = convertSRTtoWebVTT(srtContent, offset)
       
       if (offset !== 0) {
-        console.log(`✅ Sous-titre ${lang.toUpperCase()} téléchargé et converti en WebVTT avec offset de ${offset}s (${vttContent.length} caractères)`)
+        console.log(`[SUBTITLES] Sous-titre ${lang.toUpperCase()} téléchargé et converti en WebVTT avec offset de ${offset}s (${vttContent.length} caractères)`)
       } else {
-        console.log(`✅ Sous-titre ${lang.toUpperCase()} téléchargé et converti en WebVTT (${vttContent.length} caractères)`)
+        console.log(`[SUBTITLES] Sous-titre ${lang.toUpperCase()} téléchargé et converti en WebVTT (${vttContent.length} caractères)`)
       }
       
       // Retourner le WebVTT directement

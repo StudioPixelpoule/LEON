@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
     }
     
     // 3. Récupérer tous les médias existants en base
-    console.log('📊 Récupération des médias existants en base...')
+    console.log('[SCAN] Récupération des médias existants en base...')
     const { data: existingMedia, error: fetchError } = await supabase
       .from('media')
       .select('id, pcloud_fileid, title, tmdb_id, poster_url, file_size, updated_at')
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
     )
     
     if (mediasToDelete.length > 0) {
-      console.log(`🗑️  Suppression de ${mediasToDelete.length} médias qui n'existent plus...`)
+      console.log(`[SCAN] Suppression de ${mediasToDelete.length} médias qui n'existent plus...`)
       const idsToDelete = mediasToDelete.map(m => m.id)
       const { error: deleteError } = await supabase
         .from('media')
@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
       if (deleteError) {
         console.error('Erreur suppression médias:', deleteError)
       } else {
-        console.log(`✅ ${mediasToDelete.length} médias supprimés`)
+        console.log(`[SCAN] ${mediasToDelete.length} médias supprimés`)
       }
     }
     
@@ -130,11 +130,11 @@ export async function POST(request: NextRequest) {
       status: 'deleted' as const
     }))
     
-    console.log(`🎬 Début du scan: ${videoFiles.length} fichiers trouvés`)
+    console.log(`[SCAN] Début du scan: ${videoFiles.length} fichiers trouvés`)
     
     for (let i = 0; i < videoFiles.length; i += BATCH_SIZE) {
       const batch = videoFiles.slice(i, i + BATCH_SIZE)
-      console.log(`📦 Traitement du batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(videoFiles.length / BATCH_SIZE)}`)
+      console.log(`[SCAN] Traitement du batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(videoFiles.length / BATCH_SIZE)}`)
       
       for (const file of batch) {
         try {
@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
           
           // Si déjà indexé ET a des métadonnées complètes ET taille identique, skip
           if (existing && existing.poster_url && existing.tmdb_id && existing.file_size === formatFileSize(file.size)) {
-            console.log(`⏭️  Déjà à jour: ${file.filename}`)
+            console.log(`[SCAN] Déjà à jour: ${file.filename}`)
             skipped++
             processedFiles.push({
               filename: file.filename,
@@ -164,20 +164,20 @@ export async function POST(request: NextRequest) {
           // Si existe mais métadonnées incomplètes ou taille changée, on met à jour
           if (existing) {
             if (existing.file_size !== formatFileSize(file.size)) {
-              console.log(`🔄 Fichier modifié (taille changée): ${file.filename}`)
+              console.log(`[SCAN] Fichier modifié (taille changée): ${file.filename}`)
             } else {
-              console.log(`🔄 Mise à jour métadonnées: ${file.filename}`)
+              console.log(`[SCAN] Mise à jour métadonnées: ${file.filename}`)
             }
           }
           
-          console.log(`🔍 Analyse: ${file.filename}`)
+          console.log(`[SCAN] Analyse: ${file.filename}`)
           
           // Détecter la qualité vidéo
           const quality = detectVideoQuality(file.filename, file.size)
           
           // Nettoyer le nom de fichier et extraire le titre + année
           const { cleanName, year } = sanitizeFilename(file.filename)
-          console.log(`📝 Nom nettoyé: "${cleanName}"${year ? ` (${year})` : ''}`)
+          console.log(`[SCAN] Nom nettoyé: "${cleanName}"${year ? ` (${year})` : ''}`)
           
           // Rechercher le film sur TMDB
           const movieResults = await searchMovie(cleanName, year ?? undefined)
@@ -190,7 +190,7 @@ export async function POST(request: NextRequest) {
             confidence = 85 // Confiance élevée pour le premier résultat
             
             const matchYear = bestMatch.release_date ? new Date(bestMatch.release_date).getFullYear() : 0
-            console.log(`✅ Match trouvé: ${bestMatch.title} (${matchYear || '?'}) - Confiance: ${confidence}%`)
+            console.log(`[SCAN] Match trouvé: ${bestMatch.title} (${matchYear || '?'}) - Confiance: ${confidence}%`)
             
             // Comptabiliser par niveau de confiance
             if (confidence >= 80) highConfidence++
@@ -198,17 +198,17 @@ export async function POST(request: NextRequest) {
             else lowConfidence++
             
             // Récupérer les détails complets depuis TMDB
-            console.log(`🌐 Récupération TMDB movie ID: ${bestMatch.id}`)
+            console.log(`[SCAN] Récupération TMDB movie ID: ${bestMatch.id}`)
             mediaDetails = await getMovieDetails(bestMatch.id)
             
             if (mediaDetails) {
-              console.log(`📊 Métadonnées reçues: ${mediaDetails.title}`)
+              console.log(`[SCAN] Métadonnées reçues: ${mediaDetails.title}`)
               
               // Vérifier si TMDB a un poster pour ce film
               const hasPoster = mediaDetails.poster_path !== null && mediaDetails.poster_path !== undefined
               
               if (!hasPoster) {
-                console.log(`⚠️  Film trouvé mais sans poster sur TMDB`)
+                console.log(`[SCAN] Film trouvé mais sans poster sur TMDB`)
               }
               
               // Ajouter au rapport
@@ -230,7 +230,7 @@ export async function POST(request: NextRequest) {
                 reason: !hasPoster ? `Film identifié sur TMDB mais aucun poster disponible dans leur base` : undefined
               })
             } else {
-              console.log(`⚠️  Échec récupération métadonnées TMDB`)
+              console.log(`[SCAN] Échec récupération métadonnées TMDB`)
               processedFiles.push({
                 filename: file.filename,
                 filepath: file.filepath,
@@ -239,7 +239,7 @@ export async function POST(request: NextRequest) {
               })
             }
           } else {
-            console.log(`❌ Aucun match trouvé`)
+            console.log(`[SCAN] Aucun match trouvé`)
             unidentified++
             
             // Ajouter au rapport des non-identifiés
@@ -317,7 +317,7 @@ export async function POST(request: NextRequest) {
               existingReport.error = upsertError.message || 'Erreur base de données'
             }
           } else {
-            console.log(`💾 ${existing ? 'Mis à jour' : 'Indexé'}: ${file.filename}`)
+            console.log(`[SCAN] ${existing ? 'Mis à jour' : 'Indexé'}: ${file.filename}`)
             if (existing) updated++
             else indexed++
           }
@@ -370,22 +370,21 @@ export async function POST(request: NextRequest) {
         }))
       }))
     
-    console.log(`\n📊 RÉSUMÉ DU SCAN`)
-    console.log(`   Total fichiers: ${videoFiles.length}`)
-    console.log(`   ✅ Déjà à jour: ${skipped}`)
-    console.log(`   🆕 Nouveaux: ${indexed}`)
-    console.log(`   🔄 Mis à jour: ${updated}`)
-    console.log(`   🗑️  Supprimés: ${deleted}`)
-    console.log(`   ❌ Erreurs: ${errors}`)
-    console.log(`   ❓ Non identifiés: ${unidentified}`)
+    console.log(`[SCAN] RÉSUMÉ DU SCAN`)
+    console.log(`[SCAN]   Total fichiers: ${videoFiles.length}`)
+    console.log(`[SCAN]   Déjà à jour: ${skipped}`)
+    console.log(`[SCAN]   Nouveaux: ${indexed}`)
+    console.log(`[SCAN]   Mis à jour: ${updated}`)
+    console.log(`[SCAN]   Supprimés: ${deleted}`)
+    console.log(`[SCAN]   Erreurs: ${errors}`)
+    console.log(`[SCAN]   Non identifiés: ${unidentified}`)
     if (noPoster > 0) {
-      console.log(`   🖼️  Sans poster TMDB: ${noPoster}`)
+      console.log(`[SCAN]   Sans poster TMDB: ${noPoster}`)
     }
-    console.log(`   🎯 Taux identification: ${identificationRate}%`)
+    console.log(`[SCAN]   Taux identification: ${identificationRate}%`)
     if (duplicates.length > 0) {
-      console.log(`   ⚠️  Doublons détectés: ${duplicates.length} films en double`)
+      console.log(`[SCAN]   Doublons détectés: ${duplicates.length} films en double`)
     }
-    console.log('')
     
     return NextResponse.json({
       success: true,

@@ -30,7 +30,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Paramètres manquants' }, { status: 400 })
     }
 
-    console.log(`🔍 Recherche sous-titres pour: ${filename}`)
+    console.log(`[SUBTITLES] Recherche sous-titres pour: ${filename}`)
 
     // Extraire le titre et l'année du nom de fichier
     const cleanName = path.basename(filename, path.extname(filename))
@@ -38,7 +38,7 @@ export async function POST(request: Request) {
     const year = yearMatch ? yearMatch[1] : undefined
     const title = cleanName.replace(/\(\d{4}\)/, '').trim()
 
-    console.log(`   Titre: ${title}${year ? ` (${year})` : ''}`)
+    console.log(`[SUBTITLES]   Titre: ${title}${year ? ` (${year})` : ''}`)
 
     // Rechercher les sous-titres (FR en priorité)
     const subtitles = await opensubtitles.search({
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
     })
 
     if (!subtitles || Object.keys(subtitles).length === 0) {
-      console.log('   ❌ Aucun sous-titre trouvé')
+      console.log('[SUBTITLES]   Aucun sous-titre trouvé')
       return NextResponse.json({ 
         success: false, 
         message: 'Aucun sous-titre trouvé',
@@ -87,7 +87,7 @@ export async function POST(request: Request) {
         const srtPath = path.join(outputDir, `${baseFilename}.${lang}.srt`)
         await fs.writeFile(srtPath, srtContent, 'utf-8')
 
-        console.log(`   ✅ ST ${lang.toUpperCase()} téléchargé: ${srtPath}`)
+        console.log(`[SUBTITLES]   ST ${lang.toUpperCase()} téléchargé: ${srtPath}`)
         
         downloaded.push({
           language: lang,
@@ -107,7 +107,7 @@ export async function POST(request: Request) {
       })
     }
 
-    console.log(`   ✅ ${downloaded.length} sous-titres téléchargés`)
+    console.log(`[SUBTITLES]   ${downloaded.length} sous-titres téléchargés`)
 
     return NextResponse.json({ 
       success: true, 

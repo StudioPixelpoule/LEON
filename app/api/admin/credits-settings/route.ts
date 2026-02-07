@@ -96,7 +96,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
     
-    console.log(`✅ Credits settings mis à jour: ${show_name} S${season_number ?? 'défaut'} = ${credits_duration}s`)
+    console.log(`[ADMIN] Credits settings mis à jour: ${show_name} S${season_number ?? 'défaut'} = ${credits_duration}s`)
     
     return NextResponse.json({
       success: true,
@@ -148,7 +148,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
     
-    console.log(`🗑️ Credits settings supprimé: ${showName} S${seasonNumber ?? 'défaut'}`)
+    console.log(`[ADMIN] Credits settings supprimé: ${showName} S${seasonNumber ?? 'défaut'}`)
     
     return NextResponse.json({ success: true })
     

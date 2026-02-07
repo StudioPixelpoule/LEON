@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log(`📺 Mise à jour série ${seriesId} avec TMDB ID ${tmdbId}`)
+    console.log(`[ADMIN] Mise à jour série ${seriesId} avec TMDB ID ${tmdbId}`)
 
     // Récupérer les détails de la série depuis TMDB
     const tmdbUrl = `${TMDB_BASE_URL}/tv/${tmdbId}?api_key=${TMDB_API_KEY}&language=fr-FR`
@@ -82,7 +82,7 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    console.log(`✅ Série "${tmdbData.name}" mise à jour avec succès`)
+    console.log(`[ADMIN] Série "${tmdbData.name}" mise à jour avec succès`)
 
     return NextResponse.json({
       success: true,

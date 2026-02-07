@@ -9,7 +9,9 @@
     "start": "next start",
     "stop": "lsof -ti:3000,3001,3002,3003,3004,3005 | xargs kill -9 2>/dev/null || killall node 2>/dev/null && echo '✅ LEON arrêté'",
     "lint": "next lint",
-    "gen:types": "npx supabase gen types typescript --project-id $SUPABASE_PROJECT_ID > lib/database.types.ts"
+    "gen:types": "npx supabase gen types typescript --project-id $SUPABASE_PROJECT_ID > lib/database.types.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.27.0",
@@ -23,11 +25,15 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^20.11.5",
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",
     "eslint": "^8.56.0",
     "eslint-config-next": "^14.2.10",
-    "typescript": "^5.3.3"
+    "jsdom": "^28.0.0",
+    "typescript": "^5.3.3",
+    "vitest": "^4.0.18"
   }
 }

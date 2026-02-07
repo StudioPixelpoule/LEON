@@ -13,105 +13,9 @@ import { usePlayerPreferences } from '@/lib/hooks/usePlayerPreferences'
 import { HLS_BASE_CONFIG, selectHlsConfig } from '@/lib/hls-config'
 import { useAuth } from '@/contexts/AuthContext'
 
-// 🔧 Utilitaires Fullscreen compatibles Safari et iOS
-interface ExtendedDocument extends Document {
-  webkitFullscreenElement?: Element | null
-  webkitExitFullscreen?: () => Promise<void>
-}
-
-interface ExtendedHTMLElement extends HTMLElement {
-  webkitRequestFullscreen?: () => Promise<void>
-}
-
-interface ExtendedHTMLVideoElement extends HTMLVideoElement {
-  webkitEnterFullscreen?: () => void // iOS Safari specific
-  webkitExitFullscreen?: () => void
-  webkitDisplayingFullscreen?: boolean
-  webkitSupportsFullscreen?: boolean
-}
-
-// Détecter iOS (iPhone, iPad, iPod)
-const isIOS = (): boolean => {
-  if (typeof navigator === 'undefined') return false
-  return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
-}
-
-// Détecter Safari
-const isSafari = (): boolean => {
-  if (typeof navigator === 'undefined') return false
-  return /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
-}
-
-const getFullscreenElement = (): Element | null => {
-  const doc = document as ExtendedDocument
-  return doc.fullscreenElement || doc.webkitFullscreenElement || null
-}
-
-const requestFullscreen = async (element: HTMLElement, videoElement?: HTMLVideoElement): Promise<void> => {
-  // Sur iOS, utiliser webkitEnterFullscreen sur la vidéo directement
-  if (isIOS() && videoElement) {
-    const video = videoElement as ExtendedHTMLVideoElement
-    if (video.webkitSupportsFullscreen && video.webkitEnterFullscreen) {
-      video.webkitEnterFullscreen()
-      return
-    }
-  }
-  
-  // Desktop et Android
-  const el = element as ExtendedHTMLElement
-  if (el.requestFullscreen) {
-    await el.requestFullscreen()
-  } else if (el.webkitRequestFullscreen) {
-    await el.webkitRequestFullscreen()
-  }
-}
-
-const exitFullscreen = async (videoElement?: HTMLVideoElement): Promise<void> => {
-  // Sur iOS, utiliser webkitExitFullscreen sur la vidéo
-  if (isIOS() && videoElement) {
-    const video = videoElement as ExtendedHTMLVideoElement
-    if (video.webkitDisplayingFullscreen && video.webkitExitFullscreen) {
-      video.webkitExitFullscreen()
-      return
-    }
-  }
-  
-  const doc = document as ExtendedDocument
-  if (doc.exitFullscreen) {
-    await doc.exitFullscreen()
-  } else if (doc.webkitExitFullscreen) {
-    await doc.webkitExitFullscreen()
-  }
-}
-
-const isVideoFullscreen = (videoElement?: HTMLVideoElement): boolean => {
-  if (isIOS() && videoElement) {
-    const video = videoElement as ExtendedHTMLVideoElement
-    return video.webkitDisplayingFullscreen || false
-  }
-  return !!getFullscreenElement()
-}
-
-const addFullscreenChangeListener = (handler: () => void, videoElement?: HTMLVideoElement): (() => void) => {
-  document.addEventListener('fullscreenchange', handler)
-  document.addEventListener('webkitfullscreenchange', handler)
-  
-  // Sur iOS, écouter aussi les événements vidéo spécifiques
-  if (videoElement) {
-    videoElement.addEventListener('webkitbeginfullscreen', handler)
-    videoElement.addEventListener('webkitendfullscreen', handler)
-  }
-  
-  return () => {
-    document.removeEventListener('fullscreenchange', handler)
-    document.removeEventListener('webkitfullscreenchange', handler)
-    if (videoElement) {
-      videoElement.removeEventListener('webkitbeginfullscreen', handler)
-      videoElement.removeEventListener('webkitendfullscreen', handler)
-    }
-  }
-}
+// Utilitaires extraits
+import { isIOS, isSafari, requestFullscreen, exitFullscreen, isVideoFullscreen, addFullscreenChangeListener } from './utils/fullscreenUtils'
+import { formatTime } from './utils/timeUtils'
 
 interface NextEpisodeInfo {
   id: string
@@ -2429,18 +2333,7 @@ export default function SimpleVideoPlayer({
     document.addEventListener('mouseup', handleMouseUp)
   }
 
-  const formatTime = (time: number) => {
-    if (!isFinite(time) || time < 0) return '0:00'
-    
-    const hours = Math.floor(time / 3600)
-    const minutes = Math.floor((time % 3600) / 60)
-    const seconds = Math.floor(time % 60)
-    
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
-    }
-    return `${minutes}:${seconds.toString().padStart(2, '0')}`
-  }
+  // formatTime importé depuis ./utils/timeUtils
 
   // Calculer le pourcentage de progression avec garde-fous
   const progressPercent = (() => {

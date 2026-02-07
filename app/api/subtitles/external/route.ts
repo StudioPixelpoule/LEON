@@ -33,22 +33,22 @@ export async function GET(request: NextRequest) {
       path.join(videoDir, `${videoBasename}.srt`),
     ]
     
-    console.log(`🔍 Recherche sous-titres externes pour: ${videoBasename}`)
-    console.log(`   Chemin vidéo: ${filepath}`)
-    console.log(`   Dossier vidéo: ${videoDir}`)
-    console.log(`   Langue demandée: ${lang}`)
+    console.log(`[SUBTITLES] Recherche sous-titres externes pour: ${videoBasename}`)
+    console.log(`[SUBTITLES]   Chemin vidéo: ${filepath}`)
+    console.log(`[SUBTITLES]   Dossier vidéo: ${videoDir}`)
+    console.log(`[SUBTITLES]   Langue demandée: ${lang}`)
     
     // Chercher le premier fichier existant
     let srtPath: string | null = null
     for (const p of possiblePaths) {
-      console.log(`   Test: ${p}`)
+      console.log(`[SUBTITLES]   Test: ${p}`)
       try {
         await access(p, constants.R_OK)
         srtPath = p
-        console.log(`✅ Trouvé: ${path.basename(p)}`)
+        console.log(`[SUBTITLES] Trouvé: ${path.basename(p)}`)
         break
       } catch (err) {
-        console.log(`   ❌ Non trouvé: ${path.basename(p)}`)
+        console.log(`[SUBTITLES]   Non trouvé: ${path.basename(p)}`)
         // Fichier n'existe pas, continuer
       }
     }
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
     // Convertir SRT en WebVTT (simple)
     const vttContent = convertSRTtoWebVTT(srtContent)
     
-    console.log(`✅ Sous-titres externes chargés: ${path.basename(srtPath)} (${vttContent.length} caractères)`)
+    console.log(`[SUBTITLES] Sous-titres externes chargés: ${path.basename(srtPath)} (${vttContent.length} caractères)`)
     
     return new NextResponse(vttContent, {
       headers: {

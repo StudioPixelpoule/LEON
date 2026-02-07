@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
         } else {
           results.enriched++
           results.details.push({ title: serie.title, genres, status: 'enriched' })
-          console.log(`✅ ${serie.title}: ${genres.join(', ')}`)
+          console.log(`[ADMIN] ${serie.title}: ${genres.join(', ')}`)
         }
       } else {
         results.skipped++

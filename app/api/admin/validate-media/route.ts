@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     
     // Cas 1: TMDB ID fourni → Récupérer métadonnées complètes
     if (tmdbId) {
-      console.log(`📥 Récupération métadonnées TMDB movie ID: ${tmdbId}`)
+      console.log(`[ADMIN] Récupération métadonnées TMDB movie ID: ${tmdbId}`)
       
       const details = await getMovieDetails(tmdbId)
       
@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
           trailer_url: details.videos?.results?.[0]?.key ? `https://youtube.com/watch?v=${details.videos.results[0].key}` : null,
         }
         
-        console.log(`✅ Métadonnées récupérées: ${details.title}`)
+        console.log(`[ADMIN] Métadonnées récupérées: ${details.title}`)
         
         // Sauvegarder dans manual_matches pour apprentissage
         const originalFilename = existingMedia.pcloud_fileid.split('/').pop()
@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
               onConflict: 'filename'
             })
           
-          console.log(`💾 Sauvegardé dans manual_matches: ${originalFilename}`)
+          console.log(`[ADMIN] Sauvegardé dans manual_matches: ${originalFilename}`)
         }
       }
     }
@@ -105,13 +105,13 @@ export async function POST(request: NextRequest) {
     // Cas 2: Jaquette personnalisée uploadée
     if (customPosterUrl) {
       updateData.poster_url = customPosterUrl
-      console.log(`🖼️  Jaquette personnalisée appliquée`)
+      console.log(`[ADMIN] Jaquette personnalisée appliquée`)
     }
     
     // Cas 3: Titre corrigé sans TMDB ID
     if (correctedTitle && !tmdbId) {
       updateData.title = correctedTitle
-      console.log(`✏️  Titre corrigé: ${correctedTitle}`)
+      console.log(`[ADMIN] Titre corrigé: ${correctedTitle}`)
     }
     
     // Mettre à jour uniquement ce média
@@ -128,7 +128,7 @@ export async function POST(request: NextRequest) {
       )
     }
     
-    console.log(`✅ Média validé: ${mediaId}`)
+    console.log(`[ADMIN] Média validé: ${mediaId}`)
     
     return NextResponse.json({
       success: true,
