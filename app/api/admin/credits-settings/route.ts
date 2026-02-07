@@ -8,20 +8,9 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
-
-function getSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  
-  if (!url || !key) {
-    throw new Error('SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY manquant')
-  }
-  
-  return createClient(url, key)
-}
 
 // GET - Liste des paramètres
 export async function GET(request: NextRequest) {
@@ -35,7 +24,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const showName = searchParams.get('show_name')
     
-    const supabase = getSupabaseAdmin()
+    const supabase = createSupabaseAdmin()
     
     let query = supabase
       .from('series_credits_settings')
@@ -85,7 +74,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'credits_duration requis (>= 0)' }, { status: 400 })
     }
     
-    const supabase = getSupabaseAdmin()
+    const supabase = createSupabaseAdmin()
     
     // Upsert (insert ou update si existe)
     const { data, error } = await supabase
@@ -137,7 +126,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'show_name requis' }, { status: 400 })
     }
     
-    const supabase = getSupabaseAdmin()
+    const supabase = createSupabaseAdmin()
     
     let query = supabase
       .from('series_credits_settings')

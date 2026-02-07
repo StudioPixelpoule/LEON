@@ -6,7 +6,7 @@
 
 'use client'
 
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, memo } from 'react'
 import Image from 'next/image'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
@@ -18,7 +18,7 @@ interface FavoritesRowProps {
   refreshKey?: number
 }
 
-export default function FavoritesRow({ onMovieClick, refreshKey = 0 }: FavoritesRowProps) {
+function FavoritesRowComponent({ onMovieClick, refreshKey = 0 }: FavoritesRowProps) {
   const { user } = useAuth()
   const [favorites, setFavorites] = useState<GroupedMedia[]>([])
   const [loading, setLoading] = useState(true)
@@ -106,6 +106,15 @@ export default function FavoritesRow({ onMovieClick, refreshKey = 0 }: Favorites
               key={movie.id}
               className={styles.card}
               onClick={() => onMovieClick(movie)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onMovieClick(movie)
+                }
+              }}
+              role="button"
+              tabIndex={0}
+              aria-label={`Lire ${movie.title}`}
             >
               <Image
                 src={movie.poster_url || '/placeholder-poster.svg'}
@@ -150,3 +159,5 @@ export default function FavoritesRow({ onMovieClick, refreshKey = 0 }: Favorites
     </section>
   )
 }
+
+export default memo(FavoritesRowComponent)

@@ -94,7 +94,7 @@ class TranscodingService {
   private initialized: boolean = false
 
   constructor() {
-    console.log('🎬 Initialisation TranscodingService')
+    console.log('[TRANSCODE] Initialisation TranscodingService')
     this.init()
   }
 
@@ -117,7 +117,7 @@ class TranscodingService {
       
       // Si des transcodages ont été nettoyés, re-scanner pour les remettre en queue
       if (cleanedCount > 0) {
-        console.log('🔍 Re-scan après nettoyage pour remettre les films en queue...')
+        console.log('[TRANSCODE] Re-scan après nettoyage pour remettre les films en queue...')
         await this.scanAndQueue()
       }
       
@@ -126,16 +126,16 @@ class TranscodingService {
       
       // Démarrer automatiquement si la queue n'était pas en pause
       if (this.queue.length > 0 && !this.isPaused && this.autoStartEnabled) {
-        console.log('🔄 Reprise automatique du transcodage...')
+        console.log('[TRANSCODE] Reprise automatique du transcodage...')
         setTimeout(() => this.start(), 5000) // Attendre 5s pour que tout soit initialisé
       }
       
       // Démarrer le watcher automatiquement
       setTimeout(() => this.startWatcher(), 10000) // Attendre 10s
       
-      console.log('✅ Service de transcodage initialisé')
+      console.log('[TRANSCODE] Service de transcodage initialisé')
     } catch (error) {
-      console.error('❌ Erreur initialisation:', error)
+      console.error('[TRANSCODE] Erreur initialisation:', error)
     }
   }
 
@@ -145,9 +145,9 @@ class TranscodingService {
   private async ensureDirectories(): Promise<void> {
     try {
       await mkdir(TRANSCODED_DIR, { recursive: true })
-      console.log(`📁 Répertoire transcodé: ${TRANSCODED_DIR}`)
+      console.log(`[TRANSCODE] Répertoire transcodé: ${TRANSCODED_DIR}`)
     } catch (error) {
-      console.error('❌ Erreur création répertoire:', error)
+      console.error('[TRANSCODE] Erreur création répertoire:', error)
     }
   }
 
@@ -157,7 +157,7 @@ class TranscodingService {
   private async loadState(): Promise<void> {
     try {
       if (!existsSync(STATE_FILE)) {
-        console.log('📄 Pas d\'état sauvegardé, démarrage fresh')
+        console.log('[TRANSCODE] Pas d\'état sauvegardé, démarrage fresh')
         return
       }
 
@@ -184,9 +184,9 @@ class TranscodingService {
             priority: Date.now() // Haute priorité pour être traité en premier
           }
           this.queue.unshift(resumedJob)
-          console.log(`🔄 Job interrompu remis en tête de queue: ${state.interruptedJob.filename}`)
+          console.log(`[TRANSCODE] Job interrompu remis en tête de queue: ${state.interruptedJob.filename}`)
         } else {
-          console.log(`⏭️ Job interrompu déjà dans la queue: ${state.interruptedJob.filename}`)
+          console.log(`[TRANSCODE] Job interrompu déjà dans la queue: ${state.interruptedJob.filename}`)
         }
       }
 
@@ -202,12 +202,12 @@ class TranscodingService {
           cleanQueue.push(job)
         } else {
           duplicatesRemoved++
-          console.log(`🗑️ Doublon supprimé au chargement: ${job.filename}`)
+          console.log(`[TRANSCODE] Doublon supprimé au chargement: ${job.filename}`)
         }
       }
       
       if (duplicatesRemoved > 0) {
-        console.log(`🧹 Nettoyage auto: ${duplicatesRemoved} doublon(s) supprimé(s) au chargement`)
+        console.log(`[TRANSCODE] Nettoyage auto: ${duplicatesRemoved} doublon(s) supprimé(s) au chargement`)
       }
       
       this.queue = cleanQueue
@@ -215,10 +215,10 @@ class TranscodingService {
       // Re-trier par priorité (date de modification)
       this.queue.sort((a, b) => b.priority - a.priority)
 
-      console.log(`📂 État restauré: ${this.queue.length} jobs en attente, ${this.completedJobs.length} terminés`)
-      console.log(`   Dernière sauvegarde: ${state.lastSaved}`)
+      console.log(`[TRANSCODE] État restauré: ${this.queue.length} jobs en attente, ${this.completedJobs.length} terminés`)
+      console.log(`[TRANSCODE] Dernière sauvegarde: ${state.lastSaved}`)
     } catch (error) {
-      console.error('❌ Erreur chargement état:', error)
+      console.error('[TRANSCODE] Erreur chargement état:', error)
     }
   }
 
@@ -250,7 +250,7 @@ class TranscodingService {
 
       await writeFile(STATE_FILE, JSON.stringify(state, null, 2))
     } catch (error) {
-      console.error('❌ Erreur sauvegarde état:', error)
+      console.error('[TRANSCODE] Erreur sauvegarde état:', error)
     }
   }
   
@@ -275,7 +275,7 @@ class TranscodingService {
     }
     
     if (removed > 0) {
-      console.log(`🧹 Nettoyage auto: ${removed} doublon(s) supprimé(s)`)
+      console.log(`[TRANSCODE] Nettoyage auto: ${removed} doublon(s) supprimé(s)`)
       this.queue = cleanQueue
     }
   }
@@ -290,7 +290,7 @@ class TranscodingService {
       this.saveState()
     }, AUTO_SAVE_INTERVAL)
 
-    console.log(`💾 Auto-save activé (${AUTO_SAVE_INTERVAL / 1000}s)`)
+    console.log(`[TRANSCODE] Auto-save activé (${AUTO_SAVE_INTERVAL / 1000}s)`)
   }
 
   /**
@@ -304,10 +304,10 @@ class TranscodingService {
       
       if (!fileWatcher.isActive()) {
         await fileWatcher.start()
-        console.log('👁️ Watcher démarré automatiquement')
+        console.log('[TRANSCODE] Watcher démarré automatiquement')
       }
     } catch (error) {
-      console.error('❌ Erreur démarrage watcher:', error)
+      console.error('[TRANSCODE] Erreur démarrage watcher:', error)
     }
   }
 
@@ -316,7 +316,7 @@ class TranscodingService {
    * 🔀 Queue mélangée: alterne films et séries
    */
   async scanAndQueue(): Promise<number> {
-    console.log('🔍 Scan des films (priorité: alternance films/séries)...')
+    console.log('[TRANSCODE] Scan des films (priorité: alternance films/séries)...')
     
     const files = await this.scanMediaDirectory()
     let addedCount = 0
@@ -362,14 +362,14 @@ class TranscodingService {
     // Sauvegarder l'état
     await this.saveState()
 
-    console.log(`✅ ${addedCount} films ajoutés à la queue (${this.queue.length} total)`)
+    console.log(`[TRANSCODE] ${addedCount} films ajoutés à la queue (${this.queue.length} total)`)
     
     // Afficher les 5 premiers
     if (this.queue.length > 0) {
-      console.log('📋 Prochains films à transcoder:')
+      console.log('[TRANSCODE] Prochains films à transcoder:')
       this.queue.slice(0, 5).forEach((job, i) => {
         const date = job.mtime ? new Date(job.mtime).toLocaleDateString('fr-FR') : 'N/A'
-        console.log(`   ${i + 1}. ${job.filename} (ajouté le ${date})`)
+        console.log(`[TRANSCODE] ${i + 1}. ${job.filename} (ajouté le ${date})`)
       })
     }
 
@@ -409,20 +409,20 @@ class TranscodingService {
       } catch (error) {
         // Silencieux si le dossier n'existe pas
         if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-          console.error(`❌ Erreur scan ${dir}:`, error)
+          console.error(`[TRANSCODE] Erreur scan ${dir}:`, error)
         }
       }
     }
 
     // Scanner les films
     await scanDir(MEDIA_DIR, films)
-    console.log(`🎬 ${films.length} films trouvés`)
+    console.log(`[TRANSCODE] ${films.length} films trouvés`)
     
     // Scanner les séries (si le dossier existe)
     try {
       await access(SERIES_DIR)
       await scanDir(SERIES_DIR, series)
-      console.log(`📺 ${series.length} épisodes de séries trouvés`)
+      console.log(`[TRANSCODE] ${series.length} épisodes de séries trouvés`)
     } catch {
       // Le dossier series n'existe pas encore, c'est normal
     }
@@ -440,7 +440,7 @@ class TranscodingService {
       if (i < series.length) mixed.push(series[i])
     }
     
-    console.log(`🔀 Queue mélangée: ${mixed.length} fichiers (alternance films/séries)`)
+    console.log(`[TRANSCODE] Queue mélangée: ${mixed.length} fichiers (alternance films/séries)`)
     
     return mixed
   }
@@ -510,13 +510,13 @@ class TranscodingService {
         // 🔧 Seuil réduit à 10 segments (les épisodes courts ont ~50 segments)
         if (segmentCount >= 10) {
           // Créer le fichier .done pour les prochaines fois
-          console.log(`📝 Création .done pour ${outputDir} (${segmentCount} segments détectés)`)
+          console.log(`[TRANSCODE] Création .done pour ${outputDir} (${segmentCount} segments détectés)`)
           await writeFile(donePath, new Date().toISOString())
           return true
         }
       }
     } catch (error) {
-      console.error(`⚠️ Erreur lecture playlist ${playlistPath}:`, error)
+      console.error(`[TRANSCODE] Erreur lecture playlist ${playlistPath}:`, error)
     }
     
     return false
@@ -542,19 +542,19 @@ class TranscodingService {
         
         // Si .transcoding existe, le transcodage a été interrompu
         if (existsSync(transcodingPath)) {
-          console.log(`🧹 Nettoyage transcodage interrompu: ${entry.name}`)
+          console.log(`[TRANSCODE] Nettoyage transcodage interrompu: ${entry.name}`)
           await rm(dirPath, { recursive: true, force: true })
           cleanedCount++
         }
       }
       
       if (cleanedCount > 0) {
-        console.log(`✅ ${cleanedCount} transcodage(s) interrompu(s) nettoyé(s)`)
+        console.log(`[TRANSCODE] ${cleanedCount} transcodage(s) interrompu(s) nettoyé(s)`)
       }
       
       return cleanedCount
     } catch (error) {
-      console.error('❌ Erreur nettoyage en cours:', error)
+      console.error('[TRANSCODE] Erreur nettoyage en cours:', error)
       return 0
     }
   }
@@ -587,7 +587,7 @@ class TranscodingService {
         
         // Si .transcoding existe, c'est un transcodage interrompu - supprimer
         if (existsSync(transcodingPath)) {
-          console.log(`🗑️ Suppression transcodage interrompu: ${prefix}${entry.name}`)
+          console.log(`[TRANSCODE] Suppression transcodage interrompu: ${prefix}${entry.name}`)
           await rm(dirPath, { recursive: true, force: true })
           cleaned.push(prefix + entry.name)
           continue
@@ -624,12 +624,12 @@ class TranscodingService {
         // 🔧 FIX: Seuil réduit à 10 segments + playlist complet
         if (segmentCount < 10 || !playlistComplete) {
           // Transcodage incomplet - supprimer
-          console.log(`🗑️ Suppression transcodage incomplet: ${prefix}${entry.name} (${segmentCount} segments, playlist: ${playlistComplete})`)
+          console.log(`[TRANSCODE] Suppression transcodage incomplet: ${prefix}${entry.name} (${segmentCount} segments, playlist: ${playlistComplete})`)
           await rm(dirPath, { recursive: true, force: true })
           cleaned.push(prefix + entry.name)
         } else {
           // Assez de segments - créer .done
-          console.log(`📝 Création .done pour: ${prefix}${entry.name} (${segmentCount} segments)`)
+          console.log(`[TRANSCODE] Création .done pour: ${prefix}${entry.name} (${segmentCount} segments)`)
           await writeFile(donePath, new Date().toISOString())
           kept.push(prefix + entry.name)
         }
@@ -644,7 +644,7 @@ class TranscodingService {
       const seriesDir = path.join(TRANSCODED_DIR, 'series')
       await scanDir(seriesDir, 'series/')
     } catch (error) {
-      console.error('❌ Erreur cleanup incomplets:', error)
+      console.error('[TRANSCODE] Erreur cleanup incomplets:', error)
     }
     
     return { cleaned, kept }
@@ -670,9 +670,9 @@ class TranscodingService {
           .select('id')
         
         if (error) {
-          console.warn(`[TRANSCODE] ⚠️ Erreur mise à jour is_transcoded épisode:`, error.message)
+          console.warn(`[TRANSCODE] Erreur mise à jour is_transcoded épisode:`, error.message)
         } else if (data && data.length > 0) {
-          console.log(`[TRANSCODE] ✅ Épisode marqué comme transcodé (visible dans l'interface)`)
+          console.log(`[TRANSCODE] Épisode marqué comme transcodé (visible dans l'interface)`)
         }
       } else {
         // C'est un film - mettre à jour dans la table media
@@ -684,13 +684,13 @@ class TranscodingService {
           .select('id, title')
         
         if (error) {
-          console.warn(`[TRANSCODE] ⚠️ Erreur mise à jour is_transcoded film:`, error.message)
+          console.warn(`[TRANSCODE] Erreur mise à jour is_transcoded film:`, error.message)
         } else if (data && data.length > 0) {
-          console.log(`[TRANSCODE] ✅ Film "${data[0].title}" marqué comme transcodé (visible dans l'interface)`)
+          console.log(`[TRANSCODE] Film "${data[0].title}" marqué comme transcodé (visible dans l'interface)`)
         }
       }
     } catch (error) {
-      console.error(`[TRANSCODE] ❌ Erreur markAsTranscoded:`, error)
+      console.error(`[TRANSCODE] Erreur markAsTranscoded:`, error)
     }
   }
 
@@ -713,13 +713,13 @@ class TranscodingService {
    */
   async start(): Promise<void> {
     if (this.isRunning && !this.isPaused) {
-      console.log('⚠️ Service déjà en cours')
+      console.log('[TRANSCODE] Service déjà en cours')
       return
     }
 
     this.isRunning = true
     this.isPaused = false
-    console.log('🚀 Démarrage du service de transcodage')
+    console.log('[TRANSCODE] Démarrage du service de transcodage')
 
     await this.saveState()
     await this.processQueue()
@@ -730,7 +730,7 @@ class TranscodingService {
    */
   async pause(): Promise<void> {
     this.isPaused = true
-    console.log('⏸️ Transcodage en pause')
+    console.log('[TRANSCODE] Transcodage en pause')
     
     // Tuer tous les processus actifs
     for (const [jobId, job] of this.activeJobs) {
@@ -762,7 +762,7 @@ class TranscodingService {
     if (!this.isPaused) return
     
     this.isPaused = false
-    console.log('▶️ Reprise du transcodage')
+    console.log('[TRANSCODE] Reprise du transcodage')
     
     await this.saveState()
     
@@ -803,7 +803,7 @@ class TranscodingService {
     this.activeProcesses.clear()
     
     await this.saveState()
-    console.log('🛑 Service de transcodage arrêté')
+    console.log('[TRANSCODE] Service de transcodage arrêté')
   }
 
   /**
@@ -831,7 +831,7 @@ class TranscodingService {
         job.status = 'transcoding'
         job.startedAt = new Date().toISOString()
 
-        console.log(`🎬 [Worker ${workerId}] Transcodage: ${job.filename} (${this.activeJobs.size}/${MAX_CONCURRENT_TRANSCODES} actifs)`)
+        console.log(`[TRANSCODE] [Worker ${workerId}] Transcodage: ${job.filename} (${this.activeJobs.size}/${MAX_CONCURRENT_TRANSCODES} actifs)`)
         await this.saveState()
 
         try {
@@ -842,7 +842,11 @@ class TranscodingService {
           job.progress = 100
           
           this.completedJobs.push(job)
-          console.log(`✅ [Worker ${workerId}] Terminé: ${job.filename}`)
+          // Limiter la croissance mémoire des jobs terminés
+          if (this.completedJobs.length > 200) {
+            this.completedJobs = this.completedJobs.slice(-100)
+          }
+          console.log(`[TRANSCODE] [Worker ${workerId}] Terminé: ${job.filename}`)
         } catch (error) {
           job.status = 'failed'
           job.error = error instanceof Error ? error.message : String(error)
@@ -859,10 +863,10 @@ class TranscodingService {
             job.priority = 0 // Basse priorité pour les retry
             this.queue.push(job)
           } else {
-            console.log(`[TRANSCODE] ⛔ [Worker ${workerId}] Fichier ignoré définitivement: ${job.filename}`)
+            console.log(`[TRANSCODE] [Worker ${workerId}] Fichier ignoré définitivement: ${job.filename}`)
           }
           
-          console.error(`❌ [Worker ${workerId}] Échec: ${job.filename}`, error)
+          console.error(`[TRANSCODE] [Worker ${workerId}] Échec: ${job.filename}`, error)
         }
 
         // Retirer le job des actifs
@@ -882,7 +886,7 @@ class TranscodingService {
     await Promise.all(workers)
 
     if (this.queue.length === 0 && this.activeJobs.size === 0 && this.isRunning) {
-      console.log('🎉 Queue de transcodage terminée!')
+      console.log('[TRANSCODE] Queue de transcodage terminée!')
       this.isRunning = false
       await this.saveState()
     }
@@ -908,7 +912,7 @@ class TranscodingService {
       )
       // 🔧 FIX: Retirer la virgule finale que ffprobe ajoute parfois (ex: "hevc," -> "hevc")
       const codec = stdout.trim().toLowerCase().replace(/,+$/, '')
-      console.log(`[TRANSCODE] 🔍 Codec détecté: "${codec}" (raw: "${stdout.trim()}")`)
+      console.log(`[TRANSCODE] Codec détecté: "${codec}" (raw: "${stdout.trim()}")`)
       return codec
     } catch (error) {
       console.error('[TRANSCODE] Erreur détection codec:', error)
@@ -956,7 +960,7 @@ class TranscodingService {
           const codec = (s.codec_name || '').toLowerCase()
           const isBitmap = BITMAP_SUBTITLE_CODECS.some(bc => codec.includes(bc))
           if (isBitmap) {
-            console.log(`[TRANSCODE] ⏭️ Sous-titre bitmap ignoré: ${s.tags?.language || 'und'} (${codec})`)
+            console.log(`[TRANSCODE] Sous-titre bitmap ignoré: ${s.tags?.language || 'und'} (${codec})`)
           }
           return !isBitmap
         })
@@ -979,7 +983,7 @@ class TranscodingService {
       
       // Détecter les fichiers corrompus
       if (errorMsg.includes('Invalid data') || errorMsg.includes('EBML header') || errorMsg.includes('parsing failed')) {
-        console.error('[TRANSCODE] 💀 FICHIER CORROMPU - impossible à transcoder')
+        console.error('[TRANSCODE] FICHIER CORROMPU - impossible à transcoder')
         throw new Error('Fichier corrompu: ' + errorMsg.slice(0, 100))
       }
       
@@ -1020,7 +1024,7 @@ class TranscodingService {
         await execAsync(
           `ffmpeg -y -i '${escapedPath}' -map 0:s:${sub.index} -c:s webvtt "${outputFile}"`
         )
-        console.log(`[TRANSCODE] ✅ Sous-titre extrait: ${sub.language}`)
+        console.log(`[TRANSCODE] Sous-titre extrait: ${sub.language}`)
         extractedSubs.push({
           language: sub.language,
           title: sub.title,
@@ -1028,7 +1032,7 @@ class TranscodingService {
         })
       } catch (error) {
         // En cas d'erreur, ignorer ce sous-titre et continuer
-        console.warn(`[TRANSCODE] ⚠️ Impossible d'extraire sous-titre ${sub.language} (${sub.codec}) - ignoré`)
+        console.warn(`[TRANSCODE] Impossible d'extraire sous-titre ${sub.language} (${sub.codec}) - ignoré`)
       }
     }
     
@@ -1038,7 +1042,7 @@ class TranscodingService {
         path.join(outputDir, 'subtitles.json'),
         JSON.stringify(extractedSubs, null, 2)
       )
-      console.log(`[TRANSCODE] 📝 ${extractedSubs.length}/${subtitles.length} sous-titres extraits`)
+      console.log(`[TRANSCODE] ${extractedSubs.length}/${subtitles.length} sous-titres extraits`)
     }
   }
 
@@ -1062,7 +1066,7 @@ class TranscodingService {
     } catch {
       // Si ffprobe échoue, estimer 2h par défaut
       job.estimatedDuration = 7200
-      console.warn(`[TRANSCODE] ⚠️ Impossible d'obtenir la durée, estimation 2h`)
+      console.warn(`[TRANSCODE] Impossible d'obtenir la durée, estimation 2h`)
     }
 
     const hardware = await detectHardwareCapabilities()
@@ -1080,7 +1084,7 @@ class TranscodingService {
     // Stratégie: Vidéo séparée + chaque audio séparé + master playlist
     // C'est LA méthode correcte pour multi-audio HLS compatible partout
     
-    console.log(`[TRANSCODE] 🔊 Mode DEMUXED: vidéo séparée + ${streamInfo.audioCount} audio séparés`)
+    console.log(`[TRANSCODE] Mode DEMUXED: vidéo séparée + ${streamInfo.audioCount} audio séparés`)
     
     // 🔊 Sauvegarder les infos audio
     const audioInfo = streamInfo.audios.map((audio, idx) => ({
@@ -1096,18 +1100,18 @@ class TranscodingService {
         path.join(job.outputDir, 'audio_info.json'),
         JSON.stringify(audioInfo, null, 2)
       )
-      console.log(`[TRANSCODE] 🔊 audio_info.json créé avec ${audioInfo.length} pistes`)
+      console.log(`[TRANSCODE] audio_info.json créé avec ${audioInfo.length} pistes`)
     }
     
     // 📺 PASS 1: Encoder la VIDÉO (sans audio)
-    console.log(`[TRANSCODE] 📺 Pass 1: Encodage vidéo...`)
+    console.log(`[TRANSCODE] Pass 1: Encodage vidéo...`)
     
     // 🔍 Détecter le codec source pour adapter le décodage
     const sourceCodec = await this.detectVideoCodec(job.filepath)
     const isHEVC = sourceCodec === 'hevc' || sourceCodec === 'h265'
     
     if (isHEVC) {
-      console.log(`[TRANSCODE] ⚠️ Source HEVC détectée - décodage software (CPU) + encodage hardware (GPU)`)
+      console.log(`[TRANSCODE] Source HEVC détectée - décodage software (CPU) + encodage hardware (GPU)`)
     }
     
     // Pour HEVC: ne pas utiliser le décodeur VAAPI (non supporté sur Celeron J3455)
@@ -1190,14 +1194,14 @@ class TranscodingService {
       videoArgs.splice(videoArgs.indexOf('-map'), 0, '-map', '0:a?')
     }
     
-    console.log(`[TRANSCODE] 🎬 Démarrage FFmpeg vidéo...`)
-    console.log(`[TRANSCODE] 📋 Video args: ffmpeg ${videoArgs.slice(0, 10).join(' ')} ...`)
+    console.log(`[TRANSCODE] Démarrage FFmpeg vidéo...`)
+    console.log(`[TRANSCODE] Video args: ffmpeg ${videoArgs.slice(0, 10).join(' ')} ...`)
 
     // Helper pour exécuter FFmpeg et suivre la progression
     // 🔧 Utilise nice/ionice pour priorité basse (n'impacte pas la lecture)
     const runFFmpeg = (args: string[], label: string, progressWeight: number, progressOffset: number): Promise<void> => {
       return new Promise((resolve, reject) => {
-        console.log(`[TRANSCODE] 🔧 FFmpeg ${label}: nice -n 19 ffmpeg`, args.join(' ').slice(0, 200) + '...')
+        console.log(`[TRANSCODE] FFmpeg ${label}: nice -n 19 ffmpeg`, args.join(' ').slice(0, 200) + '...')
         
         // nice -n 19 = priorité CPU la plus basse
         // ionice -c 3 = priorité I/O idle (seulement quand le disque est libre)
@@ -1238,11 +1242,11 @@ class TranscodingService {
         ffmpeg.on('close', (code) => {
           // Le processus sera nettoyé par processQueue après completion
           if (code === 0) {
-            console.log(`[TRANSCODE] ✅ ${label} terminé`)
+            console.log(`[TRANSCODE] ${label} terminé`)
             resolve()
           } else {
-            console.error(`[TRANSCODE] ❌ FFmpeg ${label} erreur (code ${code}):`)
-            console.error(`[TRANSCODE] 📄 Dernière sortie: ${lastError.slice(-500)}`)
+            console.error(`[TRANSCODE] FFmpeg ${label} erreur (code ${code}):`)
+            console.error(`[TRANSCODE] Dernière sortie: ${lastError.slice(-500)}`)
             reject(new Error(`FFmpeg ${label} exit code: ${code}`))
           }
         })
@@ -1268,11 +1272,11 @@ class TranscodingService {
       }
       
       // PASS FINAL: Créer le master playlist
-      console.log(`[TRANSCODE] 📝 Création du master playlist...`)
+      console.log(`[TRANSCODE] Création du master playlist...`)
       
       const masterPlaylist = this.createMasterPlaylist(streamInfo, audioInfo)
       await writeFile(path.join(job.outputDir, 'playlist.m3u8'), masterPlaylist)
-      console.log(`[TRANSCODE] ✅ Master playlist créé`)
+      console.log(`[TRANSCODE] Master playlist créé`)
       
       // Supprimer le verrou et créer .done
       await rm(transcodingLockPath, { force: true })
@@ -1340,7 +1344,7 @@ class TranscodingService {
     // VÉRIFICATION ULTRA-STRICTE DES DOUBLONS PAR FILENAME (insensible à la casse)
     const existingByFilename = this.queue.find(j => j.filename.toLowerCase().trim() === normalizedFilename)
     if (existingByFilename) {
-      console.log(`⏭️ [DOUBLON] Fichier déjà dans la queue: ${filename}`)
+      console.log(`[TRANSCODE] [DOUBLON] Fichier déjà dans la queue: ${filename}`)
       if (highPriority) {
         existingByFilename.priority = Date.now()
         this.queue.sort((a, b) => b.priority - a.priority)
@@ -1352,7 +1356,7 @@ class TranscodingService {
     // Vérifier aussi par chemin complet (double sécurité)
     const existingByPath = this.queue.find(j => path.normalize(j.filepath) === normalizedPath)
     if (existingByPath) {
-      console.log(`⏭️ [DOUBLON] Chemin déjà dans la queue: ${filename}`)
+      console.log(`[TRANSCODE] [DOUBLON] Chemin déjà dans la queue: ${filename}`)
       if (highPriority) {
         existingByPath.priority = Date.now()
         this.queue.sort((a, b) => b.priority - a.priority)
@@ -1365,7 +1369,7 @@ class TranscodingService {
     for (const [, activeJob] of this.activeJobs) {
       if (activeJob.filename.toLowerCase().trim() === normalizedFilename || 
           path.normalize(activeJob.filepath) === normalizedPath) {
-        console.log(`⏭️ [DOUBLON] Fichier en cours de transcodage: ${filename}`)
+        console.log(`[TRANSCODE] [DOUBLON] Fichier en cours de transcodage: ${filename}`)
         return activeJob
       }
     }
@@ -1376,7 +1380,7 @@ class TranscodingService {
       path.normalize(j.filepath) === normalizedPath
     )
     if (recentlyCompleted) {
-      console.log(`✅ [DOUBLON] Fichier déjà transcodé: ${filename}`)
+      console.log(`[TRANSCODE] [DOUBLON] Fichier déjà transcodé: ${filename}`)
       return null
     }
 
@@ -1384,7 +1388,7 @@ class TranscodingService {
     
     // Vérifier si déjà transcodé sur le disque
     if (await this.isAlreadyTranscoded(outputDir)) {
-      console.log(`✅ Fichier déjà transcodé (sur disque): ${filename}`)
+      console.log(`[TRANSCODE] Fichier déjà transcodé (sur disque): ${filename}`)
       return null
     }
 
@@ -1418,7 +1422,7 @@ class TranscodingService {
     }
 
     await this.saveState()
-    console.log(`➕ Ajouté à la queue: ${filename} (priorité: ${highPriority ? 'haute' : 'normale'})`)
+    console.log(`[TRANSCODE] Ajouté à la queue: ${filename} (priorité: ${highPriority ? 'haute' : 'normale'})`)
     return job
   }
 
@@ -1471,11 +1475,11 @@ class TranscodingService {
           // Le nouveau a plus de priorité, supprimer l'ancien
           duplicateIds.push(existing.id)
           seenByFilename.set(key, job)
-          console.log(`🗑️ Doublon supprimé (priorité inférieure): ${existing.filename}`)
+          console.log(`[TRANSCODE] Doublon supprimé (priorité inférieure): ${existing.filename}`)
         } else {
           // L'ancien a plus de priorité, supprimer le nouveau
           duplicateIds.push(job.id)
-          console.log(`🗑️ Doublon supprimé: ${job.filename}`)
+          console.log(`[TRANSCODE] Doublon supprimé: ${job.filename}`)
         }
       } else {
         seenByFilename.set(key, job)
@@ -1485,7 +1489,7 @@ class TranscodingService {
     if (duplicateIds.length > 0) {
       this.queue = this.queue.filter(j => !duplicateIds.includes(j.id))
       await this.saveState()
-      console.log(`🧹 ${duplicateIds.length} doublon(s) supprimé(s) de la queue`)
+      console.log(`[TRANSCODE] ${duplicateIds.length} doublon(s) supprimé(s) de la queue`)
     }
     
     return duplicateIds.length
@@ -1504,7 +1508,7 @@ class TranscodingService {
     this.queue[index] = temp
     
     await this.saveState()
-    console.log(`⬆️ Job déplacé: ${this.queue[index - 1].filename}`)
+    console.log(`[TRANSCODE] Job déplacé: ${this.queue[index - 1].filename}`)
     return true
   }
 
@@ -1521,7 +1525,7 @@ class TranscodingService {
     this.queue[index] = temp
     
     await this.saveState()
-    console.log(`⬇️ Job déplacé: ${this.queue[index + 1].filename}`)
+    console.log(`[TRANSCODE] Job déplacé: ${this.queue[index + 1].filename}`)
     return true
   }
 
@@ -1536,7 +1540,7 @@ class TranscodingService {
     this.queue.unshift(job)
     
     await this.saveState()
-    console.log(`⏫ Job en tête: ${job.filename}`)
+    console.log(`[TRANSCODE] Job en tête: ${job.filename}`)
     return true
   }
 
@@ -1550,7 +1554,7 @@ class TranscodingService {
     // Vérifier que tous les IDs sont valides
     for (const id of jobIds) {
       if (!jobMap.has(id)) {
-        console.error(`❌ Job non trouvé: ${id}`)
+        console.error(`[TRANSCODE] Job non trouvé: ${id}`)
         return false
       }
     }
@@ -1572,7 +1576,7 @@ class TranscodingService {
     
     this.queue = newQueue
     await this.saveState()
-    console.log(`🔀 Queue réordonnée: ${this.queue.length} jobs`)
+    console.log(`[TRANSCODE] Queue réordonnée: ${this.queue.length} jobs`)
     return true
   }
 
@@ -1592,7 +1596,7 @@ class TranscodingService {
     
     if (removedCount > 0) {
       await this.saveState()
-      console.log(`🗑️ ${removedCount} jobs supprimés de la queue`)
+      console.log(`[TRANSCODE] ${removedCount} jobs supprimés de la queue`)
     }
     
     return removedCount
@@ -1694,10 +1698,10 @@ class TranscodingService {
     try {
       await rm(outputDir, { recursive: true, force: true })
       this.invalidateTranscodedCache()
-      console.log(`🗑️ Nettoyé: ${outputDir}`)
+      console.log(`[TRANSCODE] Nettoyé: ${outputDir}`)
       return true
     } catch (error) {
-      console.error(`❌ Erreur nettoyage ${outputDir}:`, error)
+      console.error(`[TRANSCODE] Erreur nettoyage ${outputDir}:`, error)
       return false
     }
   }
@@ -1711,10 +1715,10 @@ class TranscodingService {
     try {
       await rm(outputDir, { recursive: true, force: true })
       this.invalidateTranscodedCache()
-      console.log(`🗑️ Supprimé: ${outputDir}`)
+      console.log(`[TRANSCODE] Supprimé: ${outputDir}`)
       return true
     } catch (error) {
-      console.error(`❌ Erreur suppression ${outputDir}:`, error)
+      console.error(`[TRANSCODE] Erreur suppression ${outputDir}:`, error)
       return false
     }
   }
@@ -1793,7 +1797,7 @@ class TranscodingService {
             candidates.push({ folderPath, entryName: entry.name, prefix })
           }
         } catch (err) {
-          console.error(`Erreur scan ${baseDir}:`, err)
+          console.error(`[TRANSCODE] Erreur scan ${baseDir}:`, err)
         }
         
         return candidates
@@ -1886,7 +1890,7 @@ class TranscodingService {
       
       return transcoded
     } catch (error) {
-      console.error('Erreur listage transcodés:', error)
+      console.error('[TRANSCODE] Erreur listage transcodés:', error)
       return []
     }
   }
@@ -1903,16 +1907,16 @@ class TranscodingService {
    */
   setAutoStart(enabled: boolean): void {
     this.autoStartEnabled = enabled
-    console.log(`🔧 Auto-start: ${enabled ? 'activé' : 'désactivé'}`)
+    console.log(`[TRANSCODE] Auto-start: ${enabled ? 'activé' : 'désactivé'}`)
   }
 }
 
 // Singleton global
 if (!global.__transcodingServiceSingleton) {
-  console.log('🆕 Création du singleton TranscodingService')
+  console.log('[TRANSCODE] Création du singleton TranscodingService')
   global.__transcodingServiceSingleton = new TranscodingService()
 } else {
-  console.log('♻️ Réutilisation du singleton TranscodingService')
+  console.log('[TRANSCODE] Réutilisation du singleton TranscodingService')
 }
 
 const transcodingService = global.__transcodingServiceSingleton

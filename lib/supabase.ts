@@ -29,8 +29,13 @@ export function createSupabaseClient(): SupabaseClient {
 let supabaseAdmin: SupabaseClient | null = null
 
 export function createSupabaseAdmin(): SupabaseClient {
-  if (!supabaseAdmin && supabaseUrl && supabaseServiceKey) {
-    supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+  if (!supabaseServiceKey) {
+    console.error('[SUPABASE] SUPABASE_SERVICE_ROLE_KEY manquante — impossible de créer le client admin')
+    throw new Error('SUPABASE_SERVICE_ROLE_KEY non configurée')
+  }
+  
+  if (!supabaseAdmin) {
+    supabaseAdmin = createClient(supabaseUrl!, supabaseServiceKey, {
       auth: {
         autoRefreshToken: false,
         persistSession: false
@@ -38,8 +43,7 @@ export function createSupabaseAdmin(): SupabaseClient {
     })
   }
   
-  // Fallback sur le client normal si pas de service key
-  return supabaseAdmin || supabase
+  return supabaseAdmin
 }
 
 // Types TypeScript pour la base de données

@@ -14,18 +14,10 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseAdmin } from '@/lib/supabase'
 import { getMovieDetails, getTVShowDetails, getTMDBImageUrl } from '@/lib/tmdb'
 
 export const dynamic = 'force-dynamic'
-
-// Client Supabase avec service role pour contourner RLS
-function getSupabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
 
 interface UpdatePayload {
   id: string
@@ -59,7 +51,7 @@ export async function PATCH(request: NextRequest) {
 
     console.log(`[UPDATE-MEDIA-INFO] ✏️ Mise à jour ${type} ID: ${id} par ${user.email}`)
 
-    const supabase = getSupabaseAdmin()
+    const supabase = createSupabaseAdmin()
     const table = type === 'series' ? 'series' : 'media'
 
     // Si refreshFromTmdb est true et qu'on a un tmdb_id, récupérer les infos TMDB
@@ -158,7 +150,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'ID du média requis' }, { status: 400 })
     }
 
-    const supabase = getSupabaseAdmin()
+    const supabase = createSupabaseAdmin()
     const table = type === 'series' ? 'series' : 'media'
 
     const { data, error } = await supabase

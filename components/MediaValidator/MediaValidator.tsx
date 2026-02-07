@@ -34,10 +34,9 @@ export function MediaValidator({ unmatchedFiles, onValidation }: MediaValidatorP
     setSearching(prev => ({ ...prev, [fileId]: true }))
     
     try {
-      const response = await fetch('/api/media/search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query })
+      const response = await fetch(`/api/admin/search-tmdb?query=${encodeURIComponent(query)}&type=movie`, {
+        method: 'GET',
+        credentials: 'include'
       })
       
       if (!response.ok) {
@@ -48,7 +47,7 @@ export function MediaValidator({ unmatchedFiles, onValidation }: MediaValidatorP
       
       setSearchResults(prev => ({
         ...prev,
-        [fileId]: results.suggestions || []
+        [fileId]: results.results || []
       }))
       
     } catch (error) {

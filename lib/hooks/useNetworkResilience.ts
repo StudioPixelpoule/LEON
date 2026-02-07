@@ -53,6 +53,14 @@ export function useNetworkResilience(options: UseNetworkResilienceOptions = {}) 
   
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const savedPositionRef = useRef<number>(0)
+  const reconnectAttemptsRef = useRef(0)
+  const isOnlineRef = useRef(state.isOnline)
+  
+  // Synchroniser les refs avec le state
+  useEffect(() => {
+    reconnectAttemptsRef.current = state.reconnectAttempts
+    isOnlineRef.current = state.isOnline
+  }, [state.reconnectAttempts, state.isOnline])
   
   /**
    * Écoute les changements de connectivité
@@ -105,8 +113,10 @@ export function useNetworkResilience(options: UseNetworkResilienceOptions = {}) 
   const attemptReconnect = useCallback(async (
     reconnectFn: () => Promise<boolean>
   ): Promise<boolean> => {
-    if (state.reconnectAttempts >= config.maxAttempts) {
-      console.error(`[NETWORK] ❌ Maximum de tentatives atteint (${config.maxAttempts})`)
+    const currentAttempts = reconnectAttemptsRef.current
+    
+    if (currentAttempts >= config.maxAttempts) {
+      console.error(`[NETWORK] Maximum de tentatives atteint (${config.maxAttempts})`)
       setState(prev => ({
         ...prev,
         isReconnecting: false,
@@ -116,8 +126,8 @@ export function useNetworkResilience(options: UseNetworkResilienceOptions = {}) 
       return false
     }
     
-    const delay = calculateDelay(state.reconnectAttempts)
-    console.log(`[NETWORK] 🔄 Tentative ${state.reconnectAttempts + 1}/${config.maxAttempts} dans ${delay}ms`)
+    const delay = calculateDelay(currentAttempts)
+    console.log(`[NETWORK] Tentative ${currentAttempts + 1}/${config.maxAttempts} dans ${delay}ms`)
     
     setState(prev => ({
       ...prev,
@@ -131,7 +141,7 @@ export function useNetworkResilience(options: UseNetworkResilienceOptions = {}) 
       const success = await reconnectFn()
       
       if (success) {
-        console.log('[NETWORK] ✅ Reconnexion réussie')
+        console.log('[NETWORK] Reconnexion réussie')
         setState(prev => ({
           ...prev,
           isReconnecting: false,
@@ -142,19 +152,18 @@ export function useNetworkResilience(options: UseNetworkResilienceOptions = {}) 
         onReconnect?.()
         return true
       } else {
-        // Réessayer
         return attemptReconnect(reconnectFn)
       }
-    } catch (error: any) {
-      console.error('[NETWORK] ❌ Erreur reconnexion:', error.message)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Erreur inconnue'
+      console.error('[NETWORK] Erreur reconnexion:', message)
       setState(prev => ({
         ...prev,
-        lastError: error.message,
+        lastError: message,
       }))
-      // Réessayer
       return attemptReconnect(reconnectFn)
     }
-  }, [state.reconnectAttempts, config, calculateDelay, onReconnect, onError])
+  }, [config, calculateDelay, onReconnect, onError])
   
   /**
    * Signale une erreur réseau et démarre la reconnexion
@@ -173,10 +182,10 @@ export function useNetworkResilience(options: UseNetworkResilienceOptions = {}) 
     onError?.(error)
     
     // Démarrer la reconnexion si une fonction est fournie
-    if (reconnectFn && state.isOnline) {
+    if (reconnectFn && isOnlineRef.current) {
       attemptReconnect(reconnectFn)
     }
-  }, [state.isOnline, attemptReconnect, onError])
+  }, [attemptReconnect, onError])
   
   /**
    * Sauvegarde la position de lecture pour reprise
@@ -211,7 +220,7 @@ export function useNetworkResilience(options: UseNetworkResilienceOptions = {}) 
    * Mesure la qualité de connexion via un ping
    */
   const measureConnectionQuality = useCallback(async (): Promise<'excellent' | 'good' | 'poor' | 'offline'> => {
-    if (!state.isOnline) return 'offline'
+    if (!isOnlineRef.current) return 'offline'
     
     const startTime = Date.now()
     
@@ -246,7 +255,7 @@ export function useNetworkResilience(options: UseNetworkResilienceOptions = {}) 
       }))
       return 'poor'
     }
-  }, [state.isOnline])
+  }, [])
   
   // Cleanup
   useEffect(() => {

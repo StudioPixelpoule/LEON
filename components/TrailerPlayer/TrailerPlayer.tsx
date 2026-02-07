@@ -10,6 +10,46 @@ import { useState, useEffect, useRef, useCallback, forwardRef, useImperativeHand
 import Image from 'next/image'
 import styles from './TrailerPlayer.module.css'
 
+// Types YouTube IFrame API (remplacement de @types/youtube)
+declare namespace YT {
+  class Player {
+    constructor(elementId: string | HTMLElement, options: PlayerOptions)
+    playVideo(): void
+    pauseVideo(): void
+    stopVideo(): void
+    mute(): void
+    unMute(): void
+    isMuted(): boolean
+    setVolume(volume: number): void
+    getVolume(): number
+    destroy(): void
+    getPlayerState(): number
+  }
+  interface PlayerOptions {
+    height?: string | number
+    width?: string | number
+    videoId?: string
+    playerVars?: Record<string, unknown>
+    events?: Record<string, (event: OnStateChangeEvent) => void>
+  }
+  interface OnStateChangeEvent {
+    target: Player
+    data: number
+  }
+  interface PlayerEvent {
+    target: Player
+    data?: number
+  }
+  enum PlayerState {
+    UNSTARTED = -1,
+    ENDED = 0,
+    PLAYING = 1,
+    PAUSED = 2,
+    BUFFERING = 3,
+    CUED = 5,
+  }
+}
+
 // 🔊 Icônes SVG minimalistes et élégantes
 const IconVolumeOff = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">

@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useEffect, useState, ReactNode } from 'react'
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, ReactNode } from 'react'
 import { createBrowserClient } from '@supabase/ssr'
 import { User, Session, SupabaseClient } from '@supabase/supabase-js'
 import { useRouter } from 'next/navigation'
@@ -43,12 +43,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
 
-    // Récupérer la session initiale
+    // Récupérer la session initiale avec gestion d'erreur
     const getSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession()
-      setSession(session)
-      setUser(session?.user ?? null)
-      setLoading(false)
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        setSession(session)
+        setUser(session?.user ?? null)
+      } catch (error) {
+        console.error('[AUTH] Erreur récupération session:', error)
+        setSession(null)
+        setUser(null)
+      } finally {
+        setLoading(false)
+      }
     }
 
     getSession()
@@ -71,7 +78,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [supabase, router])
 
-  const signIn = async (email: string, password: string) => {
+  const signIn = useCallback(async (email: string, password: string) => {
     if (!supabase) {
       return { error: 'Client Supabase non disponible' }
     }
@@ -89,12 +96,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       router.push('/')
       router.refresh()
       return { error: null }
-    } catch (err) {
+    } catch {
       return { error: 'Une erreur est survenue' }
     }
-  }
+  }, [supabase, router])
 
-  const signUp = async (email: string, password: string, displayName?: string) => {
+  const signUp = useCallback(async (email: string, password: string, displayName?: string) => {
     if (!supabase) {
       return { error: 'Client Supabase non disponible' }
     }
@@ -115,21 +122,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       return { error: null }
-    } catch (err) {
+    } catch {
       return { error: 'Une erreur est survenue' }
     }
-  }
+  }, [supabase])
 
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     if (!supabase) return
     
     await supabase.auth.signOut()
     router.push('/login')
     router.refresh()
-  }
+  }, [supabase, router])
+
+  const value = useMemo(() => ({
+    user, session, loading, signIn, signUp, signOut
+  }), [user, session, loading, signIn, signUp, signOut])
 
   return (
-    <AuthContext.Provider value={{ user, session, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   )

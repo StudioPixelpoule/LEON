@@ -1,12 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { exec } from 'child_process'
-import { promisify } from 'util'
+import { spawn } from 'child_process'
 import path from 'path'
+import { validateMediaPath } from '@/lib/path-validator'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
 
-const execAsync = promisify(exec)
+// Chemin vers subliminal (configurable via variable d'environnement)
+const SUBLIMINAL_PATH = process.env.SUBLIMINAL_PATH || 'subliminal'
+
+// Langues autorisées pour éviter l'injection
+const VALID_LANGS: Record<string, string> = {
+  'fr': 'fra', 'en': 'eng', 'es': 'spa', 'de': 'deu',
+  'it': 'ita', 'pt': 'por', 'nl': 'nld', 'ja': 'jpn',
+  'ko': 'kor', 'zh': 'zho', 'fra': 'fra', 'eng': 'eng',
+  'spa': 'spa', 'deu': 'deu', 'ita': 'ita', 'por': 'por',
+}
+
+/**
+ * Exécute subliminal de manière sécurisée via spawn (pas de string interpolation)
+ */
+function runSubliminal(args: string[], cwd: string, timeoutMs = 30000): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(SUBLIMINAL_PATH, args, { cwd, timeout: timeoutMs })
+    let stdout = ''
+    let stderr = ''
+    proc.stdout.on('data', (data) => { stdout += data.toString() })
+    proc.stderr.on('data', (data) => { stderr += data.toString() })
+    proc.on('close', () => resolve({ stdout, stderr }))
+    proc.on('error', (err) => reject(err))
+  })
+}
 
 /**
  * API pour chercher et télécharger des sous-titres depuis OpenSubtitles
@@ -15,43 +39,38 @@ const execAsync = promisify(exec)
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const filepathRaw = searchParams.get('path')
-  const lang = searchParams.get('lang') || 'fra' // Code ISO 639-3
+  const lang = searchParams.get('lang') || 'fra'
 
   if (!filepathRaw) {
     return NextResponse.json({ error: 'Paramètre path manquant' }, { status: 400 })
   }
   
+  // Valider le chemin contre le path traversal
+  const validation = validateMediaPath(filepathRaw)
+  if (!validation.valid) {
+    console.error('[API] Chemin non autorisé:', validation.error)
+    return NextResponse.json({ error: 'Chemin non autorisé' }, { status: 403 })
+  }
+  
+  // Valider la langue contre une whitelist
+  const validLang = VALID_LANGS[lang]
+  if (!validLang) {
+    return NextResponse.json({ error: `Langue non supportée: ${lang}` }, { status: 400 })
+  }
+  
   // Normaliser pour gérer les caractères Unicode
-  const filepath = filepathRaw.normalize('NFD')
+  const filepath = validation.normalized || filepathRaw.normalize('NFD')
   const videoDir = path.dirname(filepath)
   const videoFilename = path.basename(filepath)
   
-  console.log(`🔍 Recherche sous-titres pour: ${videoFilename}`)
-  console.log(`📂 Dossier: ${videoDir}`)
+  console.log(`[API] Recherche sous-titres: ${videoFilename} (langue: ${validLang})`)
   
   try {
-    // Vérifier si subliminal est installé
-    const subliminalPath = '/Users/lionelvernay/Library/Python/3.9/bin/subliminal'
-    
-    try {
-      await execAsync(`test -x "${subliminalPath}"`)
-    } catch {
-      console.error('❌ subliminal non installé ou inaccessible')
-      return NextResponse.json({ 
-        error: 'Outil de téléchargement non disponible',
-        help: 'Installez subliminal : pip3 install --user subliminal'
-      }, { status: 503 })
-    }
-    
-    // Télécharger les sous-titres avec subliminal
-    console.log(`📥 Téléchargement sous-titres ${lang}...`)
-    
-    const command = `cd "${videoDir}" && "${subliminalPath}" download -l ${lang} "${videoFilename}"`
-    
-    const { stdout, stderr } = await execAsync(command, { 
-      timeout: 30000, // 30 secondes max
-      maxBuffer: 1024 * 1024 * 10 // 10MB
-    })
+    // Télécharger les sous-titres avec subliminal (via spawn, pas d'interpolation shell)
+    const { stdout, stderr } = await runSubliminal(
+      ['download', '-l', validLang, videoFilename],
+      videoDir
+    )
     
     console.log('📋 Sortie subliminal:', stdout)
     

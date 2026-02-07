@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth, authErrorResponse } from '@/lib/api-auth'
 import { createSupabaseAdmin } from '@/lib/supabase'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
@@ -42,11 +43,14 @@ interface MediaData {
  * Utilise la vue favorites_with_media pour éviter les problèmes de jointure
  */
 export async function GET(request: NextRequest) {
+  const { user: authUser, error: authError } = await requireAuth(request)
+  if (authError || !authUser) return authErrorResponse(authError || 'Non authentifié')
+  
   try {
     const supabase = createSupabaseAdmin()
     const searchParams = request.nextUrl.searchParams
     const mediaType = searchParams.get('type') || 'movie'
-    const userId = searchParams.get('userId')
+    const userId = authUser.id // Utiliser l'ID du token, pas le query param
     
     // Essayer d'abord la vue favorites_with_media
     let query = supabase
@@ -172,9 +176,13 @@ export async function GET(request: NextRequest) {
  * POST - Ajouter un média aux favoris
  */
 export async function POST(request: NextRequest) {
+  const { user: authUser, error: authError } = await requireAuth(request)
+  if (authError || !authUser) return authErrorResponse(authError || 'Non authentifié')
+  
   try {
     const body = await request.json()
-    const { mediaId, mediaType = 'movie', userId } = body
+    const { mediaId, mediaType = 'movie' } = body
+    const userId = authUser.id // Utiliser l'ID du token
     
     if (!mediaId) {
       return NextResponse.json(
@@ -186,17 +194,12 @@ export async function POST(request: NextRequest) {
     const supabase = createSupabaseAdmin()
     
     // Vérifier si déjà en favori pour cet utilisateur
-    let existingQuery = supabase
+    const existingQuery = supabase
       .from('favorites')
       .select('id')
       .eq('media_id', mediaId)
       .eq('media_type', mediaType)
-    
-    if (userId) {
-      existingQuery = existingQuery.eq('user_id', userId)
-    } else {
-      existingQuery = existingQuery.is('user_id', null)
-    }
+      .eq('user_id', userId)
     
     const { data: existing } = await existingQuery.single()
     
@@ -250,11 +253,14 @@ export async function POST(request: NextRequest) {
  * DELETE - Supprimer un média des favoris
  */
 export async function DELETE(request: NextRequest) {
+  const { user: authUser, error: authError } = await requireAuth(request)
+  if (authError || !authUser) return authErrorResponse(authError || 'Non authentifié')
+  
   try {
     const searchParams = request.nextUrl.searchParams
     const mediaId = searchParams.get('mediaId')
     const mediaType = searchParams.get('mediaType') || 'movie'
-    const userId = searchParams.get('userId')
+    const userId = authUser.id // Utiliser l'ID du token
     
     if (!mediaId) {
       return NextResponse.json(
@@ -265,17 +271,12 @@ export async function DELETE(request: NextRequest) {
     
     const supabase = createSupabaseAdmin()
     
-    let deleteQuery = supabase
+    const deleteQuery = supabase
       .from('favorites')
       .delete()
       .eq('media_id', mediaId)
       .eq('media_type', mediaType)
-    
-    if (userId) {
-      deleteQuery = deleteQuery.eq('user_id', userId)
-    } else {
-      deleteQuery = deleteQuery.is('user_id', null)
-    }
+      .eq('user_id', userId)
     
     const { error } = await deleteQuery
     

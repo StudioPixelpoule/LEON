@@ -4,17 +4,20 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth, authErrorResponse } from '@/lib/api-auth'
 import { createSupabaseAdmin } from '@/lib/supabase'
 
 // Forcer le rendu dynamique
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
+  const { user: authUser, error: authError } = await requireAuth(request)
+  if (authError || !authUser) return authErrorResponse(authError || 'Non authentifié')
+  
   try {
     const searchParams = request.nextUrl.searchParams
     const mediaId = searchParams.get('mediaId')
     const mediaType = searchParams.get('mediaType') || 'movie'
-    const userId = searchParams.get('userId')
     
     if (!mediaId) {
       return NextResponse.json(
@@ -25,18 +28,12 @@ export async function GET(request: NextRequest) {
     
     const supabase = createSupabaseAdmin()
     
-    let query = supabase
+    const query = supabase
       .from('favorites')
       .select('id')
       .eq('media_id', mediaId)
       .eq('media_type', mediaType)
-    
-    // Filtrer par utilisateur
-    if (userId) {
-      query = query.eq('user_id', userId)
-    } else {
-      query = query.is('user_id', null)
-    }
+      .eq('user_id', authUser.id)
     
     const { data, error } = await query.single()
     
@@ -49,10 +46,10 @@ export async function GET(request: NextRequest) {
       success: true,
       isFavorite: !!data
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[API] Erreur check favori:', error)
     return NextResponse.json(
-      { error: 'Erreur serveur', details: error.message },
+      { error: 'Erreur serveur' },
       { status: 500 }
     )
   }

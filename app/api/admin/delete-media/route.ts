@@ -16,7 +16,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseAdmin } from '@/lib/supabase'
 import { rm, unlink } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
@@ -24,14 +24,6 @@ import path from 'path'
 export const dynamic = 'force-dynamic'
 
 const TRANSCODED_DIR = process.env.TRANSCODED_DIR || '/leon/transcoded'
-
-// Client Supabase avec service role pour contourner RLS
-function getSupabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
 
 interface DeleteResult {
   success: boolean
@@ -66,7 +58,7 @@ export async function DELETE(request: NextRequest) {
 
     console.log(`[DELETE-MEDIA] 🗑️ Suppression ${mediaType} ID: ${mediaId} par ${user.email}${deleteSource ? ' (AVEC fichiers sources)' : ''}`)
 
-    const supabase = getSupabaseAdmin()
+    const supabase = createSupabaseAdmin()
     const result: DeleteResult = {
       success: false,
       deleted: {
@@ -304,7 +296,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'ID du média requis' }, { status: 400 })
     }
 
-    const supabase = getSupabaseAdmin()
+    const supabase = createSupabaseAdmin()
     const preview: {
       media: any
       episodes?: number

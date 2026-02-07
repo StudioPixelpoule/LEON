@@ -8,6 +8,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAuth, authErrorResponse } from '@/lib/api-auth'
 
 export const dynamic = 'force-dynamic'
 import { createSupabaseClient } from '@/lib/supabase'
@@ -16,6 +17,9 @@ import { createSupabaseClient } from '@/lib/supabase'
  * GET - Récupérer la position sauvegardée d'un film
  */
 export async function GET(request: NextRequest) {
+  const { user: authUser, error: authError } = await requireAuth(request)
+  if (authError || !authUser) return authErrorResponse(authError || 'Non authentifié')
+  
   const searchParams = request.nextUrl.searchParams
   const mediaId = searchParams.get('mediaId')
   const userId = searchParams.get('userId')
@@ -67,6 +71,9 @@ export async function GET(request: NextRequest) {
  * POST - Sauvegarder ou mettre à jour la position
  */
 export async function POST(request: NextRequest) {
+  const { user: authUser, error: authError } = await requireAuth(request)
+  if (authError || !authUser) return authErrorResponse(authError || 'Non authentifié')
+  
   try {
     const body = await request.json()
     const { mediaId, currentTime, position, duration, userId, media_type } = body
@@ -222,6 +229,9 @@ export async function POST(request: NextRequest) {
  * 🔧 userId est OBLIGATOIRE pour éviter de supprimer les positions d'autres utilisateurs
  */
 export async function DELETE(request: NextRequest) {
+  const { user: authUser, error: authError } = await requireAuth(request)
+  if (authError || !authUser) return authErrorResponse(authError || 'Non authentifié')
+  
   const searchParams = request.nextUrl.searchParams
   const mediaId = searchParams.get('mediaId')
   const userId = searchParams.get('userId')

@@ -249,8 +249,7 @@ export async function GET(request: NextRequest) {
       stack: error instanceof Error ? error.stack?.split('\n').slice(0, 3) : undefined
     })
     return NextResponse.json({ 
-      error: 'Erreur serveur',
-      details: error instanceof Error ? error.message : 'Erreur inconnue'
+      error: 'Erreur serveur'
     }, { status: 500 })
   }
 }

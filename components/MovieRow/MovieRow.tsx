@@ -5,7 +5,7 @@
 
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, memo } from 'react'
 import Image from 'next/image'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import styles from './MovieRow.module.css'
@@ -27,7 +27,7 @@ type MovieRowProps<T extends MovieRowItem> = {
   onMovieClick: (movie: T) => void
 }
 
-export default function MovieRow<T extends MovieRowItem>({ title, movies, onMovieClick }: MovieRowProps<T>) {
+function MovieRowComponent<T extends MovieRowItem>({ title, movies, onMovieClick }: MovieRowProps<T>) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
   const [canScrollRight, setCanScrollRight] = useState(false)
@@ -91,6 +91,15 @@ export default function MovieRow<T extends MovieRowItem>({ title, movies, onMovi
               key={movie.id}
               className={styles.card}
               onClick={() => onMovieClick(movie)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onMovieClick(movie)
+                }
+              }}
+              role="button"
+              tabIndex={0}
+              aria-label={`Lire ${movie.title}`}
             >
               <Image
                 src={movie.poster_url || '/placeholder-poster.svg'}
@@ -136,4 +145,6 @@ export default function MovieRow<T extends MovieRowItem>({ title, movies, onMovi
     </section>
   )
 }
+
+export default memo(MovieRowComponent) as typeof MovieRowComponent
 

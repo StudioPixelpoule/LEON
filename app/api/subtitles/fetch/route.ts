@@ -10,13 +10,40 @@ import { NextRequest, NextResponse } from 'next/server'
 export const dynamic = 'force-dynamic'
 import path from 'path'
 import { promises as fs } from 'fs'
-import { exec } from 'child_process'
-import { promisify } from 'util'
+import { spawn } from 'child_process'
+import { validateMediaPath } from '@/lib/path-validator'
 
-const execAsync = promisify(exec)
+// Chemin vers subliminal (configurable via variable d'environnement)
+const SUBLIMINAL_PATH = process.env.SUBLIMINAL_PATH || 'subliminal'
 
-// Chemin vers subliminal
-const SUBLIMINAL_PATH = '/Users/lionelvernay/Library/Python/3.9/bin/subliminal'
+// Langues autorisées pour éviter l'injection
+const VALID_LANGS: Record<string, string> = {
+  'fr': 'fra', 'en': 'eng', 'es': 'spa', 'de': 'deu',
+  'it': 'ita', 'pt': 'por', 'nl': 'nld', 'ja': 'jpn',
+  'ko': 'kor', 'zh': 'zho', 'fra': 'fra', 'eng': 'eng',
+  'spa': 'spa', 'deu': 'deu', 'ita': 'ita', 'por': 'por',
+}
+
+/**
+ * Exécute subliminal de manière sécurisée via spawn (pas de string interpolation)
+ */
+function runSubliminal(args: string[], cwd: string, timeoutMs = 60000): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(SUBLIMINAL_PATH, args, { cwd, timeout: timeoutMs })
+    let stdout = ''
+    let stderr = ''
+    proc.stdout.on('data', (data) => { stdout += data.toString() })
+    proc.stderr.on('data', (data) => { stderr += data.toString() })
+    proc.on('close', (code) => {
+      if (code === 0 || stdout.includes('Downloaded') || stdout.includes('collected')) {
+        resolve({ stdout, stderr })
+      } else {
+        resolve({ stdout, stderr }) // Résoudre quand même pour analyser la sortie
+      }
+    })
+    proc.on('error', (err) => reject(err))
+  })
+}
 
 export async function OPTIONS(request: NextRequest) {
   // Gérer les requêtes CORS preflight
@@ -41,28 +68,25 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Chemin du fichier manquant' }, { status: 400 })
     }
     
+    // Valider le chemin contre le path traversal
+    const validation = validateMediaPath(filepathRaw)
+    if (!validation.valid) {
+      console.error('[API] Chemin non autorisé:', validation.error)
+      return NextResponse.json({ error: 'Chemin non autorisé' }, { status: 403 })
+    }
+    
+    // Valider la langue contre une whitelist
+    const subliminalLang = VALID_LANGS[lang]
+    if (!subliminalLang) {
+      return NextResponse.json({ error: `Langue non supportée: ${lang}` }, { status: 400 })
+    }
+    
     // Normaliser le chemin
-    const filepath = filepathRaw.normalize('NFD')
+    const filepath = validation.normalized || filepathRaw.normalize('NFD')
     const videoDir = path.dirname(filepath)
     const videoFilename = path.basename(filepath)
     
-    console.log(`🔍 Recherche sous-titres avec subliminal pour: ${videoFilename} (langue: ${lang})`)
-    
-    // Vérifier si subliminal est disponible
-    try {
-      await execAsync(`test -x "${SUBLIMINAL_PATH}"`)
-    } catch {
-      console.error('❌ subliminal non installé ou inaccessible')
-      return NextResponse.json({ 
-        success: false,
-        message: 'Outil de téléchargement non disponible',
-        vtt: null,
-        help: 'Installez subliminal : pip3 install --user subliminal'
-      }, { status: 503 })
-    }
-    
-    // Convertir le code de langue (fr -> fra, en -> eng)
-    const subliminalLang = lang === 'fr' ? 'fra' : lang === 'en' ? 'eng' : lang
+    console.log(`[API] Recherche sous-titres subliminal: ${videoFilename} (langue: ${subliminalLang})`)
     
     // Télécharger les sous-titres avec subliminal
     // Utiliser plusieurs refiners pour améliorer la correspondance : hash, metadata, tmdb
@@ -88,8 +112,7 @@ export async function GET(request: NextRequest) {
     }
     
     // Première tentative : hash + metadata + tmdb pour la meilleure correspondance avec score élevé
-    // Le hash est automatiquement utilisé par subliminal, on ajoute les refiners pour améliorer la précision
-    let command = `cd "${videoDir}" && "${SUBLIMINAL_PATH}" download -l ${subliminalLang} --refiner hash --refiner metadata --refiner tmdb --min-score 85 "${videoFilename}"`
+    let subliminalArgs = ['download', '-l', subliminalLang, '--refiner', 'hash', '--refiner', 'metadata', '--refiner', 'tmdb', '--min-score', '85', videoFilename]
     
     let srtPath: string | null = null
     let attempts = 0
@@ -100,15 +123,12 @@ export async function GET(request: NextRequest) {
       
       if (attempts > 1) {
         // Deuxième tentative : score plus bas mais toujours avec hash pour éviter les mauvais résultats
-        console.log(`📥 Tentative ${attempts}: téléchargement avec score réduit (mais toujours avec hash)...`)
-        command = `cd "${videoDir}" && "${SUBLIMINAL_PATH}" download -l ${subliminalLang} --refiner hash --min-score 60 "${videoFilename}"`
+        console.log(`[API] Tentative ${attempts}: score réduit (avec hash)...`)
+        subliminalArgs = ['download', '-l', subliminalLang, '--refiner', 'hash', '--min-score', '60', videoFilename]
       }
       
       try {
-        const { stdout, stderr } = await execAsync(command, { 
-          timeout: 60000, // 60 secondes max
-          maxBuffer: 1024 * 1024 * 10 // 10MB
-        })
+        const { stdout, stderr } = await runSubliminal(subliminalArgs, videoDir)
         
         console.log(`📋 Sortie subliminal (tentative ${attempts}):`, stdout)
         

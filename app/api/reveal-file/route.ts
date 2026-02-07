@@ -3,14 +3,17 @@
  * Ouvre le Finder et sélectionne le fichier spécifié
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 import { spawn } from 'child_process'
 import { validateMediaPath } from '@/lib/path-validator'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const { error: authError } = await requireAdmin(request)
+  if (authError) return authErrorResponse(authError, 403)
   try {
     const { filepath } = await request.json()
     

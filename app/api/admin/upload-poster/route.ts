@@ -9,7 +9,7 @@ import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
-import { supabase } from '@/lib/supabase'
+import { createSupabaseAdmin } from '@/lib/supabase'
 
 export async function POST(request: NextRequest) {
   // Vérification admin OBLIGATOIRE
@@ -19,6 +19,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const supabase = createSupabaseAdmin()
+    
     const formData = await request.formData()
     const file = formData.get('file') as File
     const mediaId = formData.get('mediaId') as string

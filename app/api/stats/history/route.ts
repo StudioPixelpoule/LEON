@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 import { createSupabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
@@ -40,6 +41,9 @@ interface UserStats {
 }
 
 export async function GET(request: NextRequest) {
+  const { error: authError } = await requireAdmin(request)
+  if (authError) return authErrorResponse(authError, 403)
+  
   try {
     const supabase = createSupabaseAdmin()
     const searchParams = request.nextUrl.searchParams

@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
@@ -30,6 +31,9 @@ export async function GET() {
 }
 
 export async function DELETE(request: NextRequest) {
+  const { error: authError } = await requireAdmin(request)
+  if (authError) return authErrorResponse(authError, 403)
+  
   const searchParams = request.nextUrl.searchParams
   const sessionId = searchParams.get('session')
   

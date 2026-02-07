@@ -208,6 +208,76 @@ export default function SeriesPage() {
       })),
     [genreGroups]
   )
+
+  // Transformations mémorisées pour les props des composants enfants
+  const searchResultsMovies = useMemo(() => 
+    filteredSeries.map(s => ({
+      ...s,
+      tmdb_id: s.tmdb_id || 0,
+      original_title: s.title,
+      release_date: s.first_air_date,
+      pcloud_fileid: null,
+      created_at: s.created_at || '',
+      year: s.first_air_date ? new Date(s.first_air_date).getFullYear() : undefined
+    })),
+    [filteredSeries]
+  )
+
+  const recentSeriesMovies = useMemo(() =>
+    recentSeries.map(s => ({
+      ...s,
+      tmdb_id: 0,
+      original_title: s.title,
+      release_date: s.first_air_date,
+      pcloud_fileid: null,
+      created_at: '',
+      year: s.first_air_date ? new Date(s.first_air_date).getFullYear() : undefined
+    })),
+    [recentSeries]
+  )
+
+  const topRatedMovies = useMemo(() =>
+    topRated.map(s => ({
+      ...s,
+      tmdb_id: 0,
+      original_title: s.title,
+      release_date: s.first_air_date,
+      pcloud_fileid: null,
+      created_at: '',
+      year: s.first_air_date ? new Date(s.first_air_date).getFullYear() : undefined
+    })),
+    [topRated]
+  )
+
+  const allSeriesMovies = useMemo(() =>
+    validSeries.map(s => ({
+      ...s,
+      tmdb_id: 0,
+      original_title: s.title,
+      release_date: s.first_air_date,
+      pcloud_fileid: null,
+      created_at: '',
+      year: s.first_air_date ? new Date(s.first_air_date).getFullYear() : undefined
+    })),
+    [validSeries]
+  )
+
+  // Mémoriser les transformations par genre
+  const genreMoviesMap = useMemo(() => {
+    const map = new Map<string, any[]>()
+    topGenres.forEach(({ genre, series: genreSeries }) => {
+      map.set(genre, genreSeries.map(s => ({
+        ...s,
+        tmdb_id: 0,
+        original_title: s.title,
+        release_date: s.first_air_date,
+        pcloud_fileid: null,
+        created_at: '',
+        year: s.first_air_date ? new Date(s.first_air_date).getFullYear() : undefined
+      })))
+    })
+    return map
+  }, [topGenres])
   
   if (loading) {
     return (
@@ -244,15 +314,7 @@ export default function SeriesPage() {
       <main className={styles.main}>
         {searchQuery.length >= 2 ? (
           <SearchResultsGrid 
-            movies={filteredSeries.map(s => ({
-              ...s,
-              tmdb_id: s.tmdb_id || 0,
-              original_title: s.title,
-              release_date: s.first_air_date,
-              pcloud_fileid: null,
-              created_at: s.created_at || '',
-              year: s.first_air_date ? new Date(s.first_air_date).getFullYear() : undefined
-            })) as any}
+            movies={searchResultsMovies as any}
             query={searchQuery}
             onMovieClick={(movie) => {
               const serie = series.find(s => s.id === movie.id)
@@ -317,15 +379,7 @@ export default function SeriesPage() {
               <>
                 <MovieRow
                   title="Récemment ajoutées"
-                  movies={recentSeries.map(s => ({
-                    ...s,
-                    tmdb_id: 0,
-                    original_title: s.title,
-                    release_date: s.first_air_date,
-                    pcloud_fileid: null,
-                    created_at: '',
-                    year: s.first_air_date ? new Date(s.first_air_date).getFullYear() : undefined
-                  })) as any}
+                  movies={recentSeriesMovies as any}
                   onMovieClick={(movie) => {
                     const serie = series.find(s => s.id === movie.id)
                     if (serie) setSelectedSeries(serie)
@@ -339,15 +393,7 @@ export default function SeriesPage() {
               <>
                 <MovieRow
                   title="Mieux notées"
-                  movies={topRated.map(s => ({
-                    ...s,
-                    tmdb_id: 0,
-                    original_title: s.title,
-                    release_date: s.first_air_date,
-                    pcloud_fileid: null,
-                    created_at: '',
-                    year: s.first_air_date ? new Date(s.first_air_date).getFullYear() : undefined
-                  })) as any}
+                  movies={topRatedMovies as any}
                   onMovieClick={(movie) => {
                     const serie = series.find(s => s.id === movie.id)
                     if (serie) setSelectedSeries(serie)
@@ -357,41 +403,30 @@ export default function SeriesPage() {
               </>
             )}
             
-            {topGenres.map(({ genre, series: genreSeries }) => (
-              <div key={genre}>
-                <MovieRow
-                  title={genre}
-                  movies={genreSeries.map(s => ({
-                    ...s,
-                    tmdb_id: 0,
-                    original_title: s.title,
-                    release_date: s.first_air_date,
-                    pcloud_fileid: null,
-                    created_at: '',
-                    year: s.first_air_date ? new Date(s.first_air_date).getFullYear() : undefined
-                  })) as any}
-                  onMovieClick={(movie) => {
-                    const serie = series.find(s => s.id === movie.id)
-                    if (serie) setSelectedSeries(serie)
-                  }}
-                />
-                <div className={styles.separator}></div>
-              </div>
-            ))}
+            {topGenres.map(({ genre }) => {
+              const genreMovies = genreMoviesMap.get(genre)
+              if (!genreMovies) return null
+              
+              return (
+                <div key={genre}>
+                  <MovieRow
+                    title={genre}
+                    movies={genreMovies as any}
+                    onMovieClick={(movie) => {
+                      const serie = series.find(s => s.id === movie.id)
+                      if (serie) setSelectedSeries(serie)
+                    }}
+                  />
+                  <div className={styles.separator}></div>
+                </div>
+              )
+            })}
             
             {/* Toutes les séries */}
             {validSeries.length > 0 && (
               <MovieRow
                 title="Toutes les séries"
-                movies={validSeries.map(s => ({
-                  ...s,
-                  tmdb_id: 0,
-                  original_title: s.title,
-                  release_date: s.first_air_date,
-                  pcloud_fileid: null,
-                  created_at: '',
-                  year: s.first_air_date ? new Date(s.first_air_date).getFullYear() : undefined
-                })) as any}
+                movies={allSeriesMovies as any}
                 onMovieClick={(movie) => {
                   const serie = series.find(s => s.id === movie.id)
                   if (serie) setSelectedSeries(serie)

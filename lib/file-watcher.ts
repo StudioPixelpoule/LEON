@@ -53,7 +53,6 @@ class FileWatcher {
   private pendingEnrichment: boolean = false
 
   constructor() {
-    console.log('👁️ Initialisation FileWatcher')
     this.loadState()
   }
 
@@ -104,25 +103,19 @@ class FileWatcher {
       this.enrichmentScanTimer = null
       this.pendingEnrichment = false
       
-      console.log('🔄 Scan d\'enrichissement automatique (10 min de calme)')
-      
       try {
         // Appeler l'API de scan en mode background
         const response = await fetch('http://localhost:3000/api/scan-series?background=true', {
           method: 'POST'
         })
         
-        if (response.ok) {
-          console.log('✅ Scan d\'enrichissement lancé en arrière-plan')
-        } else {
-          console.log('⚠️ Échec du scan d\'enrichissement')
+        if (!response.ok) {
+          console.warn('[WATCHER] Échec du scan d\'enrichissement')
         }
       } catch (error) {
-        console.error('❌ Erreur scan d\'enrichissement:', error)
+        console.error('[WATCHER] Erreur scan d\'enrichissement:', error)
       }
     }, ENRICHMENT_SCAN_DELAY_MS)
-    
-    console.log('⏰ Scan d\'enrichissement programmé dans 10 minutes')
   }
 
   /**
@@ -140,42 +133,29 @@ class FileWatcher {
         .is('poster_url', null)
       
       if (error) {
-        console.error('❌ Erreur vérification séries sans poster:', error.message)
+        console.error('[WATCHER] Erreur vérification séries sans poster:', error.message)
         return
       }
       
       if (!seriesWithoutPoster || seriesWithoutPoster.length === 0) {
-        console.log('✅ Toutes les séries ont un poster')
         return
       }
       
-      console.log(`🎬 ${seriesWithoutPoster.length} série(s) sans poster détectée(s):`)
-      seriesWithoutPoster.slice(0, 5).forEach(s => {
-        console.log(`   📺 ${s.title}`)
-      })
-      if (seriesWithoutPoster.length > 5) {
-        console.log(`   ... et ${seriesWithoutPoster.length - 5} autre(s)`)
-      }
-      
       // Déclencher le scan d'enrichissement
-      console.log('🔄 Déclenchement du scan d\'enrichissement automatique...')
-      
       try {
         const response = await fetch('http://localhost:3000/api/scan-series?background=true', {
           method: 'POST'
         })
         
-        if (response.ok) {
-          console.log('✅ Scan d\'enrichissement lancé pour récupérer les posters')
-        } else {
-          console.log('⚠️ Échec du déclenchement du scan d\'enrichissement')
+        if (!response.ok) {
+          console.warn('[WATCHER] Échec du déclenchement du scan d\'enrichissement')
         }
       } catch (fetchError) {
-        console.error('❌ Erreur appel API scan-series:', fetchError)
+        console.error('[WATCHER] Erreur appel API scan-series:', fetchError)
       }
       
     } catch (error) {
-      console.error('❌ Erreur checkSeriesNeedingEnrichment:', error)
+      console.error('[WATCHER] Erreur checkSeriesNeedingEnrichment:', error)
     }
   }
 
@@ -190,9 +170,8 @@ class FileWatcher {
       const state: WatcherState = JSON.parse(data)
       
       this.knownFiles = new Set(state.knownFiles || [])
-      console.log(`📂 État watcher restauré: ${this.knownFiles.size} fichiers connus`)
     } catch (error) {
-      console.error('❌ Erreur chargement état watcher:', error)
+      console.error('[WATCHER] Erreur chargement état watcher:', error)
     }
   }
 
@@ -207,7 +186,7 @@ class FileWatcher {
       }
       await writeFile(WATCHER_STATE_FILE, JSON.stringify(state, null, 2))
     } catch (error) {
-      console.error('❌ Erreur sauvegarde état watcher:', error)
+      console.error('[WATCHER] Erreur sauvegarde état watcher:', error)
     }
   }
 
@@ -216,13 +195,8 @@ class FileWatcher {
    */
   async start(): Promise<void> {
     if (this.isWatching) {
-      console.log('⚠️ Watcher déjà actif')
       return
     }
-
-    console.log(`👁️ Démarrage surveillance:`)
-    console.log(`   📁 Films: ${MEDIA_DIR}`)
-    console.log(`   📁 Séries: ${SERIES_DIR}`)
     
     try {
       // Scanner d'abord pour connaître les fichiers existants
@@ -235,30 +209,28 @@ class FileWatcher {
       try {
         await stat(SERIES_DIR)
         await this.watchRecursively(SERIES_DIR)
-        console.log(`📺 Surveillance séries activée`)
       } catch {
-        console.log(`⚠️ Dossier séries non accessible: ${SERIES_DIR}`)
+        console.warn(`[WATCHER] Dossier séries non accessible: ${SERIES_DIR}`)
       }
       
       this.isWatching = true
-      console.log(`✅ Surveillance active (${this.watchedDirs.size} dossiers, ${this.knownFiles.size} fichiers connus)`)
       
       // Vérification de cohérence asynchrone (ne bloque pas le démarrage)
       setTimeout(() => {
         this.checkMissingInDatabase().catch(err => {
-          console.error('❌ Erreur vérification cohérence:', err)
+          console.error('[WATCHER] Erreur vérification cohérence:', err)
         })
       }, 15000) // Attendre 15s que l'app soit stable
       
       // Vérification des séries sans métadonnées (poster) après 30s
       setTimeout(() => {
         this.checkSeriesNeedingEnrichment().catch(err => {
-          console.error('❌ Erreur vérification enrichissement:', err)
+          console.error('[WATCHER] Erreur vérification enrichissement:', err)
         })
       }, 30000) // Attendre 30s pour laisser la cohérence se faire d'abord
       
     } catch (error) {
-      console.error('❌ Erreur démarrage watcher:', error)
+      console.error('[WATCHER] Erreur démarrage watcher:', error)
     }
   }
   
@@ -306,8 +278,6 @@ class FileWatcher {
    * et les ajouter automatiquement (version optimisée)
    */
   private async checkMissingInDatabase(): Promise<void> {
-    console.log('🔍 Vérification cohérence fichiers/BDD...')
-    
     try {
       const { supabase } = await import('./supabase')
       
@@ -368,18 +338,12 @@ class FileWatcher {
       }
       
       if (missingFiles.length === 0) {
-        console.log('✅ Cohérence OK : tous les fichiers sont en BDD')
         return
       }
       
       // Séparer séries et films pour affichage
       const missingSeries = missingFiles.filter(f => f.startsWith(SERIES_DIR))
       const missingMovies = missingFiles.filter(f => f.startsWith(MEDIA_DIR))
-      
-      console.log(`⚠️ ${missingFiles.length} fichier(s) manquant(s) en BDD:`)
-      console.log(`   📺 ${missingSeries.length} épisode(s) de série`)
-      console.log(`   🎬 ${missingMovies.length} film(s)`)
-      console.log(`   Traitement automatique...`)
       
       // Traiter les fichiers manquants (séries d'abord, puis films)
       // Séries en priorité car généralement ce qu'on veut voir rapidement
@@ -395,11 +359,9 @@ class FileWatcher {
           // Pause courte entre chaque fichier (100ms au lieu de 500ms)
           await new Promise(resolve => setTimeout(resolve, 100))
         } catch (err) {
-          console.error(`❌ Erreur traitement ${path.basename(filepath)}:`, err)
+          console.error(`[WATCHER] Erreur traitement ${path.basename(filepath)}:`, err)
         }
       }
-      
-      console.log(`✅ Cohérence restaurée : ${processed}/${missingFiles.length} fichiers traités`)
       
       await this.saveState()
       
@@ -408,7 +370,7 @@ class FileWatcher {
       }
       
     } catch (error) {
-      console.error('❌ Erreur vérification cohérence:', error)
+      console.error('[WATCHER] Erreur vérification cohérence:', error)
     }
   }
 
@@ -465,7 +427,7 @@ class FileWatcher {
       })
 
       watcher.on('error', (error) => {
-        console.error(`❌ Erreur watcher ${dir}:`, error)
+        console.error(`[WATCHER] Erreur watcher ${dir}:`, error)
       })
 
       this.watchers.push(watcher)
@@ -479,7 +441,7 @@ class FileWatcher {
         }
       }
     } catch (error) {
-      console.error(`❌ Erreur surveillance ${dir}:`, error)
+      console.error(`[WATCHER] Erreur surveillance ${dir}:`, error)
     }
   }
 
@@ -497,8 +459,6 @@ class FileWatcher {
 
     // Ignorer les fichiers déjà connus
     if (this.knownFiles.has(filepath)) return
-
-    console.log(`📁 Événement: ${eventType} - ${path.basename(filepath)}`)
 
     // Debounce : attendre que le fichier soit stable
     if (this.pendingFiles.has(filepath)) {
@@ -523,7 +483,6 @@ class FileWatcher {
       
       // Ignorer les fichiers trop petits (probablement incomplets)
       if (stats.size < 50 * 1024 * 1024) { // < 50MB
-        console.log(`⏳ Fichier trop petit, en attente: ${path.basename(filepath)}`)
         return
       }
 
@@ -532,7 +491,6 @@ class FileWatcher {
       const stats2 = await stat(filepath)
       
       if (stats2.size !== stats.size) {
-        console.log(`⏳ Fichier en cours d'écriture: ${path.basename(filepath)}`)
         // Re-programmer le traitement
         this.handleFileEvent('change', filepath)
         return
@@ -549,13 +507,9 @@ class FileWatcher {
       const isSeriesEpisode = filepath.startsWith(SERIES_DIR) || /S\d{1,2}E\d{1,2}/i.test(filename)
       
       if (isSeriesEpisode) {
-        console.log(`📺 Nouvel épisode détecté: ${filename} (${fileSize} GB)`)
-        
         // Déclencher un scan de la série
         await this.importSeriesEpisode(filepath)
       } else {
-        console.log(`🎬 Nouveau film détecté: ${filename} (${fileSize} GB)`)
-        
         // IMPORTER DANS LA BASE AVEC MÉTADONNÉES TMDB
         await this.importToDatabase(filepath, stats.size)
       }
@@ -567,18 +521,15 @@ class FileWatcher {
       const job = await transcodingService.addToQueue(filepath, true)
       
       if (job) {
-        console.log(`➕ Ajouté à la queue de transcodage: ${job.filename}`)
-        
         // Si le service n'est pas en cours, le démarrer
         const serviceStats = await transcodingService.getStats()
         if (!serviceStats.isRunning && !serviceStats.isPaused) {
-          console.log('🚀 Démarrage automatique du transcodage')
           transcodingService.start()
         }
       }
     } catch (error) {
       // Le fichier n'existe peut-être plus (supprimé ou renommé)
-      console.log(`⚠️ Fichier non accessible: ${path.basename(filepath)}`)
+      console.warn(`[WATCHER] Fichier non accessible: ${path.basename(filepath)}`)
     }
   }
 
@@ -592,7 +543,6 @@ class FileWatcher {
       // Extraire le numéro de saison/épisode
       const episodeMatch = filename.match(/S(\d+)E(\d+)/i)
       if (!episodeMatch) {
-        console.log(`⚠️ Pattern SxxExx non trouvé dans: ${filename}`)
         return
       }
       
@@ -620,8 +570,6 @@ class FileWatcher {
         seriesName = path.basename(seriesPath)
       }
       
-      console.log(`📺 Série détectée: ${seriesName} (S${seasonNumber}E${episodeNumber})`)
-      
       // Import dynamique pour éviter les dépendances circulaires
       const { supabase } = await import('./supabase')
       
@@ -633,8 +581,6 @@ class FileWatcher {
         .single()
       
       if (existingSeries) {
-        console.log(`📁 Série trouvée: ${existingSeries.title} (ID: ${existingSeries.id})`)
-        
         // Vérifier si l'épisode existe déjà
         const { data: existingEp } = await supabase
           .from('episodes')
@@ -645,7 +591,6 @@ class FileWatcher {
           .single()
         
         if (existingEp) {
-          console.log(`⏭️ Épisode déjà en base: S${seasonNumber}E${episodeNumber}`)
           return
         }
         
@@ -676,7 +621,6 @@ class FileWatcher {
             if (tmdbEpisode.air_date) episodeData.air_date = tmdbEpisode.air_date
             if (tmdbEpisode.vote_average) episodeData.rating = tmdbEpisode.vote_average
             if (tmdbEpisode.runtime) episodeData.runtime = tmdbEpisode.runtime
-            console.log(`✨ Métadonnées TMDB récupérées pour S${seasonNumber}E${episodeNumber}`)
           }
         }
         
@@ -684,18 +628,13 @@ class FileWatcher {
         const { error: epError } = await supabase.from('episodes').insert(episodeData)
         
         if (epError) {
-          console.error(`❌ Erreur ajout épisode:`, epError.message)
-        } else {
-          const hasMetadata = episodeData.still_url ? '✨' : ''
-          console.log(`✅ ${hasMetadata} Épisode ajouté: ${seriesName} S${seasonNumber}E${episodeNumber} - ${episodeData.title}`)
+          console.error(`[WATCHER] Erreur ajout épisode:`, epError.message)
         }
         
         // Programmer un scan d'enrichissement différé (pour les autres épisodes potentiels)
         this.scheduleEnrichmentScan()
       } else {
         // Série pas encore en base - déclencher un scan complet
-        console.log(`🔍 Série non trouvée, déclenchement du scan...`)
-        
         // Appeler l'API de scan (via fetch interne ou directement)
         try {
           // On va simplement créer la série sans métadonnées pour l'instant
@@ -710,11 +649,9 @@ class FileWatcher {
             .single()
           
           if (insertError || !newSeries) {
-            console.error(`❌ Erreur création série:`, insertError?.message)
+            console.error(`[WATCHER] Erreur création série:`, insertError?.message)
             return
           }
-          
-          console.log(`✅ Série créée: ${seriesName} (ID: ${newSeries.id})`)
           
           // Ajouter l'épisode
           const cleanTitle = this.cleanEpisodeTitle(filename, seriesName)
@@ -727,16 +664,14 @@ class FileWatcher {
             is_transcoded: false // Masqué jusqu'à la fin du transcodage
           })
           
-          console.log(`✅ Épisode ajouté: ${seriesName} S${seasonNumber}E${episodeNumber}`)
-          
           // Programmer un scan d'enrichissement différé (pour récupérer les métadonnées TMDB)
           this.scheduleEnrichmentScan()
         } catch (scanError) {
-          console.error(`❌ Erreur lors du scan:`, scanError)
+          console.error(`[WATCHER] Erreur lors du scan:`, scanError)
         }
       }
     } catch (error) {
-      console.error(`❌ Erreur import épisode:`, error)
+      console.error(`[WATCHER] Erreur import épisode:`, error)
     }
   }
 
@@ -797,7 +732,6 @@ class FileWatcher {
   private async importToDatabase(filepath: string, fileSize: number): Promise<void> {
     try {
       const filename = path.basename(filepath)
-      console.log(`📥 Import automatique: ${filename}`)
 
       // Imports dynamiques pour éviter les dépendances circulaires
       const { supabase } = await import('./supabase')
@@ -813,7 +747,6 @@ class FileWatcher {
         .single()
 
       if (existing) {
-        console.log(`⏭️ Déjà en base: ${filename}`)
         return
       }
 
@@ -831,10 +764,9 @@ class FileWatcher {
         if (searchResults && searchResults.length > 0) {
           tmdbId = searchResults[0].id
           mediaDetails = await getMovieDetails(tmdbId)
-          console.log(`🎬 TMDB match: ${mediaDetails?.title} (${mediaDetails?.release_date?.slice(0,4)})`)
         }
       } catch (tmdbError) {
-        console.log(`⚠️ Pas de résultat TMDB pour: ${cleanName}`)
+        // Pas de résultat TMDB
       }
 
       // Chercher les sous-titres locaux
@@ -890,15 +822,10 @@ class FileWatcher {
         .insert(mediaData)
 
       if (error) {
-        console.error(`❌ Erreur insertion base: ${error.message}`)
-      } else {
-        console.log(`✅ Importé dans LEON: ${mediaData.title} ${mediaData.year ? `(${mediaData.year})` : ''}`)
-        if (mediaData.poster_url) console.log(`   🖼️ Jaquette: OK`)
-        if (mediaData.trailer_url) console.log(`   🎬 Bande-annonce: OK`)
-        if (Object.keys(subtitles).length > 0) console.log(`   💬 Sous-titres: ${Object.keys(subtitles).join(', ')}`)
+        console.error(`[WATCHER] Erreur insertion base: ${error.message}`)
       }
     } catch (error) {
-      console.error(`❌ Erreur import automatique:`, error)
+      console.error(`[WATCHER] Erreur import automatique:`, error)
     }
   }
 
@@ -913,7 +840,7 @@ class FileWatcher {
       try {
         watcher.close()
       } catch (error) {
-        console.warn('[FILE_WATCHER] Erreur fermeture watcher:', error instanceof Error ? error.message : error)
+        console.warn('[WATCHER] Erreur fermeture watcher:', error instanceof Error ? error.message : error)
       }
     }
     
@@ -933,8 +860,6 @@ class FileWatcher {
       this.enrichmentScanTimer = null
     }
     this.pendingEnrichment = false
-
-    console.log('🛑 Surveillance arrêtée')
   }
 
   /**
@@ -961,23 +886,17 @@ class FileWatcher {
    * Forcer un re-scan complet
    */
   async rescan(): Promise<number> {
-    console.log('🔄 Re-scan complet des fichiers...')
-    
     const previousCount = this.knownFiles.size
     await this.initialScan()
     const newCount = this.knownFiles.size - previousCount
     
-    console.log(`✅ Scan terminé: ${newCount} nouveaux fichiers détectés`)
     return newCount
   }
 }
 
 // Singleton global
 if (!global.__fileWatcherSingleton) {
-  console.log('🆕 Création du singleton FileWatcher')
   global.__fileWatcherSingleton = new FileWatcher()
-} else {
-  console.log('♻️ Réutilisation du singleton FileWatcher')
 }
 
 const fileWatcher = global.__fileWatcherSingleton

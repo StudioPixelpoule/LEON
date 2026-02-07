@@ -140,13 +140,12 @@ export async function GET(request: NextRequest) {
       media: formattedData,
       count: formattedData.length
     })
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('[API] Erreur récupération médias en cours:', error)
     return NextResponse.json(
       { 
         success: false,
-        error: 'Erreur serveur', 
-        details: error.message 
+        error: 'Erreur serveur'
       },
       { status: 500 }
     )

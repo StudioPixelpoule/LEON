@@ -12,6 +12,7 @@ import { User, Settings, LogOut, Shield, Heart } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
 import HeaderSearch from './HeaderSearch'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
+import type { SeriesSummary } from '@/types/media'
 import styles from './Header.module.css'
 
 // Liste des emails admin (doit correspondre à middleware.ts)
@@ -20,8 +21,8 @@ const ADMIN_EMAILS = ['theboxoflio@gmail.com']
 interface HeaderProps {
   movies?: GroupedMedia[]
   onMovieClick?: (movie: GroupedMedia) => void
-  series?: any[]
-  onSeriesClick?: (series: any) => void
+  series?: SeriesSummary[]
+  onSeriesClick?: (series: SeriesSummary) => void
   onSearch?: (query: string) => void
 }
 

@@ -15,7 +15,7 @@ import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
-import { supabase } from '@/lib/supabase'
+import { createSupabaseAdmin } from '@/lib/supabase'
 import { getMovieDetails, getTMDBImageUrl } from '@/lib/tmdb'
 
 const OMDB_API_KEY = process.env.OMDB_API_KEY || 'b9a5c8f8'
@@ -28,6 +28,8 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const supabase = createSupabaseAdmin()
+    
     const body = await request.json()
     const { mediaId, source, resultId, customPosterUrl, reason } = body
     

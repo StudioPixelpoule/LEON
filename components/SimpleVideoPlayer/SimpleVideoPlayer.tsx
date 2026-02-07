@@ -339,14 +339,14 @@ export default function SimpleVideoPlayer({
     getSavedPosition,
   } = useNetworkResilience({
     onReconnect: () => {
-      console.log('[NETWORK] ✅ Reconnexion détectée, reprise de lecture...')
+      console.log('[PLAYER] Reconnexion détectée, reprise de lecture...')
       const video = videoRef.current
       if (video && video.paused) {
         video.play().catch(() => {})
       }
     },
     onDisconnect: () => {
-      console.log('[NETWORK] ❌ Déconnexion détectée')
+      console.log('[PLAYER] Déconnexion détectée')
       const video = videoRef.current
       if (video) {
         savePosition(video.currentTime)
@@ -373,7 +373,7 @@ export default function SimpleVideoPlayer({
 
     // Attendre que le lecteur soit prêt et qu'on ait du buffer
     if (video.readyState >= 2 && buffered > 0) {
-      console.log(`[PLAYBACK] ✅ Position restaurée une seule fois: ${initialPosition}s`)
+      console.log(`[PLAYER] Position restaurée une seule fois: ${initialPosition}s`)
       video.currentTime = initialPosition
       setCurrentTime(initialPosition)
       hasRestoredPositionRef.current = true // Marquer comme restauré
@@ -395,7 +395,7 @@ export default function SimpleVideoPlayer({
           maxConcurrent: 2, // 2 requêtes parallèles max
         })
         preloaderRef.current.setBaseUrl(src)
-        console.log('[PRELOADER] 🚀 Initialisé pour HLS')
+        console.log('[PLAYER] Preloader initialisé pour HLS')
       }
     }
     
@@ -507,7 +507,7 @@ export default function SimpleVideoPlayer({
         
         if (effectivePrefs?.audioTrackIndex !== undefined && data.audioTracks?.length > effectivePrefs.audioTrackIndex) {
           setSelectedAudio(effectivePrefs.audioTrackIndex)
-          console.log('[PLAYER] 🔊 Préférence audio restaurée:', effectivePrefs.audioTrackIndex, initialPreferences ? '(épisode)' : '(localStorage)')
+          console.log('[PLAYER] Préférence audio restaurée:', effectivePrefs.audioTrackIndex, initialPreferences ? '(épisode)' : '(localStorage)')
         } else if (data.audioTracks?.length > 0) {
           // Sélectionner la première piste audio par défaut
           setSelectedAudio(0)
@@ -515,11 +515,10 @@ export default function SimpleVideoPlayer({
         
         if (effectivePrefs?.subtitleTrackIndex !== undefined) {
           setSelectedSubtitle(effectivePrefs.subtitleTrackIndex)
-          console.log('[PLAYER] 📝 Préférence sous-titres restaurée:', effectivePrefs.subtitleTrackIndex, initialPreferences ? '(épisode)' : '(localStorage)')
+          console.log('[PLAYER] Préférence sous-titres restaurée:', effectivePrefs.subtitleTrackIndex, initialPreferences ? '(épisode)' : '(localStorage)')
         }
       })
       .catch(err => {
-        console.log('⚠️ API pistes non disponible, pas de changement de langue')
       })
   }, [getFilepath, src, getInitialPreferences])
 
@@ -563,18 +562,16 @@ export default function SimpleVideoPlayer({
       const checkTextTracks = () => {
         const textTracks = Array.from(video.textTracks)
         if (textTracks.length > 0) {
-          console.log(`📝 [CHECK] ${textTracks.length} pistes sous-titres natives détectées`)
           textTracks.forEach((track, i) => {
             const cuesCount = track.cues ? track.cues.length : 0
             const activeCuesCount = track.activeCues ? track.activeCues.length : 0
-            console.log(`   [${i}] ${track.language || '?'} - mode: ${track.mode} - label: ${track.label} - cues: ${cuesCount} (actifs: ${activeCuesCount})`)
           })
           
           // ⚠️ CRITIQUE: S'assurer qu'une seule piste est active à la fois
           // Plusieurs pistes en mode 'showing' peuvent empêcher l'affichage
           const showingTracks = textTracks.filter(t => t.mode === 'showing')
           if (showingTracks.length > 1) {
-            console.warn(`⚠️ ${showingTracks.length} pistes en mode 'showing' simultanément, désactivation des doublons`)
+            console.warn(`[PLAYER] ${showingTracks.length} pistes en mode 'showing' simultanément, désactivation des doublons`)
             // Garder seulement la première piste en 'showing', désactiver les autres
             for (let i = 1; i < showingTracks.length; i++) {
               showingTracks[i].mode = 'disabled'
@@ -682,7 +679,7 @@ export default function SimpleVideoPlayer({
     if (!video) return
 
     const handleVideoEnded = () => {
-      console.log('[PLAYER] 🏁 Vidéo terminée')
+      console.log('[PLAYER] Vidéo terminée')
       
       // Marquer comme terminé (supprimer la position)
       if (mediaId) {
@@ -692,7 +689,7 @@ export default function SimpleVideoPlayer({
       // Note: L'épisode suivant est maintenant géré par le compte à rebours de 10s
       // Si on arrive ici et que le UI n'est pas affiché (vidéo courte), lancer l'épisode suivant
       if (nextEpisode && onNextEpisode && !isNextEpisodeCancelled && !showNextEpisodeUI) {
-        console.log('[PLAYER] ➡️ Vidéo terminée, passage direct à l\'épisode suivant:', nextEpisode.title)
+        console.log('[PLAYER] Vidéo terminée, passage direct à l\'épisode suivant:', nextEpisode.title)
         // 🔧 FIX: Utiliser les refs pour avoir les valeurs actuelles
         const preferences: PlayerPreferences = {
           audioTrackIndex: selectedAudioRef.current,
@@ -713,7 +710,7 @@ export default function SimpleVideoPlayer({
   // Les autres valeurs (nextEpisode, onNextEpisode, markAsFinished) sont lues via refs
   // pour éviter que le countdown se réinitialise quand ces props changent
   useEffect(() => {
-    console.log('[PLAYER] 🔄 useEffect countdown déclenché:', {
+    console.log('[PLAYER] useEffect countdown déclenché:', {
       showNextEpisodeUI,
       isNextEpisodeCancelled
     })
@@ -727,11 +724,11 @@ export default function SimpleVideoPlayer({
     // Si l'UI n'est pas affichée ou annulée, ne rien faire
     // 🔧 FIX: Utiliser les refs pour nextEpisode et onNextEpisode
     if (!showNextEpisodeUI || isNextEpisodeCancelled || !nextEpisodeRef.current || !onNextEpisodeRef.current) {
-      console.log('[PLAYER] ⏹️ Countdown non démarré - conditions non remplies')
+      console.log('[PLAYER] Countdown non démarré - conditions non remplies')
       return
     }
 
-    console.log('[PLAYER] ⏱️ Démarrage du compte à rebours 5s (style Netflix)')
+    console.log('[PLAYER] Démarrage du compte à rebours 5s (style Netflix)')
     
     // Variable locale pour suivre le compteur (évite les problèmes de closure)
     let currentCount = 5
@@ -740,11 +737,11 @@ export default function SimpleVideoPlayer({
     // Démarrer le compte à rebours
     nextEpisodeTimerRef.current = setInterval(() => {
       currentCount -= 1
-      console.log('[PLAYER] ⏱️ Countdown:', currentCount)
+      console.log('[PLAYER] Countdown:', currentCount)
       
       if (currentCount <= 0) {
         // Compte à rebours terminé - lancer l'épisode suivant
-        console.log('[PLAYER] ⏱️ Compte à rebours terminé, lancement épisode suivant')
+        console.log('[PLAYER] Compte à rebours terminé, lancement épisode suivant')
         
         // Nettoyer le timer
         if (nextEpisodeTimerRef.current) {
@@ -759,7 +756,7 @@ export default function SimpleVideoPlayer({
           wasFullscreen: isFullscreenRef.current
         }
         
-        console.log('[PLAYER] 🎬 Préférences transmises:', preferences)
+        console.log('[PLAYER] Préférences transmises:', preferences)
         
         // Marquer l'épisode actuel comme terminé (via ref)
         if (mediaId && markAsFinishedRef.current) {
@@ -777,7 +774,7 @@ export default function SimpleVideoPlayer({
 
     // Cleanup
     return () => {
-      console.log('[PLAYER] 🧹 Cleanup countdown timer')
+      console.log('[PLAYER] Cleanup countdown timer')
       if (nextEpisodeTimerRef.current) {
         clearInterval(nextEpisodeTimerRef.current)
         nextEpisodeTimerRef.current = null
@@ -817,9 +814,9 @@ export default function SimpleVideoPlayer({
         try {
           await requestFullscreen(containerRef.current!, videoRef.current || undefined)
           setIsFullscreen(true)
-          console.log('[PLAYER] 📺 Plein écran restauré depuis l\'épisode précédent')
+          console.log('[PLAYER] Plein écran restauré depuis l\'épisode précédent')
         } catch (err) {
-          console.log('[PLAYER] ⚠️ Impossible de restaurer le plein écran:', err)
+          console.log('[PLAYER] Impossible de restaurer le plein écran:', err)
         }
       }
       restoreFullscreen()
@@ -928,7 +925,6 @@ export default function SimpleVideoPlayer({
         video.currentTime = 0
         video.load() // Force reset de l'état interne du <video>
         } else {
-          console.log(`📍 Position existante détectée: ${lastKnownPositionRef.current.toFixed(1)}s ou initialPosition: ${initialPosition}s`)
         }
         
         hls.loadSource(currentVideoUrl.current)
@@ -939,7 +935,6 @@ export default function SimpleVideoPlayer({
           
           // 🔧 FIX #1: Restaurer la position si on en avait une (ex: après changement de piste)
           if (lastKnownPositionRef.current > 5 && video.currentTime < 5) {
-            console.log(`📍 Restauration position après manifest: ${lastKnownPositionRef.current.toFixed(1)}s`)
             video.currentTime = lastKnownPositionRef.current
           }
           
@@ -999,13 +994,13 @@ export default function SimpleVideoPlayer({
             if (preTranscodedStatus && !isPreTranscoded) {
               setIsPreTranscoded(true)
               setMaxSeekableTime(Infinity) // Seek illimité pour pré-transcodé
-              console.log('[PLAYER] 🎯 Fichier pré-transcodé détecté - scrubbing complet activé')
+              console.log('[PLAYER] Fichier pré-transcodé détecté - scrubbing complet activé')
               
               // 🔧 FIX: Désactiver le preloader pour le contenu pré-transcodé
               // HLS.js gère nativement le buffering VOD - pas besoin de préchargement manuel
               if (preloaderRef.current) {
                 preloaderRef.current.setEnabled(false)
-                console.log('[PRELOADER] ⏸️ Désactivé pour contenu pré-transcodé')
+                console.log('[PLAYER] Preloader désactivé pour contenu pré-transcodé')
               }
             }
             
@@ -1018,7 +1013,7 @@ export default function SimpleVideoPlayer({
               // Fichier pré-transcodé = démarrage ultra-rapide
               canStart = bufferedSeconds >= 2
               if (checkCount % 4 === 0 && !canStart) {
-                console.log(`[BUFFER] Pré-transcodé, attente buffer: ${bufferedSeconds.toFixed(1)}s/2s`)
+                console.log(`[PLAYER] Pré-transcodé, attente buffer: ${bufferedSeconds.toFixed(1)}s/2s`)
               }
             } else if (isComplete) {
               canStart = bufferedSeconds >= 10
@@ -1047,7 +1042,7 @@ export default function SimpleVideoPlayer({
                 setIsLoading(false)
                 setTimeout(() => { video.muted = wasMuted }, 100)
               }).catch((err) => {
-                console.warn('⚠️ Autoplay bloqué:', err.message)
+                console.warn('[PLAYER] Autoplay bloqué:', err.message)
                 video.muted = wasMuted
                 setIsLoading(false)
               })
@@ -1062,7 +1057,6 @@ export default function SimpleVideoPlayer({
         hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
           // Log silencieux (décommenter pour debug)
           // const frag = data.frag
-          // console.log(`📦 Fragment ${frag.sn} | start: ${frag.start.toFixed(2)}s`)
         })
         
         // 🛡️ DÉSACTIVÉ: Buffer Watchdog trop agressif, HLS.js gère lui-même
@@ -1076,27 +1070,26 @@ export default function SimpleVideoPlayer({
         // video.addEventListener('play', startBufferWatchdog, { once: true })
         
         hls.on(Hls.Events.ERROR, (event, data) => {
-          console.error('❌ Erreur HLS:', data.type, data.details)
+          console.error('[PLAYER] Erreur HLS:', data.type, data.details)
           
           // 🔧 FIX #1: TOUJOURS sauvegarder la position AVANT toute action
           const savedPosition = lastKnownPositionRef.current || video.currentTime || 0
           const wasPlaying = !video.paused
           
           if (savedPosition > 5) {
-            console.log(`📍 Position sauvegardée avant récupération: ${savedPosition.toFixed(1)}s`)
           }
           
           if (data.fatal) {
             switch(data.type) {
               case Hls.ErrorTypes.NETWORK_ERROR:
-                console.log('🔄 Erreur réseau détectée')
+                console.log('[PLAYER] Erreur réseau détectée')
                 
                 // ✅ RETRY GRADUEL : 1s, 3s, 5s, 10s
                 const retryDelays = [1000, 3000, 5000, 10000]
                 const maxNetworkRetries = retryDelays.length
                 
                 if (retryCountRef.current >= maxNetworkRetries) {
-                  console.error(`❌ Maximum de tentatives atteint (${maxNetworkRetries})`)
+                  console.error(`[PLAYER] Maximum de tentatives atteint (${maxNetworkRetries})`)
                   setError(`Impossible de charger la vidéo après plusieurs tentatives. Position sauvegardée: ${formatTime(savedPosition)}`)
                   setIsLoading(false)
                   return
@@ -1104,11 +1097,11 @@ export default function SimpleVideoPlayer({
                 
                 const delay = retryDelays[retryCountRef.current]
                 retryCountRef.current++
-                console.log(`🔄 Retry ${retryCountRef.current}/${maxNetworkRetries} dans ${delay}ms`)
+                console.log(`[PLAYER] Retry ${retryCountRef.current}/${maxNetworkRetries} dans ${delay}ms`)
                 
                 // ✅ NE PAS détruire HLS.js, juste recharger la source
                 setTimeout(() => {
-                  console.log('🔄 Rechargement...')
+                  console.log('[PLAYER] Rechargement...')
                   if (data.details === 'levelLoadError' || data.details === 'manifestLoadError') {
                     hls.loadSource(currentVideoUrl.current)
                   } else {
@@ -1117,12 +1110,12 @@ export default function SimpleVideoPlayer({
                 }, delay)
                 break
               case Hls.ErrorTypes.MEDIA_ERROR:
-                console.log('🔄 Tentative de récupération média...')
+                console.log('[PLAYER] Tentative de récupération média...')
                 hls.recoverMediaError()
                 break
               default:
                 // 🔧 FIX #1: Pour les erreurs fatales, préserver la position
-                console.log(`🔄 Rechargement complet dans 3s... (position: ${savedPosition.toFixed(1)}s)`)
+                console.log(`[PLAYER] Rechargement complet dans 3s... (position: ${savedPosition.toFixed(1)}s)`)
                 isRecoveringRef.current = true
                 
                 setTimeout(() => {
@@ -1147,7 +1140,7 @@ export default function SimpleVideoPlayer({
                   
                   // 🔧 FIX #1: Restaurer la position après rechargement
                   newHls.on(Hls.Events.MANIFEST_PARSED, () => {
-                    console.log(`✅ Manifest rechargé, restauration position: ${savedPosition.toFixed(1)}s`)
+                    console.log(`[PLAYER] Manifest rechargé, restauration position: ${savedPosition.toFixed(1)}s`)
                     if (video && savedPosition > 5) {
                       video.currentTime = savedPosition
                       if (wasPlaying) {
@@ -1163,16 +1156,16 @@ export default function SimpleVideoPlayer({
                 break
             }
           } else if (data.details === 'bufferStalledError') {
-            console.log('⏳ Buffer en attente du transcodage...')
+            console.log('[PLAYER] Buffer en attente du transcodage...')
           } else if (data.details === 'fragLoadError' || data.details === 'fragLoadTimeOut') {
-            console.log(`⏳ Segment non prêt, FFmpeg en cours de transcodage...`)
+            console.log(`[PLAYER] Segment non prêt, FFmpeg en cours de transcodage...`)
             // Ne rien faire, HLS.js va réessayer automatiquement
           } else if (data.details === 'levelLoadError') {
             // 🔧 Erreur non-fatale de chargement de playlist (souvent 500)
-            console.warn('⚠️ Erreur chargement playlist (non-fatal):', data.response?.code)
+            console.warn('[PLAYER] Erreur chargement playlist (non-fatal):', data.response?.code)
             
             if (data.response?.code === 500) {
-              console.warn('⚠️ Serveur retourne 500 - possible FFmpeg mort')
+              console.warn('[PLAYER] Serveur retourne 500 - possible FFmpeg mort')
             }
           }
         })
@@ -1184,7 +1177,7 @@ export default function SimpleVideoPlayer({
         // TODO: Implémenter l'attente de buffer pour Safari
         setBufferReady(true) // Temporairement débloquer
       } else {
-        console.error('❌ HLS non supporté sur ce navigateur')
+        console.error('[PLAYER] HLS non supporté sur ce navigateur')
         setError('Format vidéo non supporté sur ce navigateur')
         return
       }
@@ -1220,7 +1213,7 @@ export default function SimpleVideoPlayer({
         setIsPlaying(true)
         setIsLoading(false)
       } catch (err: any) {
-        console.log('⏸️ Autoplay bloqué:', err.message)
+        console.log('[PLAYER] Autoplay bloqué:', err.message)
         setIsLoading(false)
         // Afficher le bouton play
       }
@@ -1268,11 +1261,11 @@ export default function SimpleVideoPlayer({
       
       // 🔍 DEBUG: Détecter les VRAIS sauts anormaux (pas les initialisations)
       if (Math.abs(currentPos - lastTime) > 10 && lastTime > 0.1 && !isSeeking && !isRecoveringRef.current) {
-        console.warn(`⚠️ SAUT DÉTECTÉ: ${lastTime.toFixed(1)}s → ${currentPos.toFixed(1)}s (delta: ${(currentPos - lastTime).toFixed(1)}s)`)
+        console.warn(`[PLAYER] SAUT DÉTECTÉ: ${lastTime.toFixed(1)}s → ${currentPos.toFixed(1)}s (delta: ${(currentPos - lastTime).toFixed(1)}s)`)
         
         // 🔧 FIX #1: Si c'est un reset non voulu vers 0, restaurer la position
         if (currentPos < 5 && lastKnownPositionRef.current > 30) {
-          console.log(`🔄 RÉCUPÉRATION: Restauration vers ${lastKnownPositionRef.current.toFixed(1)}s`)
+          console.log(`[PLAYER] RÉCUPÉRATION: Restauration vers ${lastKnownPositionRef.current.toFixed(1)}s`)
           isRecoveringRef.current = true
           video.currentTime = lastKnownPositionRef.current
           setTimeout(() => {
@@ -1329,13 +1322,13 @@ export default function SimpleVideoPlayer({
         // Afficher l'UI au début du générique (timing précis configurable via admin)
         // Le countdown de 5s démarre automatiquement via useEffect
         if (shouldShowUI && !isUICurrentlyShown) {
-          console.log(`[PLAYER] 🎬 Déclenchement UI épisode suivant à ${currentPos.toFixed(1)}s (trigger: ${triggerTime.toFixed(1)}s, générique: ${creditsDurationRef.current}s)`)
+          console.log(`[PLAYER] Déclenchement UI épisode suivant à ${currentPos.toFixed(1)}s (trigger: ${triggerTime.toFixed(1)}s, générique: ${creditsDurationRef.current}s)`)
           setShowNextEpisodeUI(true)
         }
         
         // Masquer si on recule avant le générique
         if (!shouldShowUI && isUICurrentlyShown) {
-          console.log('[PLAYER] ⏪ Masquage UI épisode suivant (recul)')
+          console.log('[PLAYER] Masquage UI épisode suivant (recul)')
           setShowNextEpisodeUI(false)
           setNextEpisodeCountdown(5) // Reset à 5s
           // Annuler le timer si on recule
@@ -1370,7 +1363,7 @@ export default function SimpleVideoPlayer({
     
     const handleError = () => {
       if (video.error) {
-        console.error('❌ Erreur vidéo:', video.error)
+        console.error('[PLAYER] Erreur vidéo:', video.error)
         let msg = 'Erreur de lecture'
         
         switch(video.error.code) {
@@ -1386,7 +1379,7 @@ export default function SimpleVideoPlayer({
           case 4:
             // ⚠️ Limiter les tentatives pour éviter boucle infinie
             if (retryCountRef.current >= 3) {
-              console.error('❌ Échec après 3 tentatives')
+              console.error('[PLAYER] Échec après 3 tentatives')
               msg = 'Format vidéo non supporté. Le transcodage a échoué.'
               setError(msg)
               setIsLoading(false)
@@ -1402,7 +1395,7 @@ export default function SimpleVideoPlayer({
                 video.load()
                 tryAutoplay()
               } else {
-                console.error('❌ URL blob invalide, arrêt des tentatives')
+                console.error('[PLAYER] URL blob invalide, arrêt des tentatives')
                 setError('Erreur de lecture vidéo. Veuillez réessayer.')
                 setIsLoading(false)
               }
@@ -1561,7 +1554,7 @@ export default function SimpleVideoPlayer({
         
         // Gérer les erreurs de chargement
         const errorHandler = () => {
-          console.error(`❌ Erreur chargement vidéo remuxée: ${newUrl}`)
+          console.error(`[PLAYER] Erreur chargement vidéo remuxée: ${newUrl}`)
           const error = video.error
           let errorMessage = 'Erreur lors du changement de langue audio.'
           
@@ -1614,7 +1607,7 @@ export default function SimpleVideoPlayer({
                 errorMessage = `Erreur ${response.status} lors du remuxage.`
               }
               
-              console.error(`❌ Erreur HTTP ${response.status} pour ${newUrl}`)
+              console.error(`[PLAYER] Erreur HTTP ${response.status} pour ${newUrl}`)
               setError(errorMessage)
               setIsLoading(false)
               setIsRemuxing(false)
@@ -1629,7 +1622,7 @@ export default function SimpleVideoPlayer({
           })
           .catch((err) => {
             // Erreur réseau ou autre
-            console.error('❌ Erreur réseau lors de la vérification:', err)
+            console.error('[PLAYER] Erreur réseau lors de la vérification:', err)
             // Ne pas bloquer, laisser la vidéo essayer de charger
             // (peut-être que c'est juste un problème de CORS ou autre)
           })
@@ -1681,7 +1674,7 @@ export default function SimpleVideoPlayer({
               
               if (diff > 1) {
                 // Position pas assez proche, réessayer
-                console.warn(`⚠️ Position incorrecte: ${actualPos.toFixed(1)}s (attendu: ${safePos.toFixed(1)}s), réessai...`)
+                console.warn(`[PLAYER] Position incorrecte: ${actualPos.toFixed(1)}s (attendu: ${safePos.toFixed(1)}s), réessai...`)
                 video.currentTime = safePos
                 // Réattendre seeked
                 video.addEventListener('seeked', seekedHandler, { once: true })
@@ -1693,7 +1686,7 @@ export default function SimpleVideoPlayer({
                 // Petit délai avant de reprendre la lecture pour être sûr
                 setTimeout(() => {
                   video.play().catch((err) => {
-                    console.error('❌ Erreur play après restauration:', err)
+                    console.error('[PLAYER] Erreur play après restauration:', err)
                   })
                 }, 100)
               }
@@ -1706,7 +1699,7 @@ export default function SimpleVideoPlayer({
             setTimeout(() => {
               if (!seekedFired) {
                 const actualPos = video.currentTime
-                console.warn(`⚠️ Seeked non déclenché, position actuelle: ${actualPos.toFixed(1)}s`)
+                console.warn(`[PLAYER] Seeked non déclenché, position actuelle: ${actualPos.toFixed(1)}s`)
                 // Forcer la restauration une dernière fois
                 if (Math.abs(actualPos - safePos) > 1) {
                   video.currentTime = safePos
@@ -1736,8 +1729,8 @@ export default function SimpleVideoPlayer({
             }, 100)
           } else {
             // Timeout: la durée n'est jamais devenue disponible
-            console.error('❌ Timeout restauration: durée non disponible après 5s')
-            console.error(`   Durée: ${video.duration}, readyState: ${video.readyState}`)
+            console.error('[PLAYER] Timeout restauration: durée non disponible après 5s')
+            console.error(`[PLAYER] Durée: ${video.duration}, readyState: ${video.readyState}`)
             restoreAttempted = true
             setIsLoading(false)
             setIsRemuxing(false)
@@ -1785,7 +1778,7 @@ export default function SimpleVideoPlayer({
         setTimeout(() => {
           if (!restoreAttempted && video.readyState === 0) {
             clearInterval(pollingInterval)
-            console.error('❌ Timeout global: vidéo ne charge pas après 5 minutes')
+            console.error('[PLAYER] Timeout global: vidéo ne charge pas après 5 minutes')
             setIsLoading(false)
             setIsRemuxing(false)
             setError('Le remuxage prend trop de temps. Le fichier est peut-être trop volumineux.')
@@ -1797,8 +1790,8 @@ export default function SimpleVideoPlayer({
       
       // 🔧 FIX: Si HLS.js est actif avec plusieurs pistes audio, utiliser son API native
       if (hlsRef.current && hlsRef.current.audioTracks && hlsRef.current.audioTracks.length > 1) {
-        console.log(`🔊 [HLS] Changement piste audio via HLS.js API: ${idx}`)
-        console.log(`🔊 [HLS] Pistes disponibles:`, hlsRef.current.audioTracks.map((t, i) => `${i}: ${t.name || t.lang}`))
+        console.log(`[PLAYER] Changement piste audio via HLS.js API: ${idx}`)
+        console.log(`[PLAYER] Pistes disponibles:`, hlsRef.current.audioTracks.map((t, i) => `${i}: ${t.name || t.lang}`))
         
         // Trouver la piste correspondante dans HLS.js
         // L'index dans audioTracks peut différer de notre index
@@ -1820,7 +1813,7 @@ export default function SimpleVideoPlayer({
         hlsRef.current.audioTrack = hlsTrackIndex
         setSelectedAudio(idx)
         setShowSettingsMenu(false)
-        console.log(`✅ Audio changé via HLS.js (piste ${hlsTrackIndex})`)
+        console.log(`[PLAYER] Audio changé via HLS.js (piste ${hlsTrackIndex})`)
         return
       }
       
@@ -1833,7 +1826,7 @@ export default function SimpleVideoPlayer({
         ? `/api/hls-v2?path=${encodeURIComponent(filepath)}&playlist=true&audio=${track.index}`
         : `/api/hls?path=${encodeURIComponent(filepath)}&playlist=true&audio=${track.index}`
       
-      console.log(`🔊 [HLS] Rechargement stream avec piste audio ${track.index}`)
+      console.log(`[PLAYER] Rechargement stream avec piste audio ${track.index}`)
       
       // Marquer qu'on change de piste
       isChangingTrack.current = true
@@ -1866,7 +1859,7 @@ export default function SimpleVideoPlayer({
             video.play().catch(() => {})
           }
           setIsLoading(false)
-          console.log('✅ Audio changé et position restaurée')
+          console.log('[PLAYER] Audio changé et position restaurée')
         })
       } else {
         // Safari ou fallback
@@ -1880,7 +1873,7 @@ export default function SimpleVideoPlayer({
           }
           video.removeEventListener('loadeddata', restorePlayback)
           setIsLoading(false)
-          console.log('✅ Audio changé et position restaurée')
+          console.log('[PLAYER] Audio changé et position restaurée')
         }
         
         video.addEventListener('loadeddata', restorePlayback)
@@ -1892,12 +1885,11 @@ export default function SimpleVideoPlayer({
   const handleSubtitleChange = useCallback((idx: number | null) => {
     if (!videoRef.current) return
     
-    console.log(`📝 [CHANGEMENT SOUS-TITRES] ${idx === null ? 'Désactivés' : `piste ${idx}`}`)
-    console.log(`📝 [DEBUG] src:`, src)
+    console.log(`[PLAYER] Changement sous-titres: ${idx === null ? 'Désactivés' : `piste ${idx}`}`)
     
     // 🔧 Annuler le fetch précédent s'il existe
     if (subtitleAbortControllerRef.current) {
-      console.log(`📝 [HLS] Annulation fetch sous-titres précédent`)
+      console.log(`[PLAYER] Annulation fetch sous-titres précédent`)
       subtitleAbortControllerRef.current.abort()
       subtitleAbortControllerRef.current = null
     }
@@ -1908,7 +1900,6 @@ export default function SimpleVideoPlayer({
     
     // Vérifier si c'est un MP4 direct (avec sous-titres intégrés mov_text)
     const isDirectMP4 = !src.includes('/api/hls') && !src.includes('/api/hls-v2')
-    console.log(`📝 [DEBUG] isDirectMP4:`, isDirectMP4)
     
     if (isDirectMP4) {
       // Pour MP4 directs : essayer d'abord les textTracks natifs, sinon utiliser /api/subtitles
@@ -1931,7 +1922,7 @@ export default function SimpleVideoPlayer({
       
       // Si pas de sous-titres, on s'arrête
       if (idx === null) {
-        console.log('✅ Sous-titres désactivés')
+        console.log('[PLAYER] Sous-titres désactivés')
         return
       }
       
@@ -1940,7 +1931,7 @@ export default function SimpleVideoPlayer({
       
       // ⚠️ CRITIQUE: Si c'est un track téléchargé, utiliser directement son URL avec offset
       if ((track as any).isDownloaded && (track as any).sourceUrl) {
-        console.log(`📝 [TRACK TÉLÉCHARGÉ] Détection track téléchargé: ${track.language}`)
+        console.log(`[PLAYER] Détection track téléchargé: ${track.language}`)
         
         // Ajouter l'offset à l'URL si présent
         let trackUrl = (track as any).sourceUrl
@@ -1952,7 +1943,6 @@ export default function SimpleVideoPlayer({
             trackUrl += `&offset=${subtitleOffset}`
           }
         }
-        console.log(`   URL: ${trackUrl}${subtitleOffset !== 0 ? ` (offset: ${subtitleOffset}s)` : ''}`)
         
         // Supprimer les tracks existants qui ne sont pas natifs
         const existingTracks = video.querySelectorAll('track')
@@ -1986,15 +1976,15 @@ export default function SimpleVideoPlayer({
           if (textTrack) {
             const cuesCount = textTrack.cues ? textTrack.cues.length : 0
             textTrack.mode = 'showing'
-            console.log(`✅ [TRACK TÉLÉCHARGÉ ACTIVÉ] ${track.language}: mode="${textTrack.mode}", cues=${cuesCount}`)
+            console.log(`[PLAYER] Track téléchargé activé ${track.language}: mode="${textTrack.mode}", cues=${cuesCount}`)
           } else {
-            console.error(`❌ [TRACK TÉLÉCHARGÉ] Track "${track.language}" non trouvé après chargement`)
+            console.error(`[PLAYER] Track téléchargé "${track.language}" non trouvé après chargement`)
           }
         })
         
         trackElement.addEventListener('error', (e) => {
-          console.error(`❌ [ERREUR TRACK TÉLÉCHARGÉ] ${track.language}:`, e)
-          console.error(`   URL: ${trackElement.src}`)
+          console.error(`[PLAYER] Erreur track téléchargé ${track.language}:`, e)
+          console.error(`[PLAYER] URL: ${trackElement.src}`)
           trackElement.remove()
         })
         
@@ -2063,15 +2053,11 @@ export default function SimpleVideoPlayer({
             nativeTrack.mode = 'showing'
             
             // Log pour diagnostic
-            console.log(`📝 [ACTIVATION NATIVE] Track "${nativeTrack.label}" activé`)
-            console.log(`   Mode: ${nativeTrack.mode}`)
-            console.log(`   Cues: ${cuesCount} disponibles, ${activeCuesCount} actifs`)
-            console.log(`   Temps vidéo: ${video.currentTime.toFixed(1)}s`)
             
             if (cuesCount === 0) {
-              console.warn(`   ⚠️ Aucun cue chargé`)
+              console.warn(`[PLAYER] Aucun cue chargé`)
             } else if (activeCuesCount === 0 && video.currentTime > 1) {
-              console.warn(`   ⚠️ Cues disponibles mais aucun actif au temps ${video.currentTime.toFixed(1)}s`)
+              console.warn(`[PLAYER] Cues disponibles mais aucun actif au temps ${video.currentTime.toFixed(1)}s`)
             }
             
             // Vérifier périodiquement que le track reste activé et affiche les sous-titres
@@ -2087,12 +2073,12 @@ export default function SimpleVideoPlayer({
               const allTracks = Array.from(video.textTracks)
               const otherShowingTracks = allTracks.filter(t => t !== nativeTrack && t.mode === 'showing')
               if (otherShowingTracks.length > 0) {
-                console.warn(`⚠️ Détection de ${otherShowingTracks.length} autre(s) piste(s) en mode 'showing', désactivation...`)
+                console.warn(`[PLAYER] Détection de ${otherShowingTracks.length} autre(s) piste(s) en mode 'showing', désactivation...`)
                 otherShowingTracks.forEach(t => t.mode = 'disabled')
               }
               
               if (nativeTrack.mode !== 'showing') {
-                console.warn(`⚠️ Le track n'est plus en mode "showing", réactivation...`)
+                console.warn(`[PLAYER] Le track n'est plus en mode "showing", réactivation...`)
                 nativeTrack.mode = 'showing'
               }
               
@@ -2107,7 +2093,7 @@ export default function SimpleVideoPlayer({
                 // Cues disponibles mais non actifs après 2 secondes de lecture
                 // Cela peut indiquer un problème de timing ou de format
                 if (checkCount === 10) { // Log une seule fois après 2 secondes
-                  console.warn(`⚠️ Track "${nativeTrack.label}" : ${totalCues} cues disponibles mais aucun actif au temps ${video.currentTime.toFixed(1)}s`)
+                  console.warn(`[PLAYER] Track "${nativeTrack.label}" : ${totalCues} cues disponibles mais aucun actif au temps ${video.currentTime.toFixed(1)}s`)
                 }
               }
             }, 200)
@@ -2163,7 +2149,7 @@ export default function SimpleVideoPlayer({
         trackElement.addEventListener('error', async (e) => {
           e.preventDefault()
           e.stopPropagation()
-          console.error(`❌ Erreur chargement sous-titres: ${track.language}`)
+          console.error(`[PLAYER] Erreur chargement sous-titres: ${track.language}`)
           trackElement.remove()
           setError(`Impossible de charger les sous-titres "${track.language}"`)
           setSelectedSubtitle(null)
@@ -2172,11 +2158,11 @@ export default function SimpleVideoPlayer({
       }
     } else {
       // Pour HLS : utiliser l'API /api/subtitles pour extraire les sous-titres
-      console.log(`📝 [HLS] Gestion sous-titres HLS`)
+      console.log(`[PLAYER] Gestion sous-titres HLS`)
       
       // Supprimer les pistes existantes
       const existingTracks = video.querySelectorAll('track')
-      console.log(`📝 [HLS] Suppression ${existingTracks.length} pistes existantes`)
+      console.log(`[PLAYER] Suppression ${existingTracks.length} pistes existantes`)
       existingTracks.forEach(t => t.remove())
       
       // Désactiver toutes les text tracks
@@ -2186,7 +2172,7 @@ export default function SimpleVideoPlayer({
       
       // Si pas de sous-titres, on s'arrête
       if (idx === null) {
-        console.log('✅ [HLS] Sous-titres désactivés')
+        console.log('[PLAYER] Sous-titres désactivés')
         return
       }
       
@@ -2194,11 +2180,9 @@ export default function SimpleVideoPlayer({
       const track = subtitleTracks[idx]
       const filepath = getFilepath()
       
-      console.log(`📝 [HLS] Track sélectionné:`, track)
-      console.log(`📝 [HLS] Filepath:`, filepath)
       
       if (!filepath || !track) {
-        console.error(`❌ [HLS] Filepath ou track manquant`)
+        console.error(`[PLAYER] Filepath ou track manquant`)
         return
       }
       
@@ -2206,16 +2190,13 @@ export default function SimpleVideoPlayer({
       let subtitleUrl: string
       if (track.vttFile) {
         subtitleUrl = `/api/hls/subtitles?path=${encodeURIComponent(filepath)}&file=${encodeURIComponent(track.vttFile)}`
-        console.log(`📝 [HLS-PRE] URL sous-titres VTT pré-transcodé:`, subtitleUrl)
       } else {
         subtitleUrl = `/api/subtitles?path=${encodeURIComponent(filepath)}&track=${track.index}`
-        console.log(`📝 [HLS] URL sous-titres temps réel:`, subtitleUrl)
       }
       
       // 🔧 NOUVELLE APPROCHE : Charger manuellement les sous-titres via fetch
       // Car les browsers ne chargent pas toujours les <track> ajoutés dynamiquement
-      console.log(`📝 [HLS] Chargement manuel des sous-titres...`)
-      console.log(`📝 [HLS] URL fetch:`, subtitleUrl)
+      console.log(`[PLAYER] Chargement manuel des sous-titres...`)
       
       // Créer un nouveau AbortController pour ce fetch
       const abortController = new AbortController()
@@ -2223,26 +2204,22 @@ export default function SimpleVideoPlayer({
       
       fetch(subtitleUrl, { signal: abortController.signal })
         .then(async (response) => {
-          console.log(`📝 [HLS] Fetch réponse reçue`)
           const status = response.status
           const contentType = response.headers.get('Content-Type')
-          console.log(`📝 [HLS] Fetch /api/subtitles: status=${status}, type=${contentType}`)
           
           if (status !== 200) {
             const errorText = await response.text()
-            console.error(`❌ [HLS] Erreur API subtitles:`, errorText.slice(0, 300))
+            console.error(`[PLAYER] Erreur API subtitles:`, errorText.slice(0, 300))
             setError(`Impossible de charger les sous-titres: ${status}`)
             return
           }
           
           const vttContent = await response.text()
-          console.log(`✅ [HLS] Sous-titres reçus: ${vttContent.length} caractères`)
-          console.log(`📝 [HLS] Aperçu: ${vttContent.slice(0, 150)}...`)
+          console.log(`[PLAYER] Sous-titres reçus: ${vttContent.length} caractères`)
           
           // Créer un Blob URL pour les sous-titres
           const blob = new Blob([vttContent], { type: 'text/vtt' })
           const blobUrl = URL.createObjectURL(blob)
-          console.log(`📝 [HLS] Blob URL créé: ${blobUrl}`)
           
           // Créer et ajouter l'élément <track>
       const trackElement = document.createElement('track')
@@ -2253,7 +2230,6 @@ export default function SimpleVideoPlayer({
           trackElement.src = blobUrl
       
       video.appendChild(trackElement)
-          console.log(`📝 [HLS] Élément <track> ajouté avec Blob URL`)
       
           // Activer immédiatement
           setTimeout(() => {
@@ -2263,15 +2239,12 @@ export default function SimpleVideoPlayer({
             
         if (textTrack) {
           textTrack.mode = 'showing'
-              console.log(`✅ [HLS] TextTrack activé: ${textTrack.label}, cues=${textTrack.cues?.length || 0}`)
-              console.log(`📝 [HLS] Position vidéo: ${video.currentTime.toFixed(1)}s`)
-              console.log(`📝 [HLS] Premier cue: ${textTrack.cues?.[0]?.startTime}s - ${textTrack.cues?.[0]?.endTime}s`)
-              console.log(`📝 [HLS] Cues actifs maintenant: ${textTrack.activeCues?.length || 0}`)
+              console.log(`[PLAYER] TextTrack activé: ${textTrack.label}, cues=${textTrack.cues?.length || 0}`)
               
               // Forcer le rendu des sous-titres en vérifiant périodiquement
               const checkInterval = setInterval(() => {
                 if (textTrack.activeCues && textTrack.activeCues.length > 0) {
-                  console.log(`✅ [HLS] Sous-titres visibles ! ${textTrack.activeCues.length} cues actifs`)
+                  console.log(`[PLAYER] Sous-titres visibles ! ${textTrack.activeCues.length} cues actifs`)
                   clearInterval(checkInterval)
                 }
               }, 500)
@@ -2284,30 +2257,16 @@ export default function SimpleVideoPlayer({
         .catch((err) => {
           // Si l'erreur est une annulation (AbortError), ne pas logger ni afficher d'erreur
           if (err.name === 'AbortError') {
-            console.log(`📝 [HLS] Fetch sous-titres annulé (changement de piste)`)
             return
           }
           
-          console.error(`❌ [HLS] Erreur fetch subtitles:`, err)
-          console.error(`❌ [HLS] Message:`, err.message)
-          console.error(`❌ [HLS] Stack:`, err.stack)
+          console.error(`[PLAYER] Erreur fetch subtitles:`, err)
+          console.error(`[PLAYER] Message:`, err.message)
+          console.error(`[PLAYER] Stack:`, err.stack)
           setError(`Erreur chargement sous-titres: ${err.message}`)
         })
       
       // Retourner immédiatement (le chargement est asynchrone)
-      
-      // 🔧 DEBUG: Vérifier manuellement si la requête fonctionne
-      fetch(subtitleUrl)
-        .then(response => {
-          console.log(`📝 [HLS DEBUG] Requête manuelle /api/subtitles: status=${response.status}`)
-          return response.text()
-        })
-        .then(text => {
-          console.log(`📝 [HLS DEBUG] Contenu reçu: ${text.slice(0, 200)}...`)
-        })
-        .catch(err => {
-          console.error(`❌ [HLS DEBUG] Erreur requête manuelle:`, err)
-      })
     }
   }, [subtitleTracks, getFilepath, src])
 
@@ -2487,7 +2446,7 @@ export default function SimpleVideoPlayer({
   const progressPercent = (() => {
     if (!duration || duration === 0) return 0
     if (currentTime > duration) {
-      console.warn(`⚠️ currentTime (${currentTime}) > duration (${duration})`)
+      console.warn(`[PLAYER] currentTime (${currentTime}) > duration (${duration})`)
       return 100
     }
     const percent = (currentTime / duration) * 100
@@ -3024,27 +2983,22 @@ export default function SimpleVideoPlayer({
                             
                             for (const lang of languages) {
                               try {
-                                console.log(`📥 [TÉLÉCHARGEMENT] Sous-titre ${lang.toUpperCase()}...`)
+                                console.log(`[PLAYER] Téléchargement sous-titre ${lang.toUpperCase()}...`)
                                 const fetchUrl = `/api/subtitles/fetch?path=${encodeURIComponent(filepath)}&lang=${lang}`
-                                console.log(`   URL: ${fetchUrl}`)
                                 
                                 const response = await fetch(fetchUrl)
-                                console.log(`   Réponse: ${response.status} ${response.statusText}`)
                                 
                                 if (response.ok) {
                                   // Vérifier que la réponse est bien du WebVTT et non du JSON d'erreur
                                   const contentType = response.headers.get('content-type') || ''
                                   const responseText = await response.text()
-                                  console.log(`   Content-Type: ${contentType}`)
-                                  console.log(`   Taille réponse: ${responseText.length} caractères`)
-                                  console.log(`   Début réponse: ${responseText.substring(0, 100)}`)
                                   
                                   // Si c'est du JSON, c'est une erreur
                                   if (contentType.includes('application/json') || responseText.trim().startsWith('{')) {
                                     try {
                                       const errorData = JSON.parse(responseText)
                                       const errorMsg = errorData.message || errorData.error || 'Erreur inconnue'
-                                      console.warn(`   ⚠️ Erreur API: ${errorMsg}`)
+                                      console.warn(`[PLAYER] Erreur API: ${errorMsg}`)
                                       
                                       // Si c'est une erreur VIP, informer l'utilisateur
                                       if (errorData.requiresVip || errorMsg.toLowerCase().includes('vip')) {
@@ -3060,16 +3014,14 @@ export default function SimpleVideoPlayer({
                                   
                                   // Vérifier que c'est bien du WebVTT
                                   if (!responseText.trim().startsWith('WEBVTT')) {
-                                    console.warn(`   ⚠️ Réponse ne semble pas être du WebVTT valide`)
+                                    console.warn(`[PLAYER] Réponse ne semble pas être du WebVTT valide`)
                                     continue // Passer à la langue suivante
                                   }
                                   
-                                  console.log(`   ✅ WebVTT valide détecté`)
                                   
                                   // ⚠️ CRITIQUE: Utiliser directement l'API /api/subtitles/fetch comme source pour le track
                                   // Inclure l'offset si présent
                                   const vttUrl = `/api/subtitles/fetch?path=${encodeURIComponent(filepath)}&lang=${lang}${subtitleOffset !== 0 ? `&offset=${subtitleOffset}` : ''}`
-                                  console.log(`📝 [AJOUT TRACK] ${lang.toUpperCase()}: ${vttUrl}`)
                                   
                                   // Ajouter le track au lecteur vidéo
                                   if (videoRef.current) {
@@ -3084,13 +3036,12 @@ export default function SimpleVideoPlayer({
                                     
                                     // Activer le track une fois chargé
                                     trackElement.addEventListener('load', () => {
-                                      console.log(`✅ [TRACK LOADED] ${lang.toUpperCase()} track chargé`)
+                                      console.log(`[PLAYER] Track ${lang.toUpperCase()} chargé`)
                                       const textTrack = Array.from(videoRef.current!.textTracks).find(
                                         t => t.label === (lang === 'fr' ? 'Français' : 'English')
                                       )
                                       if (textTrack) {
                                         const cuesCount = textTrack.cues ? textTrack.cues.length : 0
-                                        console.log(`   Track trouvé: language="${textTrack.language}", label="${textTrack.label}", cues=${cuesCount}`)
                                         
                                         // Attendre que les cues soient chargés avant d'activer
                                         const activateDownloadedTrack = () => {
@@ -3099,19 +3050,19 @@ export default function SimpleVideoPlayer({
                                           
                                           if (currentCuesCount > 0) {
                                             textTrack.mode = 'showing'
-                                            console.log(`   ✅ Track activé (mode=showing), ${currentCuesCount} cues disponibles, ${activeCuesCount} actifs`)
+                                            console.log(`[PLAYER] Track activé (mode=showing), ${currentCuesCount} cues disponibles, ${activeCuesCount} actifs`)
                                           } else {
-                                            console.warn(`   ⚠️ Aucun cue chargé, réessai dans 500ms...`)
+                                            console.warn(`[PLAYER] Aucun cue chargé, réessai dans 500ms...`)
                                             // Réessayer après un court délai
                                             setTimeout(() => {
                                               const retryCuesCount = textTrack.cues ? textTrack.cues.length : 0
                                               if (retryCuesCount > 0) {
                                                 textTrack.mode = 'showing'
-                                                console.log(`   ✅ Track activé après délai, ${retryCuesCount} cues disponibles`)
+                                                console.log(`[PLAYER] Track activé après délai, ${retryCuesCount} cues disponibles`)
                                               } else {
                                                 // Activer quand même, les cues peuvent arriver plus tard
                                                 textTrack.mode = 'showing'
-                                                console.warn(`   ⚠️ Track activé sans cues (ils arriveront plus tard)`)
+                                                console.warn(`[PLAYER] Track activé sans cues (ils arriveront plus tard)`)
                                               }
                                             }, 500)
                                           }
@@ -3121,7 +3072,6 @@ export default function SimpleVideoPlayer({
                                         const cueChangeHandler = () => {
                                           const activeCuesCount = textTrack.activeCues ? textTrack.activeCues.length : 0
                                           if (activeCuesCount > 0) {
-                                            console.log(`   📝 Cuechange: ${activeCuesCount} cues actifs détectés (vidéo: ${videoRef.current?.currentTime.toFixed(1)}s)`)
                                           }
                                         }
                                         textTrack.addEventListener('cuechange', cueChangeHandler)
@@ -3136,14 +3086,14 @@ export default function SimpleVideoPlayer({
                                             const currentTime = videoRef.current?.currentTime || 0
                                             
                                             if (activeCuesCount > 0) {
-                                              console.log(`   ✅ Cues actifs détectés: ${activeCuesCount} cues au temps ${currentTime.toFixed(1)}s`)
+                                              console.log(`[PLAYER] Cues actifs détectés: ${activeCuesCount} cues au temps ${currentTime.toFixed(1)}s`)
                                               if (checkInterval) {
                                                 clearInterval(checkInterval)
                                                 checkInterval = null
                                               }
                                             } else if (currentTime > 5 && textTrack.mode === 'showing') {
                                               // Si la vidéo joue depuis plus de 5 secondes et qu'aucun cue n'est actif, il y a peut-être un problème
-                                              console.warn(`   ⚠️ Aucun cue actif après ${currentTime.toFixed(1)}s malgré le track en mode 'showing'`)
+                                              console.warn(`[PLAYER] Aucun cue actif après ${currentTime.toFixed(1)}s malgré le track en mode 'showing'`)
                                             }
                                           }, 1000) // Vérifier toutes les secondes
                                         }
@@ -3154,22 +3104,22 @@ export default function SimpleVideoPlayer({
                                         // Essayer d'activer immédiatement
                                         activateDownloadedTrack()
                                       } else {
-                                        console.error(`   ❌ Track "${lang === 'fr' ? 'Français' : 'English'}" non trouvé dans textTracks`)
+                                        console.error(`[PLAYER] Track "${lang === 'fr' ? 'Français' : 'English'}" non trouvé dans textTracks`)
                                       }
                                     })
                                     
                                     // Gérer les erreurs de chargement
                                     trackElement.addEventListener('error', async (e) => {
-                                      console.error(`❌ Erreur chargement sous-titre téléchargé ${lang.toUpperCase()}:`, e)
-                                      console.error(`   URL track: ${trackElement.src}`)
+                                      console.error(`[PLAYER] Erreur chargement sous-titre téléchargé ${lang.toUpperCase()}:`, e)
+                                      console.error(`[PLAYER] URL track: ${trackElement.src}`)
                                       
                                       // Vérifier si l'API retourne une erreur
                                       try {
                                         const testResponse = await fetch(trackElement.src)
                                         const testData = await testResponse.text()
-                                        console.error(`   Réponse API (${testResponse.status}):`, testData.substring(0, 200))
+                                        console.error(`[PLAYER] Réponse API (${testResponse.status}):`, testData.substring(0, 200))
                                       } catch (err) {
-                                        console.error(`   Erreur test API:`, err)
+                                        console.error(`[PLAYER] Erreur test API:`, err)
                                       }
                                       
                                       // Retirer le track défaillant
@@ -3201,7 +3151,7 @@ export default function SimpleVideoPlayer({
                                   // Échec téléchargement sous-titre
                                 }
                               } catch (err) {
-                                console.error(`❌ Erreur téléchargement ${lang}:`, err)
+                                console.error(`[PLAYER] Erreur téléchargement ${lang}:`, err)
                               }
                             }
                             
@@ -3218,12 +3168,10 @@ export default function SimpleVideoPlayer({
                                 if (!videoRef.current) return
                                 
                                 const allTextTracks = Array.from(videoRef.current.textTracks)
-                                console.log(`🔍 [APRÈS TÉLÉCHARGEMENT] Tentative ${activationAttempts + 1}/${maxAttempts}: ${allTextTracks.length} textTracks disponibles`)
                                 
                                 allTextTracks.forEach((t, i) => {
                                   const cuesCount = t.cues ? t.cues.length : 0
                                   const activeCuesCount = t.activeCues ? t.activeCues.length : 0
-                                  console.log(`   [${i}] language="${t.language}", label="${t.label}", mode="${t.mode}", cues=${cuesCount} (actifs: ${activeCuesCount})`)
                                 })
                                 
                                 // Trouver et activer le premier track téléchargé (Français)
@@ -3237,24 +3185,23 @@ export default function SimpleVideoPlayer({
                                   // Si les cues sont chargés, activer immédiatement
                                   if (cuesCount > 0) {
                                     frenchTrack.mode = 'showing'
-                                    console.log(`✅ [ACTIVATION] Track français activé: mode="${frenchTrack.mode}", cues=${cuesCount}`)
+                                    console.log(`[PLAYER] Track français activé: mode="${frenchTrack.mode}", cues=${cuesCount}`)
                                     setSelectedSubtitle(subtitleTracks.length) // Index du premier track téléchargé
                                     return true // Succès
                                   } else if (activationAttempts < maxAttempts - 1) {
                                     // Les cues ne sont pas encore chargés, réessayer
-                                    console.log(`   ⏳ Cues pas encore chargés pour le track français, réessai dans 500ms...`)
                                     activationAttempts++
                                     setTimeout(tryActivateTrack, 500)
                                     return false
                                   } else {
                                     // Dernière tentative, activer quand même
                                     frenchTrack.mode = 'showing'
-                                    console.log(`⚠️ [ACTIVATION] Track français activé sans cues (dernière tentative)`)
+                                    console.log(`[PLAYER] Track français activé sans cues (dernière tentative)`)
                                     setSelectedSubtitle(subtitleTracks.length)
                                     return true
                                   }
                                 } else {
-                                  console.warn(`⚠️ Track français non trouvé, activation du premier track téléchargé`)
+                                  console.warn(`[PLAYER] Track français non trouvé, activation du premier track téléchargé`)
                                   // Fallback: activer le premier track téléchargé par index
                                   const firstDownloadedIdx = subtitleTracks.length
                                   if (firstDownloadedIdx < allTextTracks.length) {
@@ -3263,7 +3210,7 @@ export default function SimpleVideoPlayer({
                                     
                                     if (cuesCount > 0 || activationAttempts >= maxAttempts - 1) {
                                       track.mode = 'showing'
-                                      console.log(`✅ [ACTIVATION] Premier track activé (index ${firstDownloadedIdx}), cues=${cuesCount}`)
+                                      console.log(`[PLAYER] Premier track activé (index ${firstDownloadedIdx}), cues=${cuesCount}`)
                                       setSelectedSubtitle(firstDownloadedIdx)
                                       return true
                                     } else {
@@ -3279,13 +3226,13 @@ export default function SimpleVideoPlayer({
                               // Première tentative après 1 seconde
                               setTimeout(tryActivateTrack, 1000)
                               
-                              console.log(`✅ [TERMINÉ] ${downloadedTracks.length} sous-titre(s) téléchargé(s) depuis OpenSubtitles`)
+                              console.log(`[PLAYER] ${downloadedTracks.length} sous-titre(s) téléchargé(s) depuis OpenSubtitles`)
                             } else {
                               setError('Aucun sous-titre trouvé sur OpenSubtitles')
                               setTimeout(() => setError(null), 5000)
                             }
                           } catch (error) {
-                            console.error('Erreur téléchargement sous-titres:', error)
+                            console.error('[PLAYER] Erreur téléchargement sous-titres:', error)
                             setError('Erreur lors du téléchargement des sous-titres')
                             setTimeout(() => setError(null), 5000)
                           } finally {

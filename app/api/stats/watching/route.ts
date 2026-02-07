@@ -4,7 +4,8 @@
  * Utilise playback_positions pour les données réelles
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 import { createSupabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
@@ -46,7 +47,10 @@ interface WatchingStats {
   }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const { error: authError } = await requireAdmin(request)
+  if (authError) return authErrorResponse(authError, 403)
+  
   try {
     const supabase = createSupabaseAdmin()
     

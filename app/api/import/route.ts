@@ -5,6 +5,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,6 +23,9 @@ import * as path from 'path'
 
 // GET: Recherche TMDB pour prévisualisation
 export async function GET(request: NextRequest) {
+  const { error: authError } = await requireAdmin(request)
+  if (authError) return authErrorResponse(authError, 403)
+  
   const searchParams = request.nextUrl.searchParams
   const query = searchParams.get('query')
   const year = searchParams.get('year')
@@ -54,6 +58,9 @@ export async function GET(request: NextRequest) {
 
 // POST: Importer un film
 export async function POST(request: NextRequest) {
+  const { error: authError } = await requireAdmin(request)
+  if (authError) return authErrorResponse(authError, 403)
+  
   try {
     const body = await request.json()
     const { filepath, tmdbId, mode } = body

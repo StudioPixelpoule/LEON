@@ -10,7 +10,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseAdmin } from '@/lib/supabase'
 import fs from 'fs/promises'
 
 // Forcer le rendu dynamique
@@ -18,12 +18,6 @@ export const dynamic = 'force-dynamic'
 
 // Taille des lots pour parallélisation
 const BATCH_SIZE = 50
-
-// Client Supabase avec service role pour contourner RLS
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-)
 
 interface CleanupResult {
   checked: number
@@ -62,9 +56,11 @@ export async function POST(request: NextRequest) {
     
     console.log(`[CLEANUP] 🧹 Démarré par admin: ${user.email} ${dryRun ? '(simulation)' : ''}`)
     
+    const supabase = createSupabaseAdmin()
+    
     // Récupérer tous les médias (films)
     // Note: pcloud_fileid contient le chemin du fichier (héritage de l'ancien système pCloud)
-    const { data: allMedia, error: fetchError } = await supabaseAdmin
+    const { data: allMedia, error: fetchError } = await supabase
       .from('media')
       .select('id, title, pcloud_fileid')
       .order('title')
@@ -142,7 +138,7 @@ export async function POST(request: NextRequest) {
           const batch = missingMedia.slice(i, i + BATCH_SIZE)
           const ids = batch.map(m => m.id)
           
-          const { error: deleteError } = await supabaseAdmin
+          const { error: deleteError } = await supabase
             .from('media')
             .delete()
             .in('id', ids)

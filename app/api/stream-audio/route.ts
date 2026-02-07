@@ -68,6 +68,8 @@ export async function GET(request: NextRequest) {
     // Créer un nom de fichier temporaire basé sur le hash MD5 du chemin complet + audioTrack
     // ⚠️ CRITIQUE: Utiliser MD5 pour garantir l'unicité et éviter les collisions entre fichiers différents
     const fileHash = crypto.createHash('md5').update(filepath).digest('hex')
+    // TODO: Ajouter un service de nettoyage périodique pour /tmp/leon-audio-remux
+    // Les fichiers temporaires de remux audio s'accumulent sans être nettoyés
     const tempDir = '/tmp/leon-audio-remux'
     const tempFilename = `${fileHash}-audio${audioTrackIndex}.mp4`
     const tempPath = path.join(tempDir, tempFilename)

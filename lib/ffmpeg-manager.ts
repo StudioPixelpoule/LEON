@@ -312,16 +312,14 @@ class FFmpegManager {
    * Démarre le nettoyage périodique
    */
   private startPeriodicCleanup(): void {
-    // ⚠️ DÉSACTIVÉ TEMPORAIREMENT POUR DEBUG
-    // Le cleanup automatique tue FFmpeg pendant le dev à cause du HMR
-    console.log('⚠️ Cleanup automatique DÉSACTIVÉ (mode dev)')
-    
-    // TODO: Réactiver en production avec détection d'environnement
-    /*
+    if (process.env.NODE_ENV !== 'production') {
+      console.log('[FFMPEG] Cleanup automatique désactivé (mode dev)')
+      return
+    }
     this.cleanupTimer = setInterval(() => {
       this.cleanupOrphans()
     }, CLEANUP_INTERVAL)
-    */
+    console.log('[FFMPEG] Cleanup automatique activé (production)')
   }
 
   /**
@@ -348,7 +346,7 @@ class FFmpegManager {
     return {
       activeSessions: sessions.length,
       oldestSession: sessions.length > 0 
-        ? Math.min(...sessions.map(s => now - s.startTime))
+        ? Math.max(...sessions.map(s => now - s.startTime))
         : null,
       totalProcesses: sessions.filter(s => s.pid).length
     }

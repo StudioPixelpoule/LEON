@@ -8,6 +8,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '@/contexts/AuthContext'
+import type { Media } from '@/lib/supabase'
 
 interface UseFavoritesOptions {
   mediaId: string
@@ -110,11 +111,19 @@ export function useFavorites({ mediaId, mediaType = 'movie' }: UseFavoritesOptio
 }
 
 /**
+ * Type pour un favori avec les données média associées
+ */
+interface FavoriteWithMedia extends Media {
+  favorite_id: string
+  favorited_at: string
+}
+
+/**
  * Hook pour récupérer la liste complète des favoris
  */
 export function useFavoritesList(mediaType: 'movie' | 'series' = 'movie') {
   const { user } = useAuth()
-  const [favorites, setFavorites] = useState<any[]>([])
+  const [favorites, setFavorites] = useState<FavoriteWithMedia[]>([])
   const [loading, setLoading] = useState(true)
   const [refreshKey, setRefreshKey] = useState(0)
 

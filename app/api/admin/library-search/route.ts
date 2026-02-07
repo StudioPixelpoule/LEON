@@ -9,17 +9,9 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
-
-// Client Supabase avec service role pour contourner RLS
-function getSupabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  )
-}
 
 export async function GET(request: NextRequest) {
   // Vérification admin OBLIGATOIRE
@@ -41,7 +33,7 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const supabase = getSupabaseAdmin()
+    const supabase = createSupabaseAdmin()
     const searchPattern = `%${query}%`
     
     const results: {

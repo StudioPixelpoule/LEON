@@ -10,7 +10,7 @@ export class UserFriendlyError extends Error {
   constructor(
     public code: string,
     public userMessage: string,
-    public technicalDetails?: any,
+    public technicalDetails?: unknown,
     public recoverable = false,
     public httpStatus = 500
   ) {
@@ -118,18 +118,18 @@ export class ErrorHandler {
   /**
    * Log structuré d'une erreur
    */
-  static log(context: string, error: Error | UserFriendlyError, additionalData?: any): void {
+  static log(context: string, error: Error | UserFriendlyError, additionalData?: Record<string, unknown>): void {
     const timestamp = new Date().toISOString()
     
     if (error instanceof UserFriendlyError) {
-      console.error(`[${timestamp}] [${context}] ❌ ${error.code}`, {
+      console.error(`[${timestamp}] [${context}] ${error.code}`, {
         message: error.userMessage,
         technical: error.technicalDetails,
         recoverable: error.recoverable,
         ...additionalData
       })
     } else {
-      console.error(`[${timestamp}] [${context}] ❌ Erreur`, {
+      console.error(`[${timestamp}] [${context}] Erreur`, {
         message: error.message,
         stack: error.stack?.split('\n').slice(0, 5),
         ...additionalData
@@ -142,7 +142,7 @@ export class ErrorHandler {
    */
   static createError(
     errorCode: keyof typeof ERROR_CODES,
-    technicalDetails?: any
+    technicalDetails?: unknown
   ): UserFriendlyError {
     const config = ERROR_CODES[errorCode] as { code: string; message: string; httpStatus: number; recoverable?: boolean }
     return new UserFriendlyError(

@@ -63,21 +63,22 @@ export function usePlaybackPosition({
         const response = await fetch(`/api/playback-position?${params.toString()}`)
         
         if (!response.ok) {
+          hasLoadedPosition.current = true
           return
         }
 
         const data = await response.json()
         if (data.currentTime && data.currentTime > 0) {
-          // 🔧 FIX: Ne pas restaurer si position >= 95% de la durée (film terminé)
+          // Ne pas restaurer si position >= 95% de la durée (film terminé)
           const savedDuration = data.duration || 0
           if (savedDuration > 0 && data.currentTime >= savedDuration * 0.95) {
-            console.log(`[PLAYBACK] 🏁 Position ignorée (fin de lecture): ${Math.floor(data.currentTime)}s / ${Math.floor(savedDuration)}s`)
-            // Supprimer cette position car le film est terminé
+            console.log(`[PLAYBACK] Position ignorée (fin de lecture): ${Math.floor(data.currentTime)}s / ${Math.floor(savedDuration)}s`)
             fetch('/api/playback-position', {
               method: 'DELETE',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ mediaId })
             }).catch(() => {})
+            hasLoadedPosition.current = true
             return
           }
           
@@ -85,14 +86,15 @@ export function usePlaybackPosition({
           lastSavedTimeRef.current = data.currentTime
           console.log(`[PLAYBACK] Position chargée: ${Math.floor(data.currentTime)}s`)
         }
+        hasLoadedPosition.current = true
       } catch (error) {
         console.error('[PLAYBACK] Erreur chargement position:', error)
+        // Ne pas marquer comme chargé en cas d'erreur pour permettre un retry
       }
     }
 
     loadPosition()
-    hasLoadedPosition.current = true
-  }, [mediaId, enabled])
+  }, [mediaId, enabled, userId])
 
   // Sauvegarder la position périodiquement
   useEffect(() => {

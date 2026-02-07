@@ -75,6 +75,7 @@ export type Database = {
           episode_number: number
           filepath: string | null
           id: string
+          is_transcoded: boolean | null
           overview: string | null
           pcloud_fileid: string | null
           rating: number | null
@@ -94,6 +95,7 @@ export type Database = {
           episode_number: number
           filepath?: string | null
           id?: string
+          is_transcoded?: boolean | null
           overview?: string | null
           pcloud_fileid?: string | null
           rating?: number | null
@@ -113,6 +115,7 @@ export type Database = {
           episode_number?: number
           filepath?: string | null
           id?: string
+          is_transcoded?: boolean | null
           overview?: string | null
           pcloud_fileid?: string | null
           rating?: number | null
@@ -208,6 +211,7 @@ export type Database = {
           formatted_runtime: string | null
           genres: string[] | null
           id: string
+          is_transcoded: boolean | null
           media_type: string | null
           movie_cast: Json | null
           number_of_episodes: number | null
@@ -242,6 +246,7 @@ export type Database = {
           formatted_runtime?: string | null
           genres?: string[] | null
           id?: string
+          is_transcoded?: boolean | null
           media_type?: string | null
           movie_cast?: Json | null
           number_of_episodes?: number | null
@@ -276,6 +281,7 @@ export type Database = {
           formatted_runtime?: string | null
           genres?: string[] | null
           id?: string
+          is_transcoded?: boolean | null
           media_type?: string | null
           movie_cast?: Json | null
           number_of_episodes?: number | null
@@ -627,6 +633,7 @@ export type Database = {
           status: string | null
           title: string
           tmdb_id: number | null
+          trailer_url: string | null
           updated_at: string | null
         }
         Insert: {
@@ -651,6 +658,7 @@ export type Database = {
           status?: string | null
           title: string
           tmdb_id?: number | null
+          trailer_url?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -675,6 +683,7 @@ export type Database = {
           status?: string | null
           title?: string
           tmdb_id?: number | null
+          trailer_url?: string | null
           updated_at?: string | null
         }
         Relationships: []
@@ -747,8 +756,6 @@ export type Database = {
       favorites_with_media: {
         Row: {
           backdrop_url: string | null
-          created_at: string | null
-          director: Json | null
           duration: number | null
           favorite_id: string | null
           favorited_at: string | null
@@ -756,9 +763,7 @@ export type Database = {
           formatted_runtime: string | null
           genres: string[] | null
           id: string | null
-          movie_cast: Json | null
-          number_of_episodes: number | null
-          number_of_seasons: number | null
+          media_type: string | null
           original_title: string | null
           overview: string | null
           pcloud_fileid: string | null
@@ -766,16 +771,12 @@ export type Database = {
           quality: string | null
           rating: number | null
           release_date: string | null
-          show_name: string | null
-          subtitles: Json | null
           tagline: string | null
           title: string | null
           tmdb_id: number | null
           trailer_url: string | null
-          updated_at: string | null
           user_id: string | null
           vote_count: number | null
-          watch_providers: Json | null
           year: number | null
         }
         Relationships: []

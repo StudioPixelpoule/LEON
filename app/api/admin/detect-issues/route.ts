@@ -14,7 +14,7 @@ import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
-import { supabase } from '@/lib/supabase'
+import { createSupabaseAdmin } from '@/lib/supabase'
 
 interface Issue {
   id: string
@@ -37,6 +37,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const supabase = createSupabaseAdmin()
+    
     const issues: Issue[] = []
     
     // Récupérer tous les films

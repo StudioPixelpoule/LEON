@@ -5,7 +5,7 @@
 
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, memo } from 'react'
 import Image from 'next/image'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
@@ -16,7 +16,7 @@ interface RandomMoviesRowProps {
   onMovieClick: (movie: GroupedMedia) => void
 }
 
-export default function RandomMoviesRow({ movies, onMovieClick }: RandomMoviesRowProps) {
+function RandomMoviesRowComponent({ movies, onMovieClick }: RandomMoviesRowProps) {
   const [randomMovies, setRandomMovies] = useState<GroupedMedia[]>([])
   const scrollRef = useRef<HTMLDivElement>(null)
   const [canScrollLeft, setCanScrollLeft] = useState(false)
@@ -83,6 +83,15 @@ export default function RandomMoviesRow({ movies, onMovieClick }: RandomMoviesRo
               key={movie.id}
               className={styles.card}
               onClick={() => onMovieClick(movie)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onMovieClick(movie)
+                }
+              }}
+              role="button"
+              tabIndex={0}
+              aria-label={`Lire ${movie.title}`}
             >
               <Image
                 src={movie.poster_url || '/placeholder-poster.svg'}
@@ -127,4 +136,6 @@ export default function RandomMoviesRow({ movies, onMovieClick }: RandomMoviesRo
     </section>
   )
 }
+
+export default memo(RandomMoviesRowComponent)
 

@@ -225,31 +225,8 @@ export interface APIErrorResponse {
   details?: string
 }
 
-// =====================================================
-// TYPES TRANSCODAGE
-// =====================================================
-
-export interface TranscodeJob {
-  id: string
-  filepath: string
-  filename: string
-  status: 'queued' | 'processing' | 'completed' | 'failed' | 'cancelled'
-  progress: number
-  startedAt?: string
-  completedAt?: string
-  error?: string
-  priority: 'normal' | 'high'
-}
-
-export interface TranscodeStats {
-  isRunning: boolean
-  isPaused: boolean
-  currentJob: TranscodeJob | null
-  queueLength: number
-  completedCount: number
-  failedCount: number
-  averageSpeed?: number
-}
+// Types de transcodage définis dans lib/transcoding-service.ts (source de vérité unique)
+// Importer depuis ce module si nécessaire
 
 // =====================================================
 // TYPES PLAYBACK

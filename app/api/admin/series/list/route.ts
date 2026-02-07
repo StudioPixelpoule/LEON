@@ -8,7 +8,7 @@ import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
-import { supabase } from '@/lib/supabase'
+import { createSupabaseAdmin } from '@/lib/supabase'
 
 export async function GET(request: NextRequest) {
   // Vérification admin OBLIGATOIRE
@@ -18,6 +18,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const supabase = createSupabaseAdmin()
+    
     const { searchParams } = new URL(request.url)
     const filter = searchParams.get('filter') // 'no_tmdb', 'no_poster', 'all'
     

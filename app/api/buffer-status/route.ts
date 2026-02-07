@@ -31,10 +31,10 @@ export async function GET(request: NextRequest) {
       sessionId: sessionId.slice(0, 50) + '...',
       ...status
     })
-  } catch (error: any) {
-    console.error(`[${new Date().toISOString()}] [BUFFER] ❌ Erreur:`, error.message)
+  } catch (error: unknown) {
+    console.error('[BUFFER] Erreur:', error)
     return NextResponse.json(
-      { error: 'Failed to get buffer status', details: error.message },
+      { error: 'Erreur récupération statut buffer' },
       { status: 500 }
     )
   }

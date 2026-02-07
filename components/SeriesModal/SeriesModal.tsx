@@ -13,6 +13,7 @@ import styles from './SeriesModal.module.css'
 import SimpleVideoPlayer, { PlayerPreferences, SeasonInfo, EpisodeInfo } from '@/components/SimpleVideoPlayer/SimpleVideoPlayer'
 import TrailerPlayer, { TrailerPlayerRef, IconVolumeOff, IconVolumeOn } from '@/components/TrailerPlayer/TrailerPlayer'
 import { useAuth } from '@/contexts/AuthContext'
+import type { SeriesSummary } from '@/types/media'
 
 interface Episode {
   id: string
@@ -52,8 +53,15 @@ interface EpisodeProgress {
   completed: boolean
 }
 
+interface SeriesInput {
+  id: string
+  title: string
+  tmdb_id?: number | null
+  trailer_url?: string | null
+}
+
 interface SeriesModalProps {
-  series: any
+  series: SeriesInput
   onClose: () => void
 }
 
@@ -73,50 +81,54 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
   const [playerPreferences, setPlayerPreferences] = useState<PlayerPreferences | undefined>(undefined) // 🎬 Préférences conservées entre épisodes
   const [creditsDuration, setCreditsDuration] = useState<number>(45) // 🎬 Durée du générique (défaut: 45s)
 
-  // Charger la progression de visionnage
+  // Charger la progression de visionnage en batch
   const loadProgress = useCallback(async (episodes: Episode[]) => {
     try {
       const progressMap = new Map<string, EpisodeProgress>()
       
-      // Charger la progression pour chaque épisode (en parallèle pour plus de rapidité)
-      const progressPromises = episodes.map(async (ep) => {
-        try {
-          // Passer le userId si l'utilisateur est connecté
-          const url = user?.id 
-            ? `/api/playback-position?mediaId=${ep.id}&userId=${user.id}`
-            : `/api/playback-position?mediaId=${ep.id}`
-          const response = await fetch(url)
-          if (response.ok) {
-            const data = await response.json()
-            // L'API retourne currentTime, duration, etc.
-            if (data.currentTime && data.currentTime > 0) {
-              const duration = data.duration || (ep.runtime ? ep.runtime * 60 : 45 * 60)
-              const position = data.currentTime
-              const completed = duration > 0 && position >= duration * 0.95
+      // Collecter tous les IDs d'épisodes
+      const episodeIds = episodes.map(ep => ep.id)
+      
+      if (episodeIds.length === 0) {
+        setEpisodeProgress(progressMap)
+        return
+      }
+      
+      // Faire un seul appel batch au lieu de N appels individuels
+      try {
+        const url = user?.id 
+          ? `/api/playback-position/batch?mediaIds=${episodeIds.join(',')}&userId=${user.id}`
+          : `/api/playback-position/batch?mediaIds=${episodeIds.join(',')}`
+        
+        const response = await fetch(url)
+        if (response.ok) {
+          const data = await response.json()
+          
+          // L'API retourne { success: true, positions: { [mediaId]: { currentTime, duration, updatedAt } } }
+          if (data.success && data.positions) {
+            // Traiter chaque position retournée
+            for (const [mediaId, pos] of Object.entries(data.positions)) {
+              const position = pos as { currentTime: number; duration: number | null; updatedAt: string }
               
-              return {
-                id: ep.id,
-                progress: {
-                  episodeId: ep.id,
-                  position,
+              if (position.currentTime && position.currentTime > 0) {
+                // Trouver l'épisode correspondant pour obtenir le runtime par défaut
+                const episode = episodes.find(ep => ep.id === mediaId)
+                const duration = position.duration || (episode?.runtime ? episode.runtime * 60 : 45 * 60)
+                const completed = duration > 0 && position.currentTime >= duration * 0.95
+                
+                progressMap.set(mediaId, {
+                  episodeId: mediaId,
+                  position: position.currentTime,
                   duration,
                   completed
-                }
+                })
               }
             }
           }
-        } catch (e) {
-          // Ignorer les erreurs individuelles
         }
-        return null
-      })
-      
-      const results = await Promise.all(progressPromises)
-      results.forEach(result => {
-        if (result) {
-          progressMap.set(result.id, result.progress)
-        }
-      })
+      } catch (e) {
+        console.error('[SERIES_MODAL] Erreur batch positions:', e)
+      }
       
       setEpisodeProgress(progressMap)
       
@@ -134,7 +146,7 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
         }
       }
     } catch (error) {
-      console.error('Erreur chargement progression:', error)
+      console.error('[SERIES_MODAL] Erreur chargement progression:', error)
     }
   }, [user?.id])
 
@@ -541,6 +553,15 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
                       key={episode.id}
                       className={`${styles.episode} ${completed ? styles.completed : ''}`}
                       onClick={() => episode.filepath && handlePlayEpisode(episode)}
+                      onKeyDown={(e) => {
+                        if ((e.key === 'Enter' || e.key === ' ') && episode.filepath) {
+                          e.preventDefault()
+                          handlePlayEpisode(episode)
+                        }
+                      }}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Lire ${episode.title}, Saison ${episode.season_number} Épisode ${episode.episode_number}`}
                     >
                       {/* Thumbnail ou numéro */}
                       <div className={styles.episodeThumbnailWrapper}>

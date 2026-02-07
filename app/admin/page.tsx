@@ -1982,6 +1982,7 @@ type MediaTab = 'films' | 'series'
 type PosterFilter = 'all' | 'to-validate'
 
 function PostersView() {
+  const { addToast } = useAdminToast()
   const [mediaTab, setMediaTab] = useState<MediaTab>('films')
   const [posterFilter, setPosterFilter] = useState<PosterFilter>('to-validate')
   const [searchFilter, setSearchFilter] = useState('')
@@ -2083,13 +2084,15 @@ function PostersView() {
   async function updatePoster(tmdbId: number, type: 'movie' | 'series') {
     setSaving(true)
     try {
-      const endpoint = type === 'movie' ? '/api/admin/update-metadata' : '/api/admin/update-series-metadata'
+      const endpoint = type === 'movie' 
+        ? '/api/admin/update-media-info' 
+        : '/api/admin/update-series-metadata'
       const body = type === 'movie' 
-        ? { mediaId: selectedMovie?.id, tmdbId }
+        ? { id: selectedMovie?.id, type: 'movie', tmdb_id: tmdbId, refreshFromTmdb: true }
         : { seriesId: selectedSeries?.id, tmdbId }
       
       const response = await fetch(endpoint, {
-        method: 'POST',
+        method: type === 'movie' ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
         credentials: 'include'

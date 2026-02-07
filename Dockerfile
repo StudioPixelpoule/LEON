@@ -7,7 +7,7 @@
 # ============================================
 # STAGE 1: Builder - Compilation Next.js
 # ============================================
-FROM node:18-alpine AS builder
+FROM node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -42,7 +42,7 @@ RUN npm run build
 # ============================================
 # STAGE 2: Runner - Image de production
 # ============================================
-FROM node:18-bookworm-slim AS runner
+FROM node:20-bookworm-slim AS runner
 
 WORKDIR /app
 

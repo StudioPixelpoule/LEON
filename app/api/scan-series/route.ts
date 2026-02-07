@@ -19,7 +19,8 @@
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 import { supabase } from '@/lib/supabase'
 import fs from 'fs/promises'
 import path from 'path'
@@ -92,7 +93,10 @@ const TMDB_BASE_URL = 'https://api.themoviedb.org/3'
 /**
  * GET: Récupérer le statut du scan en cours
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const { error: authError } = await requireAdmin(request)
+  if (authError) return authErrorResponse(authError, 403)
+  
   return NextResponse.json({
     success: true,
     scan: { ...scanState }
@@ -188,7 +192,10 @@ function cleanEpisodeTitle(filename: string, seriesName: string): string {
   return title.trim()
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const { error: authError } = await requireAdmin(request)
+  if (authError) return authErrorResponse(authError, 403)
+  
   // Vérifier si un scan est déjà en cours
   if (scanState.isRunning) {
     return NextResponse.json({
@@ -215,7 +222,7 @@ export async function POST(request: Request) {
   if (backgroundMode) {
     // Lancer le scan en arrière-plan (sans await)
     runScanInBackground().catch(err => {
-      console.error('❌ Erreur scan background:', err)
+      console.error('[SCAN] Erreur scan background:', err)
       scanState.error = err instanceof Error ? err.message : 'Erreur inconnue'
       scanState.isRunning = false
       scanState.completedAt = new Date().toISOString()
@@ -252,8 +259,8 @@ async function runScanInBackground() {
   try {
     const seriesBasePath = process.env.PCLOUD_SERIES_PATH || '/leon/media/series'
     
-    console.log('🎬 Démarrage du scan des séries...')
-    console.log(`📁 Dossier: ${seriesBasePath}`)
+    console.log('[SCAN] Démarrage du scan des séries...')
+    console.log(`[SCAN] Dossier: ${seriesBasePath}`)
 
     // Vérifier que le dossier existe
     try {
@@ -268,7 +275,7 @@ async function runScanInBackground() {
       .filter(dirent => dirent.isDirectory() && !dirent.name.startsWith('.'))
       .map(dirent => dirent.name)
 
-    console.log(`📁 ${seriesNames.length} séries trouvées`)
+    console.log(`[SCAN] ${seriesNames.length} séries trouvées`)
     scanState.progress.totalSeries = seriesNames.length
 
     const stats = scanState.stats
@@ -279,32 +286,26 @@ async function runScanInBackground() {
       scanState.currentSeries = seriesName
       scanState.progress.currentEpisode = null
       
-      console.log(`\n📺 Analyse: ${seriesName}`)
+      console.log(`[SCAN] Analyse: ${seriesName}`)
       
       const seriesPath = path.join(seriesBasePath, seriesName)
-      console.log(`   Chemin: ${seriesPath}`)
       
       // Extraire tous les épisodes
       const episodes = await scanSeriesFolder(seriesPath, seriesName)
       
-      console.log(`   ${episodes.length} épisodes détectés`)
+      console.log(`[SCAN] ${episodes.length} épisodes détectés`)
       
       if (episodes.length === 0) {
-        console.log(`⚠️  Aucun épisode trouvé pour ${seriesName}`)
+        console.warn(`[SCAN] Aucun épisode trouvé pour ${seriesName}`)
         continue
       }
-      
-      // Afficher les 3 premiers épisodes pour debug
-      episodes.slice(0, 3).forEach(ep => {
-        console.log(`      → S${ep.season}E${ep.episode}: ${ep.filename}`)
-      })
 
       // 3. Rechercher la série sur TMDB
-      console.log(`   🔍 Recherche TMDB pour: "${seriesName}"`)
+      console.log(`[SCAN] Recherche TMDB pour: "${seriesName}"`)
       const tmdbData = await searchSeriesOnTMDB(seriesName)
 
       if (!tmdbData) {
-        console.log(`   ❌ Non trouvé sur TMDB, création sans métadonnées...`)
+        console.log(`[SCAN] Non trouvé sur TMDB, création sans métadonnées...`)
         
         // Chercher d'abord par chemin local (plus fiable)
         let existingSeriesNoTmdb: { id: string } | null = null
@@ -317,7 +318,7 @@ async function runScanInBackground() {
         
         if (seriesByPath) {
           existingSeriesNoTmdb = seriesByPath
-          console.log(`   📁 Série trouvée par chemin local (ID: ${seriesByPath.id})`)
+          console.log(`[SCAN] Série trouvée par chemin local (ID: ${seriesByPath.id})`)
         } else {
           // Sinon chercher par titre
           const { data: seriesByTitle } = await supabase
@@ -328,7 +329,7 @@ async function runScanInBackground() {
           
           if (seriesByTitle) {
             existingSeriesNoTmdb = seriesByTitle
-            console.log(`   📝 Série trouvée par titre (ID: ${seriesByTitle.id})`)
+            console.log(`[SCAN] Série trouvée par titre (ID: ${seriesByTitle.id})`)
           }
         }
         
@@ -345,21 +346,21 @@ async function runScanInBackground() {
             .single()
           
           if (insertError || !newSeries) {
-            console.error(`   ❌ Erreur création série ${seriesName}:`, insertError?.message || 'newSeries est null')
-            console.error(`   Détails erreur:`, JSON.stringify(insertError, null, 2))
+            console.error(`[SCAN] Erreur création série ${seriesName}:`, insertError?.message || 'newSeries est null')
+            console.error(`[SCAN] Détails erreur:`, JSON.stringify(insertError, null, 2))
             continue
           }
           
-          console.log(`   ✅ Série créée (ID: ${newSeries.id})`)
+          console.log(`[SCAN] Série créée (ID: ${newSeries.id})`)
           seriesId = newSeries.id
           stats.newSeries++
         } else {
           seriesId = existingSeriesNoTmdb.id
-          console.log(`   ✅ Série existante utilisée (ID: ${seriesId})`)
+          console.log(`[SCAN] Série existante utilisée (ID: ${seriesId})`)
         }
         
         // Sauvegarder les épisodes
-        console.log(`   💾 Sauvegarde de ${episodes.length} épisodes...`)
+        console.log(`[SCAN] Sauvegarde de ${episodes.length} épisodes...`)
         for (const ep of episodes) {
           const { data: existingEp } = await supabase
             .from('episodes')
@@ -380,23 +381,23 @@ async function runScanInBackground() {
           })
             
             if (epError) {
-              console.error(`   ❌ Erreur épisode S${ep.season}E${ep.episode}:`, epError.message)
+              console.error(`[SCAN] Erreur épisode S${ep.season}E${ep.episode}:`, epError.message)
             } else {
               stats.newEpisodes++
             }
           }
         }
         
-        console.log(`   ✅ ${stats.newEpisodes} nouveaux épisodes sauvegardés`)
+        console.log(`[SCAN] ${stats.newEpisodes} nouveaux épisodes sauvegardés`)
         stats.totalSeries++
         stats.totalEpisodes += episodes.length
         continue
       }
 
-      console.log(`   ✅ Trouvé sur TMDB (ID: ${tmdbData.id}) - ${tmdbData.name}`)
+      console.log(`[SCAN] Trouvé sur TMDB (ID: ${tmdbData.id}) - ${tmdbData.name}`)
 
       // 4. Sauvegarder la série
-      console.log(`   💾 Sauvegarde dans la base...`)
+      console.log(`[SCAN] Sauvegarde dans la base...`)
       
       // Chercher d'abord par chemin local (plus fiable pour les rescans)
       let existingSeries: { id: string } | null = null
@@ -409,7 +410,7 @@ async function runScanInBackground() {
       
       if (seriesByPath) {
         existingSeries = seriesByPath
-        console.log(`   📁 Série trouvée par chemin local (ID: ${seriesByPath.id})`)
+        console.log(`[SCAN] Série trouvée par chemin local (ID: ${seriesByPath.id})`)
       } else {
         // Sinon chercher par tmdb_id
         const { data: seriesByTmdb } = await supabase
@@ -420,7 +421,7 @@ async function runScanInBackground() {
         
         if (seriesByTmdb) {
           existingSeries = seriesByTmdb
-          console.log(`   🎬 Série trouvée par TMDB ID (ID: ${seriesByTmdb.id})`)
+          console.log(`[SCAN] Série trouvée par TMDB ID (ID: ${seriesByTmdb.id})`)
         }
       }
 
@@ -447,12 +448,12 @@ async function runScanInBackground() {
           .eq('id', existingSeries.id)
 
         if (updateError) {
-          console.error(`   ❌ Erreur mise à jour série ${seriesName}:`, updateError.message)
-          console.error(`   Détails:`, JSON.stringify(updateError, null, 2))
+          console.error(`[SCAN] Erreur mise à jour série ${seriesName}:`, updateError.message)
+          console.error(`[SCAN] Détails:`, JSON.stringify(updateError, null, 2))
           continue
         }
 
-        console.log(`   ✅ Série mise à jour (ID: ${existingSeries.id})`)
+        console.log(`[SCAN] Série mise à jour (ID: ${existingSeries.id})`)
         seriesId = existingSeries.id
         stats.updatedSeries++
       } else {
@@ -476,18 +477,18 @@ async function runScanInBackground() {
           .single()
 
         if (insertError || !newSeries) {
-          console.error(`   ❌ Erreur création série ${seriesName}:`, insertError?.message || 'newSeries est null')
-          console.error(`   Détails:`, JSON.stringify(insertError, null, 2))
+          console.error(`[SCAN] Erreur création série ${seriesName}:`, insertError?.message || 'newSeries est null')
+          console.error(`[SCAN] Détails:`, JSON.stringify(insertError, null, 2))
           continue
         }
 
-        console.log(`   ✅ Série créée (ID: ${newSeries.id})`)
+        console.log(`[SCAN] Série créée (ID: ${newSeries.id})`)
         seriesId = newSeries.id
         stats.newSeries++
       }
 
       // 5. Sauvegarder les épisodes
-      console.log(`   💾 Sauvegarde de ${episodes.length} épisodes...`)
+      console.log(`[SCAN] Sauvegarde de ${episodes.length} épisodes...`)
       let episodesSaved = 0
       let episodesUpdated = 0
       for (const ep of episodes) {
@@ -526,10 +527,11 @@ async function runScanInBackground() {
           const { error: epError } = await supabase.from('episodes').insert(episodeData)
           
           if (epError) {
-            console.error(`   ❌ Erreur épisode S${ep.season}E${ep.episode}:`, epError.message)
+            console.error(`[SCAN] Erreur épisode S${ep.season}E${ep.episode}:`, epError.message)
           } else {
-            const hasMetadata = tmdbEpisode ? '✨' : ''
-            console.log(`      ${hasMetadata} S${ep.season}E${ep.episode}: ${episodeData.title}`)
+            if (tmdbEpisode) {
+              console.log(`[SCAN] S${ep.season}E${ep.episode}: ${episodeData.title} (avec métadonnées)`)
+            }
             stats.newEpisodes++
             episodesSaved++
           }
@@ -560,7 +562,7 @@ async function runScanInBackground() {
                 .eq('id', existingEp.id)
               
               if (!updateError) {
-                console.log(`      🔄 S${ep.season}E${ep.episode}: métadonnées enrichies`)
+                console.log(`[SCAN] S${ep.season}E${ep.episode}: métadonnées enrichies`)
                 episodesUpdated++
               }
             }
@@ -570,7 +572,7 @@ async function runScanInBackground() {
         }
       }
       
-      console.log(`   ✅ ${episodesSaved} nouveaux épisodes, ${episodesUpdated} enrichis`)
+      console.log(`[SCAN] ${episodesSaved} nouveaux épisodes, ${episodesUpdated} enrichis`)
       
       // Mettre à jour les stats enrichies
       stats.enrichedEpisodes = (stats.enrichedEpisodes || 0) + episodesUpdated
@@ -582,25 +584,25 @@ async function runScanInBackground() {
       scanState.progress.processedSeries++
     }
 
-    console.log('\n📊 RÉSUMÉ DU SCAN SÉRIES')
-    console.log(`   Total séries: ${stats.totalSeries}`)
-    console.log(`   Nouvelles: ${stats.newSeries}`)
-    console.log(`   Mises à jour: ${stats.updatedSeries}`)
-    console.log(`   Total épisodes: ${stats.totalEpisodes}`)
-    console.log(`   Nouveaux épisodes: ${stats.newEpisodes}`)
-    console.log(`   Épisodes enrichis: ${stats.enrichedEpisodes}`)
+    console.log('[SCAN] RÉSUMÉ DU SCAN SÉRIES')
+    console.log(`[SCAN] Total séries: ${stats.totalSeries}`)
+    console.log(`[SCAN] Nouvelles: ${stats.newSeries}`)
+    console.log(`[SCAN] Mises à jour: ${stats.updatedSeries}`)
+    console.log(`[SCAN] Total épisodes: ${stats.totalEpisodes}`)
+    console.log(`[SCAN] Nouveaux épisodes: ${stats.newEpisodes}`)
+    console.log(`[SCAN] Épisodes enrichis: ${stats.enrichedEpisodes}`)
 
     // Marquer le scan comme terminé
     scanState.isRunning = false
     scanState.currentSeries = null
     scanState.completedAt = new Date().toISOString()
-    console.log('✅ Scan terminé avec succès')
+    console.log('[SCAN] Scan terminé avec succès')
 
   } catch (error) {
-    console.error('❌ Erreur scan séries:', error)
+    console.error('[SCAN] Erreur scan séries:', error)
     const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue'
     const errorStack = error instanceof Error ? error.stack : ''
-    console.error('Stack:', errorStack)
+    console.error('[SCAN] Stack:', errorStack)
     
     // Marquer l'erreur dans l'état
     scanState.error = errorMessage
@@ -654,7 +656,7 @@ async function scanSeriesFolder(seriesPath: string, seriesName: string): Promise
         }
       }
     } catch (error) {
-      console.error(`Erreur lecture dossier ${dirPath}:`, error)
+      console.error(`[SCAN] Erreur lecture dossier ${dirPath}:`, error)
     }
   }
 
@@ -693,7 +695,7 @@ async function searchSeriesOnTMDB(seriesName: string): Promise<any | null> {
       const detailsData = await detailsResponse.json()
       
       if (detailsData && detailsData.id) {
-        console.log(`   🎬 Genres TMDB: ${detailsData.genres?.map((g: any) => g.name).join(', ') || 'aucun'}`)
+        console.log(`[SCAN] Genres TMDB: ${detailsData.genres?.map((g: any) => g.name).join(', ') || 'aucun'}`)
         
         // Extraire le trailer YouTube (priorité: français, puis anglais)
         let trailer = detailsData.videos?.results?.find((v: { type: string; site: string }) => 
@@ -710,13 +712,13 @@ async function searchSeriesOnTMDB(seriesName: string): Promise<any | null> {
               v.type === 'Trailer' && v.site === 'YouTube'
             )
             if (trailer) {
-              console.log(`   🎬 Bande-annonce: trouvée (EN)`)
+              console.log(`[SCAN] Bande-annonce: trouvée (EN)`)
             }
           } catch (e) {
             // Ignore l'erreur du fallback
           }
         } else {
-          console.log(`   🎬 Bande-annonce: trouvée`)
+          console.log(`[SCAN] Bande-annonce: trouvée`)
         }
         
         if (trailer) {
@@ -731,7 +733,7 @@ async function searchSeriesOnTMDB(seriesName: string): Promise<any | null> {
 
     return null
   } catch (error) {
-    console.error('Erreur recherche TMDB:', error)
+    console.error('[SCAN] Erreur recherche TMDB:', error)
     return null
   }
 }

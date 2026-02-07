@@ -3,13 +3,16 @@
  * POST /api/cache/clear
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
 import { getCacheInstance } from '@/lib/segment-cache'
 
-export async function POST() {
+export async function POST(request: NextRequest) {
+  const { error: authError } = await requireAdmin(request)
+  if (authError) return authErrorResponse(authError, 403)
   try {
     const cache = getCacheInstance()
     const statsBefore = await cache.getStats()

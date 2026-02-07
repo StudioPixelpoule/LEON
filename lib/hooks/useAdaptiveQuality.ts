@@ -54,6 +54,14 @@ export function useAdaptiveQuality(options: UseAdaptiveQualityOptions = {}) {
   
   const measurementsRef = useRef<BandwidthMeasurement[]>([])
   const lastMeasurementRef = useRef<number>(0)
+  const autoModeRef = useRef(state.autoMode)
+  const currentQualityRef = useRef(state.currentQuality)
+  
+  // Synchroniser les refs avec le state
+  useEffect(() => {
+    autoModeRef.current = state.autoMode
+    currentQualityRef.current = state.currentQuality
+  }, [state.autoMode, state.currentQuality])
   
   /**
    * Enregistre une mesure de bande passante
@@ -86,18 +94,18 @@ export function useAdaptiveQuality(options: UseAdaptiveQualityOptions = {}) {
     }))
     
     // En mode auto, ajuster la qualité
-    if (state.autoMode && enabled) {
+    if (autoModeRef.current && enabled) {
       const optimalQuality = selectOptimalQuality(avgBandwidth)
-      if (optimalQuality.name !== state.currentQuality.name) {
+      if (optimalQuality.name !== currentQualityRef.current.name) {
         setState(prev => ({
           ...prev,
           currentQuality: optimalQuality,
         }))
         onQualityChange?.(optimalQuality)
-        console.log(`[ADAPTIVE] 📊 Qualité ajustée: ${optimalQuality.label} (bande passante: ${avgBandwidth.toFixed(0)} kbps)`)
+        console.log(`[ADAPTIVE] Qualité ajustée: ${optimalQuality.label} (${avgBandwidth.toFixed(0)} kbps)`)
       }
     }
-  }, [state.autoMode, state.currentQuality.name, enabled, onQualityChange])
+  }, [enabled, onQualityChange])
   
   /**
    * Signale un événement de buffering
@@ -110,8 +118,8 @@ export function useAdaptiveQuality(options: UseAdaptiveQualityOptions = {}) {
     }))
     
     // Si buffering fréquent, réduire la qualité
-    if (isBuffering && state.autoMode && enabled) {
-      const currentIndex = QUALITY_LEVELS.findIndex(q => q.name === state.currentQuality.name)
+    if (isBuffering && autoModeRef.current && enabled) {
+      const currentIndex = QUALITY_LEVELS.findIndex(q => q.name === currentQualityRef.current.name)
       if (currentIndex > 0 && currentIndex < QUALITY_LEVELS.length - 1) {
         const lowerQuality = QUALITY_LEVELS[currentIndex + 1]
         setState(prev => ({
@@ -120,10 +128,10 @@ export function useAdaptiveQuality(options: UseAdaptiveQualityOptions = {}) {
           bufferHealth: 'critical',
         }))
         onQualityChange?.(lowerQuality)
-        console.log(`[ADAPTIVE] ⚠️ Buffering détecté, réduction qualité: ${lowerQuality.label}`)
+        console.log(`[ADAPTIVE] Buffering détecté, réduction: ${lowerQuality.label}`)
       }
     }
-  }, [state.autoMode, state.currentQuality.name, enabled, onQualityChange])
+  }, [enabled, onQualityChange])
   
   /**
    * Signale la santé du buffer

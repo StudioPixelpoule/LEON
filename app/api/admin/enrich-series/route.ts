@@ -7,7 +7,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
-import { createClient } from '@supabase/supabase-js'
+import { createSupabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,17 +39,6 @@ const GENRE_MAP: Record<number, string> = {
   14: 'Fantastique',
   12: 'Aventure',
   28: 'Action'
-}
-
-function getSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY
-  
-  if (!url || !key) {
-    throw new Error('Configuration Supabase manquante')
-  }
-  
-  return createClient(url, key)
 }
 
 async function fetchTMDBGenres(tmdbId: number): Promise<string[]> {
@@ -89,7 +78,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'TMDB_API_KEY non configurée' }, { status: 500 })
     }
     
-    const supabase = getSupabaseAdmin()
+    const supabase = createSupabaseAdmin()
     
     // Récupérer toutes les séries avec un tmdb_id
     const { data: series, error } = await supabase
@@ -166,7 +155,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const supabase = getSupabaseAdmin()
+    const supabase = createSupabaseAdmin()
     
     const { data: series } = await supabase
       .from('series')

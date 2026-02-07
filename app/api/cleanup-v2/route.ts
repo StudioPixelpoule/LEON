@@ -2,7 +2,8 @@
  * API de nettoyage v2 - Plus robuste
  */
 
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
@@ -12,8 +13,14 @@ import { rm } from 'fs/promises'
 
 const execAsync = promisify(exec)
 
-export async function POST() {
-  console.log('🧹 Nettoyage complet demandé')
+export async function POST(request: NextRequest) {
+  // Vérification admin obligatoire
+  const { user, error: authError } = await requireAdmin(request)
+  if (authError || !user) {
+    return authErrorResponse(authError || 'Non autorisé', 403)
+  }
+  
+  console.log('[CLEANUP] Nettoyage complet demandé')
   
   try {
     // 1. Tuer TOUS les processus FFmpeg de manière agressive
@@ -85,7 +92,11 @@ export async function POST() {
 }
 
 // GET pour vérifier l'état
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const { user, error: authError } = await requireAdmin(request)
+  if (authError || !user) {
+    return authErrorResponse(authError || 'Non autorisé', 403)
+  }
   try {
     // Compter les processus FFmpeg
     let ffmpegCount = 0

@@ -5,6 +5,7 @@
 
 'use client'
 
+import { memo } from 'react'
 import Image from 'next/image'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
 import styles from './SearchResultsGrid.module.css'
@@ -15,7 +16,7 @@ interface SearchResultsGridProps {
   onMovieClick: (movie: GroupedMedia) => void
 }
 
-export default function SearchResultsGrid({ movies, query, onMovieClick }: SearchResultsGridProps) {
+function SearchResultsGridComponent({ movies, query, onMovieClick }: SearchResultsGridProps) {
   if (movies.length === 0) {
     return (
       <div className={styles.container}>
@@ -37,6 +38,15 @@ export default function SearchResultsGrid({ movies, query, onMovieClick }: Searc
             key={movie.id}
             className={styles.card}
             onClick={() => onMovieClick(movie)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                onMovieClick(movie)
+              }
+            }}
+            role="button"
+            tabIndex={0}
+            aria-label={`Lire ${movie.title}`}
           >
             <Image
               src={movie.poster_url || '/placeholder-poster.svg'}
@@ -72,4 +82,6 @@ export default function SearchResultsGrid({ movies, query, onMovieClick }: Searc
     </section>
   )
 }
+
+export default memo(SearchResultsGridComponent)
 

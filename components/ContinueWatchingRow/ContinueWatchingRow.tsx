@@ -5,7 +5,7 @@
 
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, memo } from 'react'
 import Image from 'next/image'
 import { X, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useAuth } from '@/contexts/AuthContext'
@@ -33,7 +33,7 @@ interface ContinueWatchingRowProps {
   filter?: 'all' | 'movies' | 'episodes' // Filtrer par type
 }
 
-export default function ContinueWatchingRow({ 
+function ContinueWatchingRowComponent({ 
   onMovieClick, 
   onMoviePlay, 
   onEpisodeClick,
@@ -211,6 +211,15 @@ export default function ContinueWatchingRow({
               key={item.id}
               className={styles.card}
               onClick={() => handleClick(item)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  handleClick(item)
+                }
+              }}
+              role="button"
+              tabIndex={0}
+              aria-label={`${item.content_type === 'episode' ? `Lire ${item.subtitle || item.title}` : `Lire ${item.title}`}`}
             >
               {/* Bouton supprimer */}
               <button
@@ -284,4 +293,6 @@ export default function ContinueWatchingRow({
     </section>
   )
 }
+
+export default memo(ContinueWatchingRowComponent)
 

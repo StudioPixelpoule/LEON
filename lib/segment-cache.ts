@@ -109,8 +109,8 @@ export class SegmentCache {
       
       // Vérifier la taille du cache et nettoyer si nécessaire
       await this.enforceMaxSize()
-    } catch (error: any) {
-      console.error(`[${new Date().toISOString()}] [CACHE] ❌ Erreur sauvegarde:`, error.message)
+    } catch (error: unknown) {
+      console.error(`[${new Date().toISOString()}] [CACHE] ❌ Erreur sauvegarde:`, error instanceof Error ? error.message : 'Erreur inconnue')
     }
   }
 
@@ -154,8 +154,8 @@ export class SegmentCache {
           stats.newestFile = fileStat.mtime
         }
       }
-    } catch (error: any) {
-      console.error(`[${new Date().toISOString()}] [CACHE] ❌ Erreur stats:`, error.message)
+    } catch (error: unknown) {
+      console.error(`[${new Date().toISOString()}] [CACHE] ❌ Erreur stats:`, error instanceof Error ? error.message : 'Erreur inconnue')
     }
 
     return stats
@@ -228,8 +228,8 @@ export class SegmentCache {
         await rm(file.path)
         currentSize -= file.stat.size
         deleted++
-      } catch (error: any) {
-        console.error(`[${new Date().toISOString()}] [CACHE] ❌ Erreur suppression:`, error.message)
+      } catch (error: unknown) {
+        console.error(`[${new Date().toISOString()}] [CACHE] ❌ Erreur suppression:`, error instanceof Error ? error.message : 'Erreur inconnue')
       }
     }
 
@@ -254,8 +254,8 @@ export class SegmentCache {
           await rm(file)
           deleted++
         }
-      } catch (error: any) {
-        console.error(`[${new Date().toISOString()}] [CACHE] ❌ Erreur nettoyage:`, error.message)
+      } catch (error: unknown) {
+        console.error(`[${new Date().toISOString()}] [CACHE] ❌ Erreur nettoyage:`, error instanceof Error ? error.message : 'Erreur inconnue')
       }
     }
 
@@ -274,8 +274,8 @@ export class SegmentCache {
         console.log(`[${new Date().toISOString()}] [CACHE] 🗑️ Cache vidé complètement`)
       }
       await this.init()
-    } catch (error: any) {
-      console.error(`[${new Date().toISOString()}] [CACHE] ❌ Erreur vidage:`, error.message)
+    } catch (error: unknown) {
+      console.error(`[${new Date().toISOString()}] [CACHE] ❌ Erreur vidage:`, error instanceof Error ? error.message : 'Erreur inconnue')
     }
   }
 }
