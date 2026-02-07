@@ -130,7 +130,7 @@ export default function ContinueWatchingRow({
     
     console.log(`[REMOVE] Suppression de ${mediaId} (type: ${mediaType}) pour user ${userId}`)
     
-    // 🔧 FIX: Ajouter à la liste des supprimés pour éviter réapparition
+    // 🔧 FIX: Ajouter à la liste des supprimés IMMÉDIATEMENT pour éviter réapparition
     removedIdsRef.current.add(mediaId)
     
     // Mettre à jour l'état local IMMÉDIATEMENT pour feedback utilisateur
@@ -149,10 +149,10 @@ export default function ContinueWatchingRow({
       console.log(`[REMOVE] Résultat:`, result)
       
       if (response.ok) {
-        // 🔧 FIX: Nettoyer l'ID de la liste des supprimés après 10s (la suppression est propagée)
+        // 🔧 FIX: Garder l'ID dans la liste des supprimés pendant 60s (assez pour que le cache soit invalidé)
         setTimeout(() => {
           removedIdsRef.current.delete(mediaId)
-        }, 10000)
+        }, 60000) // 60 secondes au lieu de 10
         // Pas besoin d'appeler onRefresh - l'état local est déjà à jour
       } else {
         console.error('[REMOVE] Erreur API:', result)

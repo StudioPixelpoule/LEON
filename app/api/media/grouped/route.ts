@@ -73,7 +73,7 @@ export async function GET(request: Request) {
         cached: true
       }, {
         headers: {
-          'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60'
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
         }
       })
     }
@@ -149,7 +149,10 @@ export async function GET(request: Request) {
       cached: false
     }, {
       headers: {
-        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60'
+        // 🔧 FIX: Si nocache=true, désactiver complètement le cache HTTP
+        'Cache-Control': noCache 
+          ? 'no-cache, no-store, must-revalidate'
+          : 'public, s-maxage=300, stale-while-revalidate=60'
       }
     })
     

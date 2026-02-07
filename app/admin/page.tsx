@@ -2096,17 +2096,22 @@ function PostersView() {
       })
       
       if (response.ok) {
-        closeModal()
+        // 🔧 FIX: Recharger AVANT de fermer le modal pour garantir la mise à jour
         if (type === 'movie') await loadMovies(true) // Forcer le rafraîchissement du cache
         else await loadSeries(true)
-        alert('✅ Affiche mise à jour !')
+        
+        // Fermer le modal APRÈS le rechargement
+        closeModal()
+        
+        // Utiliser le toast au lieu de alert (plus moderne)
+        addToast('success', 'Affiche mise à jour', 'Les métadonnées ont été synchronisées avec TMDB')
       } else {
         const data = await response.json()
-        alert(`Erreur: ${data.error || 'Erreur inconnue'}`)
+        addToast('error', 'Erreur de mise à jour', data.error || 'Erreur inconnue')
       }
     } catch (error) {
       console.error('Erreur mise à jour:', error)
-      alert('Erreur lors de la mise à jour')
+      addToast('error', 'Erreur réseau', 'Impossible de communiquer avec le serveur')
     } finally {
       setSaving(false)
     }
