@@ -84,4 +84,3 @@ function SearchResultsGridComponent({ movies, query, onMovieClick }: SearchResul
 }
 
 export default memo(SearchResultsGridComponent)
-

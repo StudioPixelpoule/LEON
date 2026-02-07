@@ -147,4 +147,3 @@ function MovieRowComponent<T extends MovieRowItem>({ title, movies, onMovieClick
 }
 
 export default memo(MovieRowComponent) as typeof MovieRowComponent
-

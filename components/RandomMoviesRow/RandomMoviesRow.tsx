@@ -138,4 +138,3 @@ function RandomMoviesRowComponent({ movies, onMovieClick }: RandomMoviesRowProps
 }
 
 export default memo(RandomMoviesRowComponent)
-
