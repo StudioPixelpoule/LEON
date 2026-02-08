@@ -50,6 +50,7 @@
   font-size: 18px;
   font-weight: 700;
   color: #fff;
+  margin: 0;
 }
 
 .closeButton {
@@ -57,24 +58,33 @@
   border: none;
   color: rgba(255, 255, 255, 0.5);
   cursor: pointer;
-  padding: 4px;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 24px;
   line-height: 1;
-  transition: color 150ms;
+  border-radius: 50%;
+  transition: color 150ms, background 150ms;
+  flex-shrink: 0;
 }
 
 .closeButton:hover {
   color: #fff;
+  background: rgba(255, 255, 255, 0.1);
 }
 
 /* Corps scrollable */
 .body {
   flex: 1;
   overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
   padding: 20px 24px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
+  min-height: 0;
 }
 
 /* Recherche */
@@ -85,9 +95,11 @@
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   color: #fff;
-  font-size: 15px;
+  font-size: 16px;
   font-family: inherit;
   transition: border-color 150ms, background 150ms;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .searchInput::placeholder {
@@ -115,10 +127,15 @@
   border: 2px solid transparent;
   transition: border-color 150ms, transform 150ms;
   background: rgba(255, 255, 255, 0.04);
+  -webkit-tap-highlight-color: transparent;
 }
 
 .resultCard:hover {
   border-color: rgba(255, 255, 255, 0.2);
+}
+
+.resultCard:active {
+  transform: scale(0.97);
 }
 
 .resultCardSelected {
@@ -140,7 +157,9 @@
   justify-content: center;
   background: rgba(255, 255, 255, 0.06);
   color: rgba(255, 255, 255, 0.3);
-  font-size: 12px;
+  font-size: 11px;
+  text-align: center;
+  padding: 8px;
 }
 
 .resultInfo {
@@ -221,7 +240,7 @@
   font-size: 13px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.5);
-  margin-bottom: -12px;
+  margin: 0;
 }
 
 .selections {
@@ -238,6 +257,7 @@
   background: rgba(255, 255, 255, 0.08);
   border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.12);
+  -webkit-tap-highlight-color: transparent;
 }
 
 .chipPoster {
@@ -261,10 +281,15 @@
   border: none;
   color: rgba(255, 255, 255, 0.4);
   cursor: pointer;
-  padding: 2px;
-  font-size: 14px;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
   line-height: 1;
   transition: color 150ms;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .chipRemove:hover {
@@ -274,16 +299,18 @@
 /* Textarea commentaire */
 .textarea {
   width: 100%;
-  min-height: 80px;
+  min-height: 72px;
   padding: 12px 16px;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   color: #fff;
-  font-size: 14px;
+  font-size: 15px;
   font-family: inherit;
   resize: vertical;
   transition: border-color 150ms, background 150ms;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .textarea::placeholder {
@@ -305,7 +332,7 @@
 
 .submitButton {
   width: 100%;
-  padding: 12px;
+  padding: 14px;
   background: #fff;
   border: none;
   border-radius: 8px;
@@ -315,10 +342,17 @@
   font-family: inherit;
   cursor: pointer;
   transition: opacity 150ms, transform 150ms;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .submitButton:hover:not(:disabled) {
   transform: translateY(-1px);
+}
+
+.submitButton:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
 .submitButton:disabled {
@@ -364,47 +398,133 @@
   pointer-events: none;
 }
 
-/* Mobile */
+/* ===== MOBILE ===== */
 @media (max-width: 640px) {
   .overlay {
     padding: 0;
-    align-items: flex-end;
+    align-items: stretch;
   }
 
   .modal {
     max-width: 100%;
-    max-height: 100vh;
-    height: 100vh;
+    max-height: none;
+    height: 100dvh;
+    height: 100vh; /* Fallback navigateurs sans dvh */
     border-radius: 0;
-    padding-top: env(safe-area-inset-top, 0);
-    padding-bottom: env(safe-area-inset-bottom, 0);
+    animation: none;
   }
 
+  /* Safe area top */
+  .header {
+    padding: 12px 16px;
+    padding-top: calc(12px + env(safe-area-inset-top, 0));
+    min-height: 56px;
+  }
+
+  .title {
+    font-size: 16px;
+  }
+
+  .closeButton {
+    width: 40px;
+    height: 40px;
+    font-size: 28px;
+  }
+
+  /* Corps */
+  .body {
+    padding: 16px;
+    gap: 14px;
+  }
+
+  /* Input : font-size 16px pour empêcher le zoom iOS */
+  .searchInput {
+    font-size: 16px;
+    padding: 14px 16px;
+    border-radius: 10px;
+  }
+
+  /* Grille : 3 colonnes compactes */
   .resultsGrid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
+    gap: 8px;
   }
 
+  .resultInfo {
+    padding: 6px;
+  }
+
+  .resultTitle {
+    font-size: 11px;
+  }
+
+  .resultYear {
+    font-size: 10px;
+  }
+
+  .resultBadge {
+    font-size: 8px;
+    padding: 1px 4px;
+  }
+
+  /* Chips : scroll horizontal */
   .selections {
     overflow-x: auto;
     flex-wrap: nowrap;
     padding-bottom: 4px;
     -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .selections::-webkit-scrollbar {
+    display: none;
   }
 
   .chip {
     flex-shrink: 0;
   }
 
-  .header {
-    padding: 16px 20px;
+  .chipTitle {
+    max-width: 100px;
   }
 
-  .body {
-    padding: 16px 20px;
+  /* Textarea plus petite sur mobile */
+  .textarea {
+    min-height: 64px;
+    font-size: 16px;
+    resize: none;
   }
 
+  /* Footer safe area bottom */
   .footer {
-    padding: 12px 20px;
+    padding: 12px 16px;
     padding-bottom: calc(12px + env(safe-area-inset-bottom, 0));
+  }
+
+  .submitButton {
+    padding: 16px;
+    font-size: 16px;
+    border-radius: 10px;
+  }
+
+  /* Succès */
+  .successMessage {
+    padding: 40px 16px;
+  }
+}
+
+/* Très petit écran (iPhone SE etc.) */
+@media (max-width: 375px) {
+  .resultsGrid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .title {
+    font-size: 15px;
+  }
+
+  .chipTitle {
+    max-width: 80px;
   }
 }

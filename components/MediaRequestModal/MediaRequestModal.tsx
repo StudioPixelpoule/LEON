@@ -35,17 +35,29 @@ export function MediaRequestModal({ isOpen, onClose }: MediaRequestModalProps) {
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // Body scroll lock
+  // Body scroll lock + viewport fix mobile
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = 'hidden'
-      // Focus l'input après l'animation
-      setTimeout(() => inputRef.current?.focus(), 300)
+      // Empêcher le scroll du body sur iOS
+      document.body.style.position = 'fixed'
+      document.body.style.width = '100%'
+      document.body.style.top = `-${window.scrollY}px`
     } else {
+      const scrollY = document.body.style.top
       document.body.style.overflow = ''
+      document.body.style.position = ''
+      document.body.style.width = ''
+      document.body.style.top = ''
+      if (scrollY) {
+        window.scrollTo(0, parseInt(scrollY || '0') * -1)
+      }
     }
     return () => {
       document.body.style.overflow = ''
+      document.body.style.position = ''
+      document.body.style.width = ''
+      document.body.style.top = ''
     }
   }, [isOpen])
 
@@ -208,7 +220,12 @@ export function MediaRequestModal({ isOpen, onClose }: MediaRequestModalProps) {
               {/* Recherche TMDB */}
               <input
                 ref={inputRef}
-                type="text"
+                type="search"
+                inputMode="search"
+                enterKeyHint="search"
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
                 className={styles.searchInput}
                 placeholder="Rechercher un film ou une série..."
                 value={query}
