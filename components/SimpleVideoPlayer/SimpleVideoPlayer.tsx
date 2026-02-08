@@ -214,6 +214,7 @@ export default function SimpleVideoPlayer({
   const bufferCheckIntervalRef = useRef<NodeJS.Timeout | null>(null) // 🔧 Pour nettoyer l'intervalle buffer
   const lastTimeRef = useRef(0) // 🔧 Pour détecter les vrais sauts (pas les faux positifs)
   const subtitleAbortControllerRef = useRef<AbortController | null>(null) // 🔧 Pour annuler les fetch de sous-titres
+  const pendingSubtitleApplyRef = useRef<number | null>(null) // 🔧 FIX: Sous-titre à appliquer après chargement des pistes
 
   // Extraire le filepath depuis l'URL
   const getFilepath = useCallback(() => {
@@ -417,8 +418,11 @@ export default function SimpleVideoPlayer({
           setSelectedAudio(0)
         }
         
-        if (effectivePrefs?.subtitleTrackIndex !== undefined) {
+        if (effectivePrefs?.subtitleTrackIndex !== undefined && effectivePrefs.subtitleTrackIndex !== null) {
           setSelectedSubtitle(effectivePrefs.subtitleTrackIndex)
+          // 🔧 FIX: Stocker le sous-titre à appliquer réellement après le prochain rendu
+          // setSelectedSubtitle ne fait que mettre à jour l'UI, pas la vidéo
+          pendingSubtitleApplyRef.current = effectivePrefs.subtitleTrackIndex
           console.log('[PLAYER] Préférence sous-titres restaurée:', effectivePrefs.subtitleTrackIndex, initialPreferences ? '(épisode)' : '(localStorage)')
         }
       })
@@ -452,10 +456,22 @@ export default function SimpleVideoPlayer({
       // Vérifier les pistes audio natives du browser
       const videoWithAudioTracks = video as VideoElementWithAudioTracks
       if ('audioTracks' in videoWithAudioTracks && videoWithAudioTracks.audioTracks && videoWithAudioTracks.audioTracks.length > 0) {
-        // Activer la première piste si elle existe
-        const firstTrack = videoWithAudioTracks.audioTracks[0]
-        if (firstTrack && !firstTrack.enabled) {
-          firstTrack.enabled = true
+        // 🔧 FIX: Activer la piste préférée (pas toujours la première)
+        const preferredIdx = selectedAudioRef.current
+        const nativeTracks = videoWithAudioTracks.audioTracks
+        
+        // Désactiver toutes les pistes d'abord
+        for (let i = 0; i < nativeTracks.length; i++) {
+          const t = nativeTracks[i]
+          if (t) t.enabled = false
+        }
+        
+        // Activer la piste préférée (ou la première si l'index est invalide)
+        const targetIdx = preferredIdx < nativeTracks.length ? preferredIdx : 0
+        const targetTrack = nativeTracks[targetIdx]
+        if (targetTrack) {
+          targetTrack.enabled = true
+          console.log(`[PLAYER] Piste audio native activée: ${targetIdx} (${targetTrack.language || targetTrack.label || 'inconnue'})`)
         }
       } else {
       }
@@ -840,6 +856,16 @@ export default function SimpleVideoPlayer({
           // 🔧 FIX #1: Restaurer la position si on en avait une (ex: après changement de piste)
           if (lastKnownPositionRef.current > 5 && video.currentTime < 5) {
             video.currentTime = lastKnownPositionRef.current
+          }
+          
+          // 🔧 FIX AUDIO: Appliquer la piste audio préférée sur HLS.js après chargement du manifeste
+          // selectedAudioRef contient la valeur à jour (mise à jour par le useEffect de synchronisation)
+          if (hls.audioTracks && hls.audioTracks.length > 1) {
+            const preferredIdx = selectedAudioRef.current
+            if (preferredIdx > 0 && preferredIdx < hls.audioTracks.length) {
+              console.log(`[PLAYER] Application piste audio préférée: ${preferredIdx} (${hls.audioTracks[preferredIdx]?.name || hls.audioTracks[preferredIdx]?.lang})`)
+              hls.audioTrack = preferredIdx
+            }
           }
           
           // 🧹 Nettoyer l'ancien intervalle si existant
@@ -1375,10 +1401,14 @@ export default function SimpleVideoPlayer({
 
   // Changement de langue audio DYNAMIQUE
   const handleAudioChange = useCallback((track: AudioTrack, idx: number) => {
-    if (!videoRef.current || selectedAudio === idx) {
+    if (!videoRef.current) {
       setShowSettingsMenu(false)
       return
     }
+    
+    // 🔧 FIX: Ne PAS bloquer si selectedAudio === idx
+    // Après un changement d'épisode, le state peut afficher la bonne piste
+    // mais HLS.js/la vidéo peut jouer une autre piste (désynchronisation)
     
     
     const video = videoRef.current
@@ -2173,6 +2203,24 @@ export default function SimpleVideoPlayer({
       // Retourner immédiatement (le chargement est asynchrone)
     }
   }, [subtitleTracks, getFilepath, src])
+
+  // 🔧 FIX: Appliquer réellement les sous-titres préférés après chargement des pistes
+  // Le useEffect media-info ne fait que setSelectedSubtitle (UI), pas l'application réelle sur la vidéo
+  useEffect(() => {
+    if (pendingSubtitleApplyRef.current !== null && subtitleTracks.length > 0 && videoRef.current) {
+      const idx = pendingSubtitleApplyRef.current
+      pendingSubtitleApplyRef.current = null // Consommer pour éviter les ré-applications
+      
+      if (idx >= 0 && idx < subtitleTracks.length) {
+        // Délai pour laisser la vidéo se charger (textTracks natifs ou HLS)
+        const timer = setTimeout(() => {
+          console.log(`[PLAYER] Application sous-titres préférés: piste ${idx} (${subtitleTracks[idx]?.language})`)
+          handleSubtitleChange(idx)
+        }, 1500)
+        return () => clearTimeout(timer)
+      }
+    }
+  }, [subtitleTracks, handleSubtitleChange])
 
   // Contrôles
   const handleMouseMove = useCallback(() => {
