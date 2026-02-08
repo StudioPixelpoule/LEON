@@ -695,6 +695,66 @@ class TranscodingService {
   }
 
   /**
+   * Synchroniser le statut is_transcoded en BDD avec les fichiers réellement transcodés sur disque
+   * Corrige les cas où le transcodage a réussi mais is_transcoded est resté à false
+   */
+  async syncTranscodedStatus(): Promise<number> {
+    let fixed = 0
+    try {
+      const { supabase } = await import('./supabase')
+
+      // Films non marqués comme transcodés
+      const { data: untranscodedMedia } = await supabase
+        .from('media')
+        .select('id, title, pcloud_fileid')
+        .eq('is_transcoded', false)
+
+      if (untranscodedMedia) {
+        for (const media of untranscodedMedia) {
+          if (!media.pcloud_fileid) continue
+          const outputDir = this.getOutputDir(media.pcloud_fileid)
+          if (await this.isAlreadyTranscoded(outputDir)) {
+            await supabase
+              .from('media')
+              .update({ is_transcoded: true })
+              .eq('id', media.id)
+            console.log(`[TRANSCODE] Sync: film "${media.title}" marqué comme transcodé`)
+            fixed++
+          }
+        }
+      }
+
+      // Épisodes non marqués comme transcodés
+      const { data: untranscodedEpisodes } = await supabase
+        .from('episodes')
+        .select('id, filepath, season_number, episode_number')
+        .eq('is_transcoded', false)
+
+      if (untranscodedEpisodes) {
+        for (const ep of untranscodedEpisodes) {
+          if (!ep.filepath) continue
+          const outputDir = this.getOutputDir(ep.filepath)
+          if (await this.isAlreadyTranscoded(outputDir)) {
+            await supabase
+              .from('episodes')
+              .update({ is_transcoded: true })
+              .eq('id', ep.id)
+            console.log(`[TRANSCODE] Sync: épisode S${ep.season_number}E${ep.episode_number} marqué comme transcodé`)
+            fixed++
+          }
+        }
+      }
+
+      if (fixed > 0) {
+        console.log(`[TRANSCODE] Sync terminée: ${fixed} média(s) corrigé(s)`)
+      }
+    } catch (error) {
+      console.error('[TRANSCODE] Erreur sync statut transcodage:', error)
+    }
+    return fixed
+  }
+
+  /**
    * Obtenir le chemin du fichier transcodé si disponible
    */
   async getTranscodedPath(originalPath: string): Promise<string | null> {
@@ -720,6 +780,10 @@ class TranscodingService {
     this.isRunning = true
     this.isPaused = false
     console.log('[TRANSCODE] Démarrage du service de transcodage')
+
+    // Synchroniser les statuts is_transcoded au démarrage
+    // Corrige les fichiers transcodés sur disque mais non marqués en BDD
+    await this.syncTranscodedStatus()
 
     await this.saveState()
     await this.processQueue()

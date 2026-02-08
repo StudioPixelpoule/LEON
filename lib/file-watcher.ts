@@ -51,6 +51,7 @@ class FileWatcher {
   private knownFiles: Set<string> = new Set()
   private enrichmentScanTimer: NodeJS.Timeout | null = null
   private pendingEnrichment: boolean = false
+  private pollingInterval: NodeJS.Timeout | null = null
 
   constructor() {
     this.loadState()
@@ -214,6 +215,10 @@ class FileWatcher {
       }
       
       this.isWatching = true
+      
+      // Polling de secours : fs.watch() ne fonctionne pas toujours sur les montages NAS (NFS/SMB)
+      // Scan léger toutes les 5 minutes pour détecter les fichiers manqués
+      this.startPolling()
       
       // Vérification de cohérence asynchrone (ne bloque pas le démarrage)
       setTimeout(() => {
@@ -860,6 +865,78 @@ class FileWatcher {
       this.enrichmentScanTimer = null
     }
     this.pendingEnrichment = false
+
+    // Arrêter le polling de secours
+    if (this.pollingInterval) {
+      clearInterval(this.pollingInterval)
+      this.pollingInterval = null
+    }
+  }
+
+  /**
+   * Polling de secours : scanne les dossiers toutes les 5 minutes
+   * pour détecter les fichiers que fs.watch() aurait manqués (montages NAS)
+   */
+  private startPolling(): void {
+    if (this.pollingInterval) return
+
+    const POLLING_INTERVAL_MS = 5 * 60 * 1000 // 5 minutes
+
+    this.pollingInterval = setInterval(async () => {
+      try {
+        await this.pollForNewFiles()
+      } catch (error) {
+        console.error('[WATCHER] Erreur polling:', error)
+      }
+    }, POLLING_INTERVAL_MS)
+
+    console.log('[WATCHER] Polling de secours activé (toutes les 5 min)')
+  }
+
+  /**
+   * Scanner les dossiers pour trouver des fichiers non encore connus
+   * Léger : compare les noms de fichiers avec le Set knownFiles en mémoire
+   */
+  private async pollForNewFiles(): Promise<void> {
+    const newFiles: string[] = []
+
+    const scanDir = async (dir: string) => {
+      try {
+        const entries = await readdir(dir, { withFileTypes: true })
+        for (const entry of entries) {
+          const fullPath = path.join(dir, entry.name)
+          if (entry.isDirectory()) {
+            await scanDir(fullPath)
+          } else if (entry.isFile()) {
+            const ext = path.extname(entry.name).toLowerCase()
+            if (VIDEO_EXTENSIONS.includes(ext) && !this.knownFiles.has(fullPath)) {
+              // Ignorer les fichiers temporaires
+              if (!fullPath.includes('.tmp') && !fullPath.includes('.part') && !fullPath.includes('.crdownload')) {
+                newFiles.push(fullPath)
+              }
+            }
+          }
+        }
+      } catch {
+        // Ignorer les erreurs de permission
+      }
+    }
+
+    await scanDir(MEDIA_DIR)
+    try {
+      await stat(SERIES_DIR)
+      await scanDir(SERIES_DIR)
+    } catch {
+      // Dossier séries non accessible
+    }
+
+    if (newFiles.length > 0) {
+      console.log(`[WATCHER] Polling: ${newFiles.length} nouveau(x) fichier(s) détecté(s)`)
+      for (const filepath of newFiles) {
+        // Traiter chaque fichier comme s'il venait d'être détecté par fs.watch()
+        await this.processNewFile(filepath)
+      }
+    }
   }
 
   /**
