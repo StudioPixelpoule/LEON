@@ -92,7 +92,7 @@ export function MediaRequestModal({ isOpen, onClose }: MediaRequestModalProps) {
     }, 300)
   }, [])
 
-  // Toggle sélection
+  // Sélectionner un item : ajouter au panier + reset recherche
   const toggleSelect = useCallback((item: TMDBResult) => {
     setSelected(prev => {
       const exists = prev.find(s => s.tmdb_id === item.tmdb_id && s.media_type === item.media_type)
@@ -101,6 +101,10 @@ export function MediaRequestModal({ isOpen, onClose }: MediaRequestModalProps) {
       }
       return [...prev, item]
     })
+    // Reset la recherche pour revenir à l'état initial
+    setQuery('')
+    setResults([])
+    setHasSearched(false)
   }, [])
 
   // Retirer une sélection
