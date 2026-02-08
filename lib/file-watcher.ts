@@ -215,6 +215,7 @@ class FileWatcher {
       }
       
       this.isWatching = true
+      console.log(`[WATCHER] Démarré: ${this.watchedDirs.size} dossiers surveillés, ${this.knownFiles.size} fichiers connus`)
       
       // Polling de secours : fs.watch() ne fonctionne pas toujours sur les montages NAS (NFS/SMB)
       // Scan léger toutes les 5 minutes pour détecter les fichiers manqués
@@ -354,21 +355,28 @@ class FileWatcher {
       // Séries en priorité car généralement ce qu'on veut voir rapidement
       const sortedMissing = [...missingSeries, ...missingMovies]
       
+      console.log(`[WATCHER] Cohérence: ${missingFiles.length} fichier(s) manquant(s) en BDD (${missingMovies.length} films, ${missingSeries.length} épisodes)`)
+
       let processed = 0
       for (const filepath of sortedMissing) {
         try {
+          // Supprimer temporairement de knownFiles pour que processNewFile le re-traite
           this.knownFiles.delete(filepath)
           await this.processNewFile(filepath)
           processed++
           
-          // Pause courte entre chaque fichier (100ms au lieu de 500ms)
+          // Pause courte entre chaque fichier
           await new Promise(resolve => setTimeout(resolve, 100))
         } catch (err) {
-          console.error(`[WATCHER] Erreur traitement ${path.basename(filepath)}:`, err)
+          // Re-ajouter à knownFiles même en cas d'erreur pour éviter la boucle infinie
+          this.knownFiles.add(filepath)
+          console.error(`[WATCHER] Erreur traitement ${path.basename(filepath)}:`, err instanceof Error ? err.message : err)
         }
       }
       
       await this.saveState()
+      
+      console.log(`[WATCHER] Cohérence terminée: ${processed}/${missingFiles.length} fichiers traités`)
       
       if (processed > 0) {
         this.scheduleEnrichmentScan()
