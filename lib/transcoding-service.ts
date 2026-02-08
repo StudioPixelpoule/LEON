@@ -655,6 +655,8 @@ class TranscodingService {
    * Met à jour is_transcoded = true pour permettre l'affichage dans l'interface
    */
   private async markAsTranscoded(filepath: string): Promise<void> {
+    const filename = path.basename(filepath)
+
     try {
       const { supabase } = await import('./supabase')
       
@@ -667,12 +669,31 @@ class TranscodingService {
           .from('episodes')
           .update({ is_transcoded: true })
           .eq('filepath', filepath)
-          .select('id')
+          .select('id, season_number, episode_number')
         
         if (error) {
-          console.warn(`[TRANSCODE] Erreur mise à jour is_transcoded épisode:`, error.message)
+          console.error(`[TRANSCODE] Erreur mise à jour is_transcoded épisode ${filename}:`, error.message)
         } else if (data && data.length > 0) {
-          console.log(`[TRANSCODE] Épisode marqué comme transcodé (visible dans l'interface)`)
+          console.log(`[TRANSCODE] Épisode S${data[0].season_number}E${data[0].episode_number} marqué comme transcodé → visible`)
+        } else {
+          // Aucune correspondance par filepath exact — essayer par pattern
+          console.warn(`[TRANSCODE] Aucun épisode trouvé en BDD pour: ${filepath}`)
+          const episodeMatch = filename.match(/S(\d+)E(\d+)/i)
+          if (episodeMatch) {
+            const { data: fallbackData } = await supabase
+              .from('episodes')
+              .update({ is_transcoded: true })
+              .eq('season_number', parseInt(episodeMatch[1]))
+              .eq('episode_number', parseInt(episodeMatch[2]))
+              .ilike('filepath', `%${filename}%`)
+              .select('id')
+            
+            if (fallbackData && fallbackData.length > 0) {
+              console.log(`[TRANSCODE] Épisode trouvé par fallback (pattern filename) → marqué comme transcodé`)
+            } else {
+              console.error(`[TRANSCODE] IMPOSSIBLE de marquer l'épisode comme transcodé: ${filename} — il restera invisible`)
+            }
+          }
         }
       } else {
         // C'est un film - mettre à jour dans la table media
@@ -684,13 +705,27 @@ class TranscodingService {
           .select('id, title')
         
         if (error) {
-          console.warn(`[TRANSCODE] Erreur mise à jour is_transcoded film:`, error.message)
+          console.error(`[TRANSCODE] Erreur mise à jour is_transcoded film ${filename}:`, error.message)
         } else if (data && data.length > 0) {
-          console.log(`[TRANSCODE] Film "${data[0].title}" marqué comme transcodé (visible dans l'interface)`)
+          console.log(`[TRANSCODE] Film "${data[0].title}" marqué comme transcodé → visible`)
+        } else {
+          // Aucune correspondance par filepath exact — essayer par nom de fichier
+          console.warn(`[TRANSCODE] Aucun film trouvé en BDD pour pcloud_fileid: ${filepath}`)
+          const { data: fallbackData } = await supabase
+            .from('media')
+            .update({ is_transcoded: true })
+            .ilike('pcloud_fileid', `%${filename}%`)
+            .select('id, title')
+          
+          if (fallbackData && fallbackData.length > 0) {
+            console.log(`[TRANSCODE] Film "${fallbackData[0].title}" trouvé par fallback (filename) → marqué comme transcodé`)
+          } else {
+            console.error(`[TRANSCODE] IMPOSSIBLE de marquer le film comme transcodé: ${filename} — il restera invisible`)
+          }
         }
       }
     } catch (error) {
-      console.error(`[TRANSCODE] Erreur markAsTranscoded:`, error)
+      console.error(`[TRANSCODE] Erreur markAsTranscoded ${filename}:`, error)
     }
   }
 

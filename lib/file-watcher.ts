@@ -391,6 +391,8 @@ class FileWatcher {
    * Scan initial pour connaître les fichiers existants (films + séries)
    */
   private async initialScan(): Promise<void> {
+    const previousCount = this.knownFiles.size
+    
     const scanDir = async (dir: string) => {
       try {
         const entries = await readdir(dir, { withFileTypes: true })
@@ -407,8 +409,8 @@ class FileWatcher {
             }
           }
         }
-      } catch (error) {
-        // Ignorer les erreurs de permission
+      } catch {
+        // Ignorer les erreurs de permission sur certains dossiers
       }
     }
 
@@ -421,6 +423,11 @@ class FileWatcher {
       await scanDir(SERIES_DIR)
     } catch {
       // Le dossier séries n'existe pas encore
+    }
+    
+    const newFound = this.knownFiles.size - previousCount
+    if (newFound > 0) {
+      console.log(`[WATCHER] Scan initial: ${newFound} nouveau(x) fichier(s) trouvé(s) (total: ${this.knownFiles.size})`)
     }
     
     await this.saveState()
@@ -480,7 +487,13 @@ class FileWatcher {
 
     const timeout = setTimeout(async () => {
       this.pendingFiles.delete(filepath)
-      await this.processNewFile(filepath)
+      try {
+        await this.processNewFile(filepath)
+      } catch (error) {
+        // processNewFile gère déjà ses erreurs — sécurité supplémentaire
+        this.knownFiles.add(filepath)
+        console.error(`[WATCHER] Erreur inattendue processNewFile (debounce):`, error instanceof Error ? error.message : error)
+      }
     }, DEBOUNCE_MS)
 
     this.pendingFiles.set(filepath, timeout)
@@ -488,61 +501,71 @@ class FileWatcher {
 
   /**
    * Traiter un nouveau fichier détecté
+   * Garantit que le fichier est TOUJOURS ajouté à knownFiles, même en cas d'erreur
    */
   private async processNewFile(filepath: string): Promise<void> {
+    const filename = path.basename(filepath)
+
     try {
       // Vérifier que le fichier existe et est complet
       const stats = await stat(filepath)
       
       // Ignorer les fichiers trop petits (probablement incomplets)
       if (stats.size < 50 * 1024 * 1024) { // < 50MB
+        this.knownFiles.add(filepath)
         return
       }
 
-      // Attendre un peu et vérifier que la taille n'a pas changé
+      // Attendre un peu et vérifier que la taille n'a pas changé (copie en cours)
       await new Promise(resolve => setTimeout(resolve, 5000))
       const stats2 = await stat(filepath)
       
       if (stats2.size !== stats.size) {
-        // Re-programmer le traitement
+        // Fichier encore en cours d'écriture — re-programmer sans marquer comme connu
+        console.log(`[WATCHER] Fichier en cours d'écriture: ${filename} (${(stats.size / (1024*1024*1024)).toFixed(1)} Go → ${(stats2.size / (1024*1024*1024)).toFixed(1)} Go)`)
         this.handleFileEvent('change', filepath)
         return
       }
 
-      // Marquer comme connu
+      // Marquer comme connu AVANT le traitement (évite les boucles infinies)
       this.knownFiles.add(filepath)
       await this.saveState()
 
-      const filename = path.basename(filepath)
       const fileSize = (stats.size / (1024*1024*1024)).toFixed(2)
+      console.log(`[WATCHER] Nouveau fichier détecté: ${filename} (${fileSize} Go)`)
       
       // Détecter si c'est un épisode de série (fichier dans SERIES_DIR ou contient SxxExx)
       const isSeriesEpisode = filepath.startsWith(SERIES_DIR) || /S\d{1,2}E\d{1,2}/i.test(filename)
       
       if (isSeriesEpisode) {
-        // Déclencher un scan de la série
         await this.importSeriesEpisode(filepath)
       } else {
-        // IMPORTER DANS LA BASE AVEC MÉTADONNÉES TMDB
         await this.importToDatabase(filepath, stats.size)
       }
 
       // Ajouter à la queue de transcodage (films et séries)
-      const transcodingServiceModule = await import('./transcoding-service')
-      const transcodingService = transcodingServiceModule.default
-      
-      const job = await transcodingService.addToQueue(filepath, true)
-      
-      if (job) {
-        // Si le service n'est pas en cours, le démarrer
-        const serviceStats = await transcodingService.getStats()
-        if (!serviceStats.isRunning && !serviceStats.isPaused) {
-          transcodingService.start()
+      try {
+        const transcodingServiceModule = await import('./transcoding-service')
+        const transcodingService = transcodingServiceModule.default
+        
+        const job = await transcodingService.addToQueue(filepath, true)
+        
+        if (job) {
+          console.log(`[WATCHER] Ajouté à la queue de transcodage: ${filename}`)
+          // Si le service n'est pas en cours, le démarrer
+          const serviceStats = await transcodingService.getStats()
+          if (!serviceStats.isRunning && !serviceStats.isPaused) {
+            console.log(`[WATCHER] Démarrage automatique du transcodage`)
+            transcodingService.start()
+          }
         }
+      } catch (transcodeError) {
+        console.error(`[WATCHER] Erreur ajout queue transcodage ${filename}:`, transcodeError instanceof Error ? transcodeError.message : transcodeError)
       }
     } catch (error) {
-      // Le fichier n'existe peut-être plus (supprimé ou renommé)
-      console.warn(`[WATCHER] Fichier non accessible: ${path.basename(filepath)}`)
+      // Marquer comme connu même en cas d'erreur pour éviter les boucles
+      this.knownFiles.add(filepath)
+      console.error(`[WATCHER] Erreur traitement ${filename}:`, error instanceof Error ? error.message : error)
     }
   }
 
@@ -642,6 +665,8 @@ class FileWatcher {
         
         if (epError) {
           console.error(`[WATCHER] Erreur ajout épisode:`, epError.message)
+        } else {
+          console.log(`[WATCHER] Épisode importé: ${existingSeries.title} S${seasonNumber}E${episodeNumber} — is_transcoded: false`)
         }
         
         // Programmer un scan d'enrichissement différé (pour les autres épisodes potentiels)
@@ -835,10 +860,12 @@ class FileWatcher {
         .insert(mediaData)
 
       if (error) {
-        console.error(`[WATCHER] Erreur insertion base: ${error.message}`)
+        console.error(`[WATCHER] Erreur insertion base ${filename}: ${error.message}`)
+      } else {
+        console.log(`[WATCHER] Film importé en BDD: ${mediaData.title}${mediaData.year ? ` (${mediaData.year})` : ''} — is_transcoded: false`)
       }
     } catch (error) {
-      console.error(`[WATCHER] Erreur import automatique:`, error)
+      console.error(`[WATCHER] Erreur import automatique:`, error instanceof Error ? error.message : error)
     }
   }
 
@@ -893,6 +920,15 @@ class FileWatcher {
     this.pollingInterval = setInterval(async () => {
       try {
         await this.pollForNewFiles()
+
+        // Synchroniser les statuts is_transcoded (rattrapage continu)
+        try {
+          const transcodingServiceModule = await import('./transcoding-service')
+          const transcodingService = transcodingServiceModule.default
+          await transcodingService.syncTranscodedStatus()
+        } catch {
+          // Silencieux — la sync est un bonus, pas critique
+        }
       } catch (error) {
         console.error('[WATCHER] Erreur polling:', error)
       }
