@@ -730,15 +730,68 @@ class TranscodingService {
   }
 
   /**
-   * Synchroniser le statut is_transcoded en BDD avec les fichiers réellement transcodés sur disque
-   * Corrige les cas où le transcodage a réussi mais is_transcoded est resté à false
+   * Synchroniser le statut is_transcoded en BDD avec les fichiers réellement transcodés sur disque.
+   * 
+   * Deux phases :
+   * 1. Legacy fix : les médias créés avant l'ajout de la colonne is_transcoded (2026-02-06)
+   *    étaient visibles avant — on les remet à true s'ils sont passés à false par erreur.
+   * 2. Disk check : les médias récents avec is_transcoded=false → on vérifie si le
+   *    transcodage a réussi sur disque et on corrige.
    */
   async syncTranscodedStatus(): Promise<number> {
     let fixed = 0
     try {
       const { supabase } = await import('./supabase')
 
-      // Films non marqués comme transcodés
+      // === Phase 1 : Legacy fix ===
+      // Les médias créés avant la migration is_transcoded étaient tous visibles.
+      // Si un bug les a passés à false, on les remet à true.
+      const MIGRATION_DATE = '2026-02-06T00:00:00Z'
+
+      const { data: legacyMovies, error: legacyMoviesError } = await supabase
+        .from('media')
+        .select('id, title')
+        .eq('is_transcoded', false)
+        .lt('created_at', MIGRATION_DATE)
+
+      if (!legacyMoviesError && legacyMovies && legacyMovies.length > 0) {
+        const ids = legacyMovies.map(m => m.id)
+        const { error: updateError } = await supabase
+          .from('media')
+          .update({ is_transcoded: true })
+          .in('id', ids)
+
+        if (!updateError) {
+          console.log(`[TRANSCODE] Legacy fix: ${legacyMovies.length} film(s) pré-migration remis à is_transcoded=true`)
+          fixed += legacyMovies.length
+        } else {
+          console.error('[TRANSCODE] Erreur legacy fix films:', updateError.message)
+        }
+      }
+
+      const { data: legacyEpisodes, error: legacyEpisodesError } = await supabase
+        .from('episodes')
+        .select('id')
+        .eq('is_transcoded', false)
+        .lt('created_at', MIGRATION_DATE)
+
+      if (!legacyEpisodesError && legacyEpisodes && legacyEpisodes.length > 0) {
+        const ids = legacyEpisodes.map(e => e.id)
+        const { error: updateError } = await supabase
+          .from('episodes')
+          .update({ is_transcoded: true })
+          .in('id', ids)
+
+        if (!updateError) {
+          console.log(`[TRANSCODE] Legacy fix: ${legacyEpisodes.length} épisode(s) pré-migration remis à is_transcoded=true`)
+          fixed += legacyEpisodes.length
+        } else {
+          console.error('[TRANSCODE] Erreur legacy fix épisodes:', updateError.message)
+        }
+      }
+
+      // === Phase 2 : Disk check (médias récents) ===
+      // Films non marqués comme transcodés mais qui ont des fichiers sur disque
       const { data: untranscodedMedia } = await supabase
         .from('media')
         .select('id, title, pcloud_fileid')
@@ -753,7 +806,7 @@ class TranscodingService {
               .from('media')
               .update({ is_transcoded: true })
               .eq('id', media.id)
-            console.log(`[TRANSCODE] Sync: film "${media.title}" marqué comme transcodé`)
+            console.log(`[TRANSCODE] Sync disk: film "${media.title}" marqué comme transcodé`)
             fixed++
           }
         }
@@ -774,7 +827,7 @@ class TranscodingService {
               .from('episodes')
               .update({ is_transcoded: true })
               .eq('id', ep.id)
-            console.log(`[TRANSCODE] Sync: épisode S${ep.season_number}E${ep.episode_number} marqué comme transcodé`)
+            console.log(`[TRANSCODE] Sync disk: épisode S${ep.season_number}E${ep.episode_number} marqué comme transcodé`)
             fixed++
           }
         }
@@ -782,6 +835,8 @@ class TranscodingService {
 
       if (fixed > 0) {
         console.log(`[TRANSCODE] Sync terminée: ${fixed} média(s) corrigé(s)`)
+      } else {
+        console.log('[TRANSCODE] Sync: tout est à jour')
       }
     } catch (error) {
       console.error('[TRANSCODE] Erreur sync statut transcodage:', error)

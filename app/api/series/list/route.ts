@@ -63,8 +63,10 @@ export async function GET(request: Request) {
     const seriesWithEpisodes = (series || [])
       .map((serie: any) => {
         const allEpisodes = serie.episodes || []
-        // Tous les épisodes — syncTranscodedStatus gère le marquage
-        const episodes = allEpisodes
+        // Ne garder que les épisodes transcodés ou sans flag (pré-migration)
+        const episodes = allEpisodes.filter((ep: any) => 
+          ep.is_transcoded === true || ep.is_transcoded === null
+        )
         
         // Grouper par saison
         const seasonMap: Record<number, number> = {}
