@@ -896,6 +896,7 @@ class FileWatcher {
   /**
    * Scanner les dossiers pour trouver des fichiers non encore connus
    * Léger : compare les noms de fichiers avec le Set knownFiles en mémoire
+   * Résilient : marque les fichiers comme connus même en cas d'erreur de traitement
    */
   private async pollForNewFiles(): Promise<void> {
     const newFiles: string[] = []
@@ -930,13 +931,56 @@ class FileWatcher {
       // Dossier séries non accessible
     }
 
-    if (newFiles.length > 0) {
-      console.log(`[WATCHER] Polling: ${newFiles.length} nouveau(x) fichier(s) détecté(s)`)
-      for (const filepath of newFiles) {
-        // Traiter chaque fichier comme s'il venait d'être détecté par fs.watch()
-        await this.processNewFile(filepath)
+    if (newFiles.length === 0) return
+
+    console.log(`[WATCHER] Polling: ${newFiles.length} nouveau(x) fichier(s) détecté(s)`)
+
+    for (const filepath of newFiles) {
+      try {
+        // Vérifier la taille (ignorer < 50MB)
+        const stats = await stat(filepath)
+        if (stats.size < 50 * 1024 * 1024) {
+          // Fichier trop petit — le marquer comme connu pour ne pas le re-scanner
+          this.knownFiles.add(filepath)
+          continue
+        }
+
+        // Marquer comme connu AVANT le traitement pour éviter la boucle infinie
+        this.knownFiles.add(filepath)
+
+        const filename = path.basename(filepath)
+        const fileSize = (stats.size / (1024 * 1024 * 1024)).toFixed(2)
+        console.log(`[WATCHER] Polling: nouveau fichier ${filename} (${fileSize} Go)`)
+
+        // Détecter si c'est un épisode de série
+        const isSeriesEpisode = filepath.startsWith(SERIES_DIR) || /S\d{1,2}E\d{1,2}/i.test(filename)
+
+        if (isSeriesEpisode) {
+          await this.importSeriesEpisode(filepath)
+        } else {
+          await this.importToDatabase(filepath, stats.size)
+        }
+
+        // Ajouter à la queue de transcodage
+        const transcodingServiceModule = await import('./transcoding-service')
+        const transcodingService = transcodingServiceModule.default
+
+        const job = await transcodingService.addToQueue(filepath, true)
+        if (job) {
+          const serviceStats = await transcodingService.getStats()
+          if (!serviceStats.isRunning && !serviceStats.isPaused) {
+            transcodingService.start()
+          }
+        }
+      } catch (error) {
+        // Marquer quand même comme connu pour ne pas boucler
+        this.knownFiles.add(filepath)
+        console.error(`[WATCHER] Polling: erreur traitement ${path.basename(filepath)}:`, error instanceof Error ? error.message : error)
       }
     }
+
+    // Sauvegarder l'état après le batch
+    await this.saveState()
   }
 
   /**
