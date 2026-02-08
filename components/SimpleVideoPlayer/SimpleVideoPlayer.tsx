@@ -414,8 +414,17 @@ export default function SimpleVideoPlayer({
           setSelectedAudio(effectivePrefs.audioTrackIndex)
           console.log('[PLAYER] Préférence audio restaurée:', effectivePrefs.audioTrackIndex, initialPreferences ? '(épisode)' : '(localStorage)')
         } else if (data.audioTracks?.length > 0) {
-          // Sélectionner la première piste audio par défaut
-          setSelectedAudio(0)
+          // Sélection intelligente : français par défaut si disponible
+          const frenchAudioIdx = (data.audioTracks as AudioTrack[]).findIndex(t => 
+            /^(fr|fre|fra|français)$/i.test(t.language) || /français/i.test(t.language)
+          )
+          
+          if (frenchAudioIdx !== -1) {
+            setSelectedAudio(frenchAudioIdx)
+            console.log(`[PLAYER] Piste audio française détectée: index ${frenchAudioIdx} (${data.audioTracks[frenchAudioIdx].language})`)
+          } else {
+            setSelectedAudio(0)
+          }
         }
         
         if (effectivePrefs?.subtitleTrackIndex !== undefined && effectivePrefs.subtitleTrackIndex !== null) {
@@ -424,6 +433,44 @@ export default function SimpleVideoPlayer({
           // setSelectedSubtitle ne fait que mettre à jour l'UI, pas la vidéo
           pendingSubtitleApplyRef.current = effectivePrefs.subtitleTrackIndex
           console.log('[PLAYER] Préférence sous-titres restaurée:', effectivePrefs.subtitleTrackIndex, initialPreferences ? '(épisode)' : '(localStorage)')
+        } else if (data.audioTracks?.length > 0 && data.subtitleTracks?.length > 0) {
+          // Pas de préférences sauvegardées : logique intelligente selon la langue audio
+          const audioTracks = data.audioTracks as AudioTrack[]
+          const subtitles = data.subtitleTracks as SubtitleTrack[]
+          const selectedIdx = effectivePrefs?.audioTrackIndex !== undefined 
+            ? effectivePrefs.audioTrackIndex 
+            : (audioTracks.findIndex(t => /^(fr|fre|fra|français)$/i.test(t.language) || /français/i.test(t.language)) !== -1
+              ? audioTracks.findIndex(t => /^(fr|fre|fra|français)$/i.test(t.language) || /français/i.test(t.language))
+              : 0)
+          const selectedTrack = audioTracks[selectedIdx]
+          const isFrenchAudio = selectedTrack && (/^(fr|fre|fra|français)$/i.test(selectedTrack.language) || /français/i.test(selectedTrack.language))
+          
+          if (isFrenchAudio) {
+            // Audio en français → sous-titres forced uniquement (traductions langues étrangères)
+            const forcedFrIdx = subtitles.findIndex(t => 
+              t.forced === true && (/^(fr|fre|fra|français)$/i.test(t.language) || /français/i.test(t.language))
+            )
+            if (forcedFrIdx !== -1) {
+              setSelectedSubtitle(forcedFrIdx)
+              pendingSubtitleApplyRef.current = forcedFrIdx
+              console.log(`[PLAYER] Audio FR → sous-titres forced FR activés: index ${forcedFrIdx}`)
+            } else {
+              // Pas de forced → pas de sous-titres
+              console.log('[PLAYER] Audio FR → pas de sous-titres (aucun forced FR trouvé)')
+            }
+          } else {
+            // Audio non-française → sous-titres français complets par défaut
+            const frSubIdx = subtitles.findIndex(t => 
+              !t.forced && (/^(fr|fre|fra|français)$/i.test(t.language) || /français/i.test(t.language))
+            )
+            if (frSubIdx !== -1) {
+              setSelectedSubtitle(frSubIdx)
+              pendingSubtitleApplyRef.current = frSubIdx
+              console.log(`[PLAYER] Audio non-FR → sous-titres FR activés: index ${frSubIdx} (${subtitles[frSubIdx].language})`)
+            } else {
+              console.log('[PLAYER] Audio non-FR → aucun sous-titre FR disponible')
+            }
+          }
         }
       })
       .catch(err => {
