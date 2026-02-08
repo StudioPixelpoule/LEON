@@ -287,13 +287,13 @@ class FileWatcher {
     try {
       const { supabase } = await import('./supabase')
       
-      // Récupérer tous les films en BDD avec titre ET filepath
+      // Récupérer tous les films en BDD avec titre ET chemin fichier
       const { data: movies } = await supabase
         .from('media')
-        .select('title, filepath')
+        .select('title, pcloud_fileid')
       
       // Créer des sets pour recherche rapide (par filepath ET par titre normalisé)
-      const movieFilepaths = new Set((movies || []).map(m => m.filepath).filter(Boolean))
+      const movieFilepaths = new Set((movies || []).map(m => m.pcloud_fileid).filter(Boolean))
       const movieTitles = new Set((movies || []).map(m => m.title?.toLowerCase()).filter(Boolean))
       
       // Récupérer tous les épisodes avec série, saison, numéro
