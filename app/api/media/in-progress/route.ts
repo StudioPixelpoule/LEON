@@ -60,7 +60,6 @@ export async function GET(request: NextRequest) {
         .from('media')
         .select('*')
         .in('id', movieIds)
-        .or('is_transcoded.eq.true,is_transcoded.is.null')
 
       if (!mediaError && movies) {
         mediaList = movies.map(m => ({ ...m, content_type: 'movie' }))

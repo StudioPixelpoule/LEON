@@ -35,7 +35,7 @@ export async function GET(
       .from('episodes')
       .select('*')
       .eq('series_id', seriesId)
-      .or('is_transcoded.eq.true,is_transcoded.is.null') // Rétrocompatibilité
+      // Afficher tous les épisodes — syncTranscodedStatus gère le marquage
       .order('season_number', { ascending: true })
       .order('episode_number', { ascending: true })
 

@@ -103,7 +103,6 @@ export async function GET(request: NextRequest) {
         .from('media')
         .select('*')
         .in('id', mediaIds)
-        .or('is_transcoded.eq.true,is_transcoded.is.null')
       
       // Combiner les résultats
       const mediaMap = new Map((medias || []).map(m => [m.id, m]))

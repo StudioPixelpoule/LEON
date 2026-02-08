@@ -79,11 +79,10 @@ export async function GET(request: Request) {
     }
     
     // Requête optimisée : seulement les colonnes nécessaires pour l'affichage
-    // Filtre is_transcoded : n'affiche que les médias transcodés ou ceux ajoutés avant la migration
+    // Afficher tous les médias — le filtrage is_transcoded est géré par syncTranscodedStatus
     const query = supabase
       .from('media')
       .select('id, title, original_title, year, poster_url, backdrop_url, overview, rating, tmdb_id, release_date, genres, pcloud_fileid, duration, formatted_runtime, movie_cast, director, subtitles, quality, created_at')
-      .or('is_transcoded.eq.true,is_transcoded.is.null')
     
     if (sortBy === 'recent') {
       query.order('created_at', { ascending: false })
