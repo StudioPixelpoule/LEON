@@ -124,6 +124,11 @@ class TranscodingService {
       // Démarrer l'auto-save
       this.startAutoSave()
       
+      // Synchroniser les statuts is_transcoded TOUJOURS au démarrage
+      // (avant même de relancer la queue — sinon les films transcodés restent invisibles)
+      console.log('[TRANSCODE] Synchronisation is_transcoded au boot...')
+      await this.syncTranscodedStatus()
+      
       // Démarrer automatiquement si la queue n'était pas en pause
       if (this.queue.length > 0 && !this.isPaused && this.autoStartEnabled) {
         console.log('[TRANSCODE] Reprise automatique du transcodage...')
@@ -652,10 +657,12 @@ class TranscodingService {
 
   /**
    * Marquer un média comme transcodé en BDD
-   * Met à jour is_transcoded = true pour permettre l'affichage dans l'interface
+   * Met à jour is_transcoded = true pour permettre l'affichage dans l'interface.
+   * Retourne true si la mise à jour a réussi, false sinon.
    */
-  private async markAsTranscoded(filepath: string): Promise<void> {
+  private async markAsTranscoded(filepath: string): Promise<boolean> {
     const filename = path.basename(filepath)
+    let success = false
 
     try {
       const { supabase } = await import('./supabase')
@@ -672,12 +679,13 @@ class TranscodingService {
           .select('id, season_number, episode_number')
         
         if (error) {
-          console.error(`[TRANSCODE] Erreur mise à jour is_transcoded épisode ${filename}:`, error.message)
+          console.error(`[TRANSCODE] ❌ markAsTranscoded épisode ERREUR ${filename}:`, error.message)
         } else if (data && data.length > 0) {
-          console.log(`[TRANSCODE] Épisode S${data[0].season_number}E${data[0].episode_number} marqué comme transcodé → visible`)
+          console.log(`[TRANSCODE] ✅ Épisode S${data[0].season_number}E${data[0].episode_number} → is_transcoded=true → VISIBLE`)
+          success = true
         } else {
           // Aucune correspondance par filepath exact — essayer par pattern
-          console.warn(`[TRANSCODE] Aucun épisode trouvé en BDD pour: ${filepath}`)
+          console.warn(`[TRANSCODE] ⚠️ Aucun épisode trouvé par filepath exact: ${filepath}`)
           const episodeMatch = filename.match(/S(\d+)E(\d+)/i)
           if (episodeMatch) {
             const { data: fallbackData } = await supabase
@@ -689,9 +697,10 @@ class TranscodingService {
               .select('id')
             
             if (fallbackData && fallbackData.length > 0) {
-              console.log(`[TRANSCODE] Épisode trouvé par fallback (pattern filename) → marqué comme transcodé`)
+              console.log(`[TRANSCODE] ✅ Épisode (fallback filename) → is_transcoded=true → VISIBLE`)
+              success = true
             } else {
-              console.error(`[TRANSCODE] IMPOSSIBLE de marquer l'épisode comme transcodé: ${filename} — il restera invisible`)
+              console.error(`[TRANSCODE] ❌ IMPOSSIBLE marquer épisode comme transcodé: ${filename} — RESTERA INVISIBLE`)
             }
           }
         }
@@ -705,12 +714,13 @@ class TranscodingService {
           .select('id, title')
         
         if (error) {
-          console.error(`[TRANSCODE] Erreur mise à jour is_transcoded film ${filename}:`, error.message)
+          console.error(`[TRANSCODE] ❌ markAsTranscoded film ERREUR ${filename}:`, error.message)
         } else if (data && data.length > 0) {
-          console.log(`[TRANSCODE] Film "${data[0].title}" marqué comme transcodé → visible`)
+          console.log(`[TRANSCODE] ✅ Film "${data[0].title}" → is_transcoded=true → VISIBLE`)
+          success = true
         } else {
           // Aucune correspondance par filepath exact — essayer par nom de fichier
-          console.warn(`[TRANSCODE] Aucun film trouvé en BDD pour pcloud_fileid: ${filepath}`)
+          console.warn(`[TRANSCODE] ⚠️ Aucun film trouvé par pcloud_fileid exact: ${filepath}`)
           const { data: fallbackData } = await supabase
             .from('media')
             .update({ is_transcoded: true })
@@ -718,15 +728,24 @@ class TranscodingService {
             .select('id, title')
           
           if (fallbackData && fallbackData.length > 0) {
-            console.log(`[TRANSCODE] Film "${fallbackData[0].title}" trouvé par fallback (filename) → marqué comme transcodé`)
+            console.log(`[TRANSCODE] ✅ Film "${fallbackData[0].title}" (fallback filename) → is_transcoded=true → VISIBLE`)
+            success = true
           } else {
-            console.error(`[TRANSCODE] IMPOSSIBLE de marquer le film comme transcodé: ${filename} — il restera invisible`)
+            console.error(`[TRANSCODE] ❌ IMPOSSIBLE marquer film comme transcodé: ${filename} (pcloud_fileid: ${filepath}) — RESTERA INVISIBLE`)
+            console.error(`[TRANSCODE] ❌ Vérifier que le film existe en BDD et que pcloud_fileid correspond`)
           }
         }
       }
     } catch (error) {
-      console.error(`[TRANSCODE] Erreur markAsTranscoded ${filename}:`, error)
+      console.error(`[TRANSCODE] ❌ markAsTranscoded EXCEPTION ${filename}:`, error)
     }
+
+    if (!success) {
+      console.error(`[TRANSCODE] ❌ ÉCHEC markAsTranscoded pour: ${filepath}`)
+      console.error(`[TRANSCODE] ❌ syncTranscodedStatus tentera de corriger au prochain cycle (5 min)`)
+    }
+
+    return success
   }
 
   /**
@@ -871,9 +890,7 @@ class TranscodingService {
     this.isPaused = false
     console.log('[TRANSCODE] Démarrage du service de transcodage')
 
-    // Synchroniser les statuts is_transcoded au démarrage
-    // Corrige les fichiers transcodés sur disque mais non marqués en BDD
-    await this.syncTranscodedStatus()
+    // syncTranscodedStatus tourne déjà dans init() et le polling — pas besoin ici
 
     await this.saveState()
     await this.processQueue()
@@ -1437,7 +1454,13 @@ class TranscodingService {
       await writeFile(path.join(job.outputDir, '.done'), new Date().toISOString())
       
       // Marquer comme transcodé en BDD pour l'affichage dans l'interface
-      await this.markAsTranscoded(job.filepath)
+      const marked = await this.markAsTranscoded(job.filepath)
+      
+      if (!marked) {
+        // Fallback immédiat : syncTranscodedStatus corrigera via la vérification disque
+        console.warn(`[TRANSCODE] markAsTranscoded a échoué, lancement sync immédiat...`)
+        await this.syncTranscodedStatus()
+      }
       
     } catch (error) {
       // Supprimer le verrou en cas d'erreur

@@ -558,6 +558,11 @@ class FileWatcher {
             console.log(`[WATCHER] Démarrage automatique du transcodage`)
             transcodingService.start()
           }
+        } else {
+          // addToQueue retourne null = déjà transcodé sur disque
+          // → il faut forcer is_transcoded = true en BDD (BUG FIX: sinon le film reste invisible)
+          console.log(`[WATCHER] Fichier déjà transcodé, mise à jour BDD: ${filename}`)
+          await this.forceMarkAsTranscoded(filepath)
         }
       } catch (transcodeError) {
         console.error(`[WATCHER] Erreur ajout queue transcodage ${filename}:`, transcodeError instanceof Error ? transcodeError.message : transcodeError)
@@ -632,6 +637,20 @@ class FileWatcher {
         
         // Préparer les données de l'épisode
         const cleanTitle = this.cleanEpisodeTitle(filename, seriesName)
+        
+        // Vérifier si déjà transcodé sur disque
+        let alreadyTranscoded = false
+        try {
+          const transcodingModule = await import('./transcoding-service')
+          const transcodedPath = await transcodingModule.default.getTranscodedPath(filepath)
+          if (transcodedPath) {
+            alreadyTranscoded = true
+            console.log(`[WATCHER] Épisode S${seasonNumber}E${episodeNumber} déjà transcodé sur disque → is_transcoded=true dès l'import`)
+          }
+        } catch {
+          // syncTranscodedStatus rattrapera
+        }
+
         const episodeData: Record<string, unknown> = {
           series_id: existingSeries.id,
           tmdb_series_id: existingSeries.tmdb_id,
@@ -639,7 +658,7 @@ class FileWatcher {
           episode_number: episodeNumber,
           title: cleanTitle,
           filepath: filepath,
-          is_transcoded: false // Masqué jusqu'à la fin du transcodage
+          is_transcoded: alreadyTranscoded
         }
         
         // Récupérer les métadonnées TMDB si la série a un tmdb_id
@@ -666,7 +685,7 @@ class FileWatcher {
         if (epError) {
           console.error(`[WATCHER] Erreur ajout épisode:`, epError.message)
         } else {
-          console.log(`[WATCHER] Épisode importé: ${existingSeries.title} S${seasonNumber}E${episodeNumber} — is_transcoded: false`)
+          console.log(`[WATCHER] Épisode importé: ${existingSeries.title} S${seasonNumber}E${episodeNumber} — is_transcoded: ${alreadyTranscoded}`)
         }
         
         // Programmer un scan d'enrichissement différé (pour les autres épisodes potentiels)
@@ -691,15 +710,27 @@ class FileWatcher {
             return
           }
           
-          // Ajouter l'épisode
+          // Ajouter l'épisode (vérifier si déjà transcodé sur disque)
           const cleanTitle = this.cleanEpisodeTitle(filename, seriesName)
+          let epAlreadyTranscoded = false
+          try {
+            const transcodingModule = await import('./transcoding-service')
+            const transcodedPath = await transcodingModule.default.getTranscodedPath(filepath)
+            if (transcodedPath) {
+              epAlreadyTranscoded = true
+              console.log(`[WATCHER] Nouvel épisode S${seasonNumber}E${episodeNumber} déjà transcodé sur disque`)
+            }
+          } catch {
+            // syncTranscodedStatus rattrapera
+          }
+
           await supabase.from('episodes').insert({
             series_id: newSeries.id,
             season_number: seasonNumber,
             episode_number: episodeNumber,
             title: cleanTitle,
             filepath: filepath,
-            is_transcoded: false // Masqué jusqu'à la fin du transcodage
+            is_transcoded: epAlreadyTranscoded
           })
           
           // Programmer un scan d'enrichissement différé (pour récupérer les métadonnées TMDB)
@@ -767,6 +798,73 @@ class FileWatcher {
   /**
    * Importer un fichier dans la base de données avec métadonnées TMDB
    */
+  /**
+   * Force is_transcoded = true en BDD pour un fichier déjà transcodé sur disque.
+   * Appelé quand addToQueue retourne null (fichier déjà transcodé).
+   * Sans ça, le film reste is_transcoded=false et invisible dans l'interface.
+   */
+  private async forceMarkAsTranscoded(filepath: string): Promise<void> {
+    const filename = path.basename(filepath)
+    try {
+      const { supabase } = await import('./supabase')
+      const isSeries = filepath.includes('/series/') || /S\d{1,2}E\d{1,2}/i.test(filename)
+
+      if (isSeries) {
+        // Épisode : chercher par filepath exact
+        const { data, error } = await supabase
+          .from('episodes')
+          .update({ is_transcoded: true })
+          .eq('filepath', filepath)
+          .select('id, season_number, episode_number')
+
+        if (error) {
+          console.error(`[WATCHER] forceMarkAsTranscoded épisode erreur:`, error.message)
+        } else if (data && data.length > 0) {
+          console.log(`[WATCHER] ✅ Épisode S${data[0].season_number}E${data[0].episode_number} → is_transcoded=true (déjà transcodé)`)
+        } else {
+          // Fallback par ilike
+          const { data: fallback } = await supabase
+            .from('episodes')
+            .update({ is_transcoded: true })
+            .ilike('filepath', `%${filename}%`)
+            .select('id')
+          if (fallback && fallback.length > 0) {
+            console.log(`[WATCHER] ✅ Épisode (fallback) → is_transcoded=true`)
+          } else {
+            console.warn(`[WATCHER] ⚠️ Épisode non trouvé en BDD pour forceMarkAsTranscoded: ${filename}`)
+          }
+        }
+      } else {
+        // Film : chercher par pcloud_fileid
+        const { data, error } = await supabase
+          .from('media')
+          .update({ is_transcoded: true })
+          .eq('pcloud_fileid', filepath)
+          .select('id, title')
+
+        if (error) {
+          console.error(`[WATCHER] forceMarkAsTranscoded film erreur:`, error.message)
+        } else if (data && data.length > 0) {
+          console.log(`[WATCHER] ✅ Film "${data[0].title}" → is_transcoded=true (déjà transcodé)`)
+        } else {
+          // Fallback par ilike sur le nom de fichier
+          const { data: fallback } = await supabase
+            .from('media')
+            .update({ is_transcoded: true })
+            .ilike('pcloud_fileid', `%${filename}%`)
+            .select('id, title')
+          if (fallback && fallback.length > 0) {
+            console.log(`[WATCHER] ✅ Film "${fallback[0].title}" (fallback) → is_transcoded=true`)
+          } else {
+            console.warn(`[WATCHER] ⚠️ Film non trouvé en BDD pour forceMarkAsTranscoded: ${filename}`)
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`[WATCHER] Erreur forceMarkAsTranscoded ${filename}:`, error)
+    }
+  }
+
   private async importToDatabase(filepath: string, fileSize: number): Promise<void> {
     try {
       const filename = path.basename(filepath)
@@ -851,7 +949,20 @@ class FileWatcher {
         })(),
         media_type: 'movie',
         updated_at: new Date().toISOString(),
-        is_transcoded: false // Masqué jusqu'à la fin du transcodage
+        is_transcoded: false // Sera mis à true par markAsTranscoded après transcodage
+      }
+
+      // Vérifier si le fichier est déjà transcodé sur disque
+      // (cas fréquent : redémarrage du conteneur avec des fichiers pré-transcodés)
+      try {
+        const transcodingModule = await import('./transcoding-service')
+        const transcodedPath = await transcodingModule.default.getTranscodedPath(filepath)
+        if (transcodedPath) {
+          mediaData.is_transcoded = true
+          console.log(`[WATCHER] Film déjà transcodé sur disque → is_transcoded=true dès l'import`)
+        }
+      } catch {
+        // Pas grave si la vérification échoue, syncTranscodedStatus rattrapera
       }
 
       // Insérer en base
@@ -862,7 +973,7 @@ class FileWatcher {
       if (error) {
         console.error(`[WATCHER] Erreur insertion base ${filename}: ${error.message}`)
       } else {
-        console.log(`[WATCHER] Film importé en BDD: ${mediaData.title}${mediaData.year ? ` (${mediaData.year})` : ''} — is_transcoded: false`)
+        console.log(`[WATCHER] Film importé en BDD: ${mediaData.title}${mediaData.year ? ` (${mediaData.year})` : ''} — is_transcoded: ${mediaData.is_transcoded} — pcloud_fileid: ${filepath}`)
       }
     } catch (error) {
       console.error(`[WATCHER] Erreur import automatique:`, error instanceof Error ? error.message : error)
