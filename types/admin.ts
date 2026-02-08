@@ -2,7 +2,7 @@
  * Types partagés pour l'interface d'administration LEON
  */
 
-export type AdminView = 'dashboard' | 'scan' | 'library' | 'posters' | 'credits' | 'transcode' | 'stats' | 'activity' | 'users'
+export type AdminView = 'dashboard' | 'scan' | 'library' | 'posters' | 'credits' | 'transcode' | 'stats' | 'activity' | 'users' | 'requests'
 
 export interface SystemStatus {
   transcodingActive: boolean
@@ -19,6 +19,7 @@ export interface DashboardStats {
   storageGB: number
   queueSize: number
   activeViewers: number
+  pendingRequests: number
 }
 
 export type ToastType = 'success' | 'error' | 'info' | 'warning'

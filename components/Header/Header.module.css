@@ -123,6 +123,24 @@
   border-bottom-color: var(--color-white);
 }
 
+/* Bouton demande film/série */
+.requestButton {
+  background: none;
+  border: none;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.requestButton:hover {
+  color: var(--color-white);
+  transform: scale(1.1);
+}
+
 /* Menu utilisateur */
 .userMenu {
   position: relative;

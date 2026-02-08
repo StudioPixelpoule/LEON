@@ -23,7 +23,8 @@ import {
   Clock,
   Activity,
   HardDrive,
-  Menu
+  Menu,
+  MessageSquarePlus
 } from 'lucide-react'
 import styles from './admin.module.css'
 
@@ -43,6 +44,7 @@ import { TranscodeView } from '@/components/admin/views/TranscodeView'
 import { StatsView } from '@/components/admin/views/StatsView'
 import { ActivityView } from '@/components/admin/views/ActivityView'
 import { UsersView } from '@/components/admin/views/UsersView'
+import { RequestsView } from '@/components/admin/views/RequestsView'
 
 export default function AdminPageV2() {
   const [view, setView] = useState<AdminView>('dashboard')
@@ -84,10 +86,11 @@ export default function AdminPageV2() {
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), 8000)
       
-      const [transcodeRes, statsRes, watchingRes] = await Promise.all([
+      const [transcodeRes, statsRes, watchingRes, requestsRes] = await Promise.all([
         fetch('/api/transcode?quick=true', { signal: controller.signal }),
         fetch('/api/stats/dashboard', { signal: controller.signal }),
-        fetch('/api/stats/watching', { signal: controller.signal })
+        fetch('/api/stats/watching', { signal: controller.signal }),
+        fetch('/api/media-requests?status=pending', { signal: controller.signal }).catch(() => null)
       ])
       
       clearTimeout(timeout)
@@ -95,6 +98,7 @@ export default function AdminPageV2() {
       const transcodeData = await transcodeRes.json()
       const statsData = await statsRes.json()
       const watchingData = await watchingRes.json()
+      const requestsData = requestsRes && requestsRes.ok ? await requestsRes.json() : { requests: [] }
 
       // Status système
       setStatus({
@@ -114,7 +118,8 @@ export default function AdminPageV2() {
         postersToValidate: statsData.posters?.withoutPosters || 0,
         storageGB: statsData.storage?.mediaSizeGB || 0,
         queueSize: transcodeData.stats?.pendingFiles || 0,
-        activeViewers: watchingData.activeSessions?.filter((s: { isActive: boolean }) => s.isActive).length || 0
+        activeViewers: watchingData.activeSessions?.filter((s: { isActive: boolean }) => s.isActive).length || 0,
+        pendingRequests: requestsData.requests?.length || 0
       })
     } catch (error) {
       if ((error as Error).name !== 'AbortError') {
@@ -223,6 +228,16 @@ export default function AdminPageV2() {
                 <Clock className={styles.navIcon} size={18} />
                 Génériques
               </button>
+              <button
+                className={`${styles.navItem} ${view === 'requests' ? styles.active : ''}`}
+                onClick={() => handleViewChange('requests')}
+              >
+                <MessageSquarePlus className={styles.navIcon} size={18} />
+                Demandes
+                {dashboardStats && dashboardStats.pendingRequests > 0 && (
+                  <span className={styles.navBadge}>{dashboardStats.pendingRequests}</span>
+                )}
+              </button>
             </div>
 
             {/* Technique */}
@@ -290,6 +305,7 @@ export default function AdminPageV2() {
           {view === 'stats' && <StatsView />}
           {view === 'activity' && <ActivityView />}
           {view === 'users' && <UsersView />}
+          {view === 'requests' && <RequestsView />}
         </main>
       </div>
     </div>
