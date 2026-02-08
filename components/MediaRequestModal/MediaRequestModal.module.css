@@ -408,8 +408,8 @@
   .modal {
     max-width: 100%;
     max-height: none;
+    height: 100vh;
     height: 100dvh;
-    height: 100vh; /* Fallback navigateurs sans dvh */
     border-radius: 0;
     animation: none;
   }
