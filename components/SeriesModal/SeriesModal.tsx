@@ -335,8 +335,15 @@ export default function SeriesModal({ series, onClose }: SeriesModalProps) {
     const ext = currentEpisode.filepath.toLowerCase().split('.').pop()
     const needsTranscode = ext === 'mkv' || ext === 'avi'
     
+    // 🔧 FIX AUDIO: Inclure la piste audio dans l'URL HLS pour le transcodage temps réel
+    // audioStreamIndex = index FFprobe absolu, transmis entre épisodes via PlayerPreferences
+    // Garantit que FFmpeg transcode la bonne piste audio dès le départ
+    const audioParam = (needsTranscode && playerPreferences?.audioStreamIndex !== undefined)
+      ? `&audio=${playerPreferences.audioStreamIndex}`
+      : ''
+    
     const videoUrl = needsTranscode
-      ? `/api/hls?path=${encodeURIComponent(currentEpisode.filepath)}&playlist=true`
+      ? `/api/hls?path=${encodeURIComponent(currentEpisode.filepath)}&playlist=true${audioParam}`
       : `/api/stream?path=${encodeURIComponent(currentEpisode.filepath)}`
     
     // Trouver l'épisode suivant pour le auto-play

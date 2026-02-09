@@ -8,6 +8,8 @@ import { useCallback, useEffect, useState, useRef } from 'react'
 
 export interface PlayerPreferences {
   audioTrackIndex?: number
+  audioStreamIndex?: number
+  audioLanguage?: string
   subtitleTrackIndex?: number | null
   wasFullscreen?: boolean
   volume?: number
@@ -105,6 +107,8 @@ export function usePlayerPreferences(userId?: string) {
   const getInitialPreferences = useCallback((): PlayerPreferences => {
     return {
       audioTrackIndex: preferences?.audioTrackIndex ?? 0,
+      audioStreamIndex: preferences?.audioStreamIndex,
+      audioLanguage: preferences?.audioLanguage,
       subtitleTrackIndex: preferences?.subtitleTrackIndex ?? null,
       wasFullscreen: preferences?.wasFullscreen ?? false,
       volume: preferences?.volume ?? 1

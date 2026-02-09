@@ -45,6 +45,8 @@ export interface SeasonInfo {
 // Préférences à conserver entre épisodes
 export interface PlayerPreferences {
   audioTrackIndex?: number
+  audioStreamIndex?: number       // Index absolu FFprobe (pour construction URL HLS en transcodage temps réel)
+  audioLanguage?: string          // Code langue ISO (fre, eng...) pour résolution robuste entre épisodes
   subtitleTrackIndex?: number | null
   wasFullscreen?: boolean
 }
@@ -164,6 +166,7 @@ export default function SimpleVideoPlayer({
   // Menu et pistes
   const [showSettingsMenu, setShowSettingsMenu] = useState(false)
   const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([])
+  const audioTracksRef = useRef<AudioTrack[]>([]) // Ref synchronisée pour accès dans les closures (countdown, etc.)
   const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([])
   const [selectedAudio, setSelectedAudio] = useState(0)
   const [selectedSubtitle, setSelectedSubtitle] = useState<number | null>(null)
@@ -359,8 +362,11 @@ export default function SimpleVideoPlayer({
     }
     
     savePrefsTimeoutRef.current = setTimeout(() => {
+      const currentTrack = audioTracksRef.current[selectedAudio]
       savePreferences({
         audioTrackIndex: selectedAudio,
+        audioStreamIndex: currentTrack?.index,
+        audioLanguage: currentTrack?.language,
         subtitleTrackIndex: selectedSubtitle,
         volume
       })
@@ -402,47 +408,76 @@ export default function SimpleVideoPlayer({
         return res.json()
       })
       .then(data => {
-        setAudioTracks(data.audioTracks || [])
+        const tracks = (data.audioTracks || []) as AudioTrack[]
+        setAudioTracks(tracks)
+        audioTracksRef.current = tracks
         setSubtitleTracks(data.subtitleTracks || [])
         
-        // 🎬 Appliquer les préférences initiales si fournies (enchaînement d'épisodes)
-        // Sinon, utiliser les préférences sauvegardées (localStorage)
+        // 🎬 Résolution de la piste audio préférée
+        // Priorité : 1) audioLanguage (résolution robuste entre épisodes, indépendante de l'ordre des pistes)
+        //            2) audioTrackIndex (fallback numérique, compat ascendante)
+        //            3) Français par défaut si disponible
         const savedPrefs = getInitialPreferences()
         const effectivePrefs = initialPreferences || savedPrefs
         
-        if (effectivePrefs?.audioTrackIndex !== undefined && data.audioTracks?.length > effectivePrefs.audioTrackIndex) {
-          setSelectedAudio(effectivePrefs.audioTrackIndex)
-          console.log('[PLAYER] Préférence audio restaurée:', effectivePrefs.audioTrackIndex, initialPreferences ? '(épisode)' : '(localStorage)')
-        } else if (data.audioTracks?.length > 0) {
-          // Sélection intelligente : français par défaut si disponible
-          const frenchAudioIdx = (data.audioTracks as AudioTrack[]).findIndex(t => 
-            /^(fr|fre|fra|français)$/i.test(t.language) || /français/i.test(t.language)
+        let resolvedAudioIdx = 0
+        let audioResolved = false
+        
+        // 1) Résolution par code langue (plus fiable car indépendant de l'ordre des pistes entre épisodes)
+        if (effectivePrefs?.audioLanguage && tracks.length > 0) {
+          const langMatchIdx = tracks.findIndex(t => 
+            t.language.toLowerCase() === effectivePrefs.audioLanguage!.toLowerCase()
           )
-          
-          if (frenchAudioIdx !== -1) {
-            setSelectedAudio(frenchAudioIdx)
-            console.log(`[PLAYER] Piste audio française détectée: index ${frenchAudioIdx} (${data.audioTracks[frenchAudioIdx].language})`)
-          } else {
-            setSelectedAudio(0)
+          if (langMatchIdx !== -1) {
+            resolvedAudioIdx = langMatchIdx
+            audioResolved = true
+            console.log(`[PLAYER] Piste audio résolue par langue: "${effectivePrefs.audioLanguage}" → index ${langMatchIdx} (${tracks[langMatchIdx].language})`, initialPreferences ? '(épisode)' : '(localStorage)')
           }
         }
         
+        // 2) Fallback par index numérique (compat ascendante avec anciennes préférences)
+        if (!audioResolved && effectivePrefs?.audioTrackIndex !== undefined && tracks.length > effectivePrefs.audioTrackIndex) {
+          resolvedAudioIdx = effectivePrefs.audioTrackIndex
+          audioResolved = true
+          console.log('[PLAYER] Préférence audio restaurée par index:', effectivePrefs.audioTrackIndex, initialPreferences ? '(épisode)' : '(localStorage)')
+        }
+        
+        // 3) Fallback : français par défaut si disponible
+        if (!audioResolved && tracks.length > 0) {
+          const frenchAudioIdx = tracks.findIndex(t => 
+            /^(fr|fre|fra|français)$/i.test(t.language) || /français/i.test(t.language)
+          )
+          if (frenchAudioIdx !== -1) {
+            resolvedAudioIdx = frenchAudioIdx
+            console.log(`[PLAYER] Piste audio française détectée: index ${frenchAudioIdx} (${tracks[frenchAudioIdx].language})`)
+          }
+        }
+        
+        setSelectedAudio(resolvedAudioIdx)
+        // Mise à jour directe de la ref : si MANIFEST_PARSED n'a pas encore tiré,
+        // il utilisera cette valeur. Évite la désynchronisation state/ref entre les renders.
+        selectedAudioRef.current = resolvedAudioIdx
+        
+        // 🔧 FIX AUDIO: Si HLS.js est déjà initialisé (pré-transcodé), corriger la piste si nécessaire
+        // Pour le transcodage temps réel, l'URL contient déjà &audio=X via SeriesModal
+        if (hlsRef.current && hlsRef.current.audioTracks && hlsRef.current.audioTracks.length > 1) {
+          if (hlsRef.current.audioTrack !== resolvedAudioIdx) {
+            console.log(`[PLAYER] Correction audio post-fetch: HLS.js piste ${hlsRef.current.audioTrack} → ${resolvedAudioIdx}`)
+            hlsRef.current.audioTrack = resolvedAudioIdx
+          }
+        }
+        
+        // Sous-titres : préférence explicite ou sélection intelligente
         if (effectivePrefs?.subtitleTrackIndex !== undefined && effectivePrefs.subtitleTrackIndex !== null) {
           setSelectedSubtitle(effectivePrefs.subtitleTrackIndex)
           // 🔧 FIX: Stocker le sous-titre à appliquer réellement après le prochain rendu
           // setSelectedSubtitle ne fait que mettre à jour l'UI, pas la vidéo
           pendingSubtitleApplyRef.current = effectivePrefs.subtitleTrackIndex
           console.log('[PLAYER] Préférence sous-titres restaurée:', effectivePrefs.subtitleTrackIndex, initialPreferences ? '(épisode)' : '(localStorage)')
-        } else if (data.audioTracks?.length > 0 && data.subtitleTracks?.length > 0) {
-          // Pas de préférences sauvegardées : logique intelligente selon la langue audio
-          const audioTracks = data.audioTracks as AudioTrack[]
+        } else if (tracks.length > 0 && data.subtitleTracks?.length > 0) {
+          // Pas de préférences sauvegardées : logique intelligente selon la langue audio résolue
           const subtitles = data.subtitleTracks as SubtitleTrack[]
-          const selectedIdx = effectivePrefs?.audioTrackIndex !== undefined 
-            ? effectivePrefs.audioTrackIndex 
-            : (audioTracks.findIndex(t => /^(fr|fre|fra|français)$/i.test(t.language) || /français/i.test(t.language)) !== -1
-              ? audioTracks.findIndex(t => /^(fr|fre|fra|français)$/i.test(t.language) || /français/i.test(t.language))
-              : 0)
-          const selectedTrack = audioTracks[selectedIdx]
+          const selectedTrack = tracks[resolvedAudioIdx]
           const isFrenchAudio = selectedTrack && (/^(fr|fre|fra|français)$/i.test(selectedTrack.language) || /français/i.test(selectedTrack.language))
           
           if (isFrenchAudio) {
@@ -658,8 +693,11 @@ export default function SimpleVideoPlayer({
       if (nextEpisode && onNextEpisode && !isNextEpisodeCancelled && !showNextEpisodeUI) {
         console.log('[PLAYER] Vidéo terminée, passage direct à l\'épisode suivant:', nextEpisode.title)
         // 🔧 FIX: Utiliser les refs pour avoir les valeurs actuelles
+        const currentTrack = audioTracksRef.current[selectedAudioRef.current]
         const preferences: PlayerPreferences = {
           audioTrackIndex: selectedAudioRef.current,
+          audioStreamIndex: currentTrack?.index,
+          audioLanguage: currentTrack?.language,
           subtitleTrackIndex: selectedSubtitleRef.current,
           wasFullscreen: isFullscreenRef.current
         }
@@ -717,8 +755,11 @@ export default function SimpleVideoPlayer({
         }
         
         // 🔧 FIX: Utiliser les refs pour avoir les valeurs actuelles (pas de closure stale)
+        const currentTrack = audioTracksRef.current[selectedAudioRef.current]
         const preferences: PlayerPreferences = {
           audioTrackIndex: selectedAudioRef.current,
+          audioStreamIndex: currentTrack?.index,
+          audioLanguage: currentTrack?.language,
           subtitleTrackIndex: selectedSubtitleRef.current,
           wasFullscreen: isFullscreenRef.current
         }
@@ -906,11 +947,13 @@ export default function SimpleVideoPlayer({
           }
           
           // 🔧 FIX AUDIO: Appliquer la piste audio préférée sur HLS.js après chargement du manifeste
-          // selectedAudioRef contient la valeur à jour (mise à jour par le useEffect de synchronisation)
+          // selectedAudioRef contient la valeur à jour (mise à jour par media-info fetch ou useEffect sync)
           if (hls.audioTracks && hls.audioTracks.length > 1) {
             const preferredIdx = selectedAudioRef.current
-            if (preferredIdx > 0 && preferredIdx < hls.audioTracks.length) {
-              console.log(`[PLAYER] Application piste audio préférée: ${preferredIdx} (${hls.audioTracks[preferredIdx]?.name || hls.audioTracks[preferredIdx]?.lang})`)
+            // 🔧 FIX: >= 0 au lieu de > 0 pour couvrir TOUS les index valides (y compris 0)
+            // Toujours forcer l'application pour garantir la cohérence, même si c'est l'index 0
+            if (preferredIdx >= 0 && preferredIdx < hls.audioTracks.length && hls.audioTrack !== preferredIdx) {
+              console.log(`[PLAYER] MANIFEST_PARSED: application piste audio préférée: ${preferredIdx} (${hls.audioTracks[preferredIdx]?.name || hls.audioTracks[preferredIdx]?.lang})`)
               hls.audioTrack = preferredIdx
             }
           }
@@ -2581,9 +2624,12 @@ export default function SimpleVideoPlayer({
                 if (mediaId) {
                   markAsFinished()
                 }
-                // Lancer avec préférences
+                // Lancer avec préférences (langue + index FFprobe pour résolution robuste)
+                const currentTrack = audioTracks[selectedAudio]
                 const preferences: PlayerPreferences = {
                   audioTrackIndex: selectedAudio,
+                  audioStreamIndex: currentTrack?.index,
+                  audioLanguage: currentTrack?.language,
                   subtitleTrackIndex: selectedSubtitle,
                   wasFullscreen: isFullscreen
                 }
@@ -2700,8 +2746,11 @@ export default function SimpleVideoPlayer({
               <button 
                 className={styles.episodeBtn}
                 onClick={() => {
+                  const currentTrack = audioTracks[selectedAudio]
                   const preferences: PlayerPreferences = {
                     audioTrackIndex: selectedAudio,
+                    audioStreamIndex: currentTrack?.index,
+                    audioLanguage: currentTrack?.language,
                     subtitleTrackIndex: selectedSubtitle,
                     wasFullscreen: isFullscreen
                   }
@@ -3309,8 +3358,11 @@ export default function SimpleVideoPlayer({
                       className={`${styles.episodeItem} ${isCurrent ? styles.currentEpisode : ''}`}
                       onClick={() => {
                         if (!isCurrent && onEpisodeSelect) {
+                          const currentTrack = audioTracks[selectedAudio]
                           const preferences: PlayerPreferences = {
                             audioTrackIndex: selectedAudio,
+                            audioStreamIndex: currentTrack?.index,
+                            audioLanguage: currentTrack?.language,
                             subtitleTrackIndex: selectedSubtitle,
                             wasFullscreen: isFullscreen
                           }

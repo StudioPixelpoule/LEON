@@ -35,6 +35,8 @@ export interface NextEpisodeInfo {
 // Préférences à conserver entre épisodes
 export interface PlayerPreferences {
   audioTrackIndex?: number
+  audioStreamIndex?: number       // Index absolu FFprobe (pour construction URL HLS en transcodage temps réel)
+  audioLanguage?: string          // Code langue ISO (fre, eng...) pour résolution robuste entre épisodes
   subtitleTrackIndex?: number | null
   wasFullscreen?: boolean
   volume?: number

@@ -15,6 +15,8 @@ export interface NextEpisodeInfo {
 
 export interface PlayerPreferences {
   audioTrackIndex?: number
+  audioStreamIndex?: number
+  audioLanguage?: string
   subtitleTrackIndex?: number | null
   wasFullscreen?: boolean
 }
