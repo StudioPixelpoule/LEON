@@ -122,6 +122,7 @@ export const config = {
      * Match:
      * - Toutes les pages (sauf static)
      * - /api/admin/* (routes admin protégées)
+     * Note: /api/* est exclu sauf /api/admin/*
      */
     '/((?!_next/static|_next/image|favicon.ico|public|placeholder|api(?!/admin)).*)',
   ],

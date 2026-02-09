@@ -377,7 +377,8 @@ async function runScanInBackground() {
             season_number: ep.season,
             episode_number: ep.episode,
             title: cleanTitle,
-            filepath: ep.filepath
+            filepath: ep.filepath,
+            is_transcoded: false // Masqué jusqu'à la fin du transcodage
           })
             
             if (epError) {
@@ -512,7 +513,8 @@ async function runScanInBackground() {
             season_number: ep.season,
             episode_number: ep.episode,
             title: tmdbEpisode?.name || cleanEpisodeTitle(ep.filename, seriesName),
-            filepath: ep.filepath
+            filepath: ep.filepath,
+            is_transcoded: false // Masqué jusqu'à la fin du transcodage
           }
           
           // Ajouter les données TMDB si disponibles
