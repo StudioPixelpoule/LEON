@@ -139,6 +139,15 @@ export async function POST(request: NextRequest) {
           kept: result.kept
         })
 
+      case 'sync-transcoded':
+        // Synchronise le statut is_transcoded en vérifiant les fichiers sur disque
+        const fixed = await transcodingService.syncTranscodedStatus()
+        return NextResponse.json({ 
+          success: true, 
+          message: `${fixed} média(s) synchronisé(s)`,
+          fixed
+        })
+
       default:
         return NextResponse.json(
           { error: `Action inconnue: ${action}` },
