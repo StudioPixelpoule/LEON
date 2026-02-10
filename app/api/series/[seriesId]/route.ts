@@ -30,12 +30,11 @@ export async function GET(
       )
     }
 
-    // Récupérer tous les épisodes transcodés groupés par saison
-    const { data: episodes, error: episodesError } = await supabase
+    // Récupérer TOUS les épisodes pour vérifier le statut de transcodage
+    const { data: allEpisodes, error: episodesError } = await supabase
       .from('episodes')
       .select('*')
       .eq('series_id', seriesId)
-      .or('is_transcoded.eq.true,is_transcoded.is.null')
       .order('season_number', { ascending: true })
       .order('episode_number', { ascending: true })
 
@@ -46,6 +45,28 @@ export async function GET(
         { status: 500 }
       )
     }
+
+    // 🔑 Vérifier si la série est en cours de transcodage
+    const notTranscodedCount = (allEpisodes || []).filter(
+      (ep: any) => ep.is_transcoded === false
+    ).length
+
+    if (notTranscodedCount > 0) {
+      // Série en cours de transcodage - accès refusé
+      return NextResponse.json(
+        { 
+          error: 'Série en cours de transcodage',
+          message: `${notTranscodedCount} épisode(s) en cours de traitement`,
+          transcoding: true
+        },
+        { status: 503 }
+      )
+    }
+
+    // Filtrer pour ne garder que les épisodes transcodés
+    const episodes = (allEpisodes || []).filter(
+      (ep: any) => ep.is_transcoded === true || ep.is_transcoded === null
+    )
 
     // Grouper par saison
     const seasonMap: Record<number, any[]> = {}

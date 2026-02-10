@@ -59,11 +59,30 @@ export async function GET(request: Request) {
       )
     }
 
-    // Transformer les données - ne garder que les épisodes transcodés
+    // Transformer les données - cacher les séries en cours de transcodage
     const seriesWithEpisodes = (series || [])
       .map((serie: any) => {
         const allEpisodes = serie.episodes || []
-        // Ne garder que les épisodes transcodés ou sans flag (pré-migration)
+        
+        // Compter les épisodes par statut de transcodage
+        const transcodedCount = allEpisodes.filter((ep: any) => 
+          ep.is_transcoded === true || ep.is_transcoded === null
+        ).length
+        const notTranscodedCount = allEpisodes.filter((ep: any) => 
+          ep.is_transcoded === false
+        ).length
+        const totalCount = allEpisodes.length
+        
+        // 🔑 RÈGLE: Si au moins un épisode est en cours de transcodage (is_transcoded=false),
+        // la série entière est cachée jusqu'à ce que TOUS les épisodes soient transcodés
+        const hasUnfinishedTranscoding = notTranscodedCount > 0
+        
+        if (hasUnfinishedTranscoding) {
+          // Série en cours de transcodage - on la cache complètement
+          return null
+        }
+        
+        // Tous les épisodes sont transcodés - afficher la série
         const episodes = allEpisodes.filter((ep: any) => 
           ep.is_transcoded === true || ep.is_transcoded === null
         )
@@ -90,8 +109,8 @@ export async function GET(request: Request) {
           totalEpisodes: episodes.length
         }
       })
-      // Ne garder que les séries qui ont au moins un épisode transcodé
-      .filter((serie: any) => serie.totalEpisodes > 0)
+      // Filtrer les séries nulles (en cours de transcodage) et celles sans épisodes
+      .filter((serie: any) => serie !== null && serie.totalEpisodes > 0)
     
     // Mettre à jour le cache
     seriesCache = {
