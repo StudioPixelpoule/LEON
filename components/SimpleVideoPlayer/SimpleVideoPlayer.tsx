@@ -1379,7 +1379,23 @@ export default function SimpleVideoPlayer({
     const handleWaiting = () => setIsLoading(true)
     const handlePlaying = () => setIsLoading(false)
     const handleSeeking = () => setIsSeeking(true)
-    const handleSeeked = () => setIsSeeking(false)
+    const handleSeeked = () => {
+      setIsSeeking(false)
+      
+      // 🔧 FIX: Resynchroniser les sous-titres après un seek
+      // Le navigateur ne recalcule pas toujours les activeCues correctement
+      const textTracks = Array.from(video.textTracks)
+      const activeTrack = textTracks.find(t => t.mode === 'showing')
+      if (activeTrack) {
+        // Force refresh: désactiver puis réactiver le track
+        activeTrack.mode = 'disabled'
+        // Utiliser requestAnimationFrame pour le réactiver au prochain frame
+        requestAnimationFrame(() => {
+          activeTrack.mode = 'showing'
+          console.log(`[PLAYER] Sous-titres resynchronisés après seek à ${video.currentTime.toFixed(1)}s`)
+        })
+      }
+    }
     
     const handleError = () => {
       if (video.error) {
