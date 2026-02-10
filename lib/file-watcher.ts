@@ -256,27 +256,92 @@ class FileWatcher {
   
   /**
    * Extraire les infos d'un épisode depuis le chemin
+   * Supporte plusieurs formats de nommage :
+   * - S01E02, s01e02 (standard)
+   * - E02, e02 (sans saison - utilise le dossier parent)
+   * - 1x02 (format alternatif)
+   * - Episode 02, Ep 02, Ep.02
    */
   private extractEpisodeInfo(filepath: string): { seriesName: string; season: number; episode: number } | null {
     const filename = path.basename(filepath)
-    const episodeMatch = filename.match(/S(\d{1,2})E(\d{1,2})/i)
-    if (!episodeMatch) return null
+    let season: number | null = null
+    let episode: number | null = null
     
-    const season = parseInt(episodeMatch[1])
-    const episode = parseInt(episodeMatch[2])
+    // Pattern 1: S01E02 (standard)
+    const standardMatch = filename.match(/S(\d{1,2})E(\d{1,3})/i)
+    if (standardMatch) {
+      season = parseInt(standardMatch[1])
+      episode = parseInt(standardMatch[2])
+    }
+    
+    // Pattern 2: 1x02 (format alternatif)
+    if (!episode) {
+      const altMatch = filename.match(/(\d{1,2})x(\d{1,3})/i)
+      if (altMatch) {
+        season = parseInt(altMatch[1])
+        episode = parseInt(altMatch[2])
+      }
+    }
+    
+    // Pattern 3: E02 sans saison (mini-séries, youtube)
+    if (!episode) {
+      const simpleMatch = filename.match(/[^S]E(\d{1,3})/i) || filename.match(/^E(\d{1,3})/i)
+      if (simpleMatch) {
+        episode = parseInt(simpleMatch[1])
+        // Saison sera déduite du dossier parent
+      }
+    }
+    
+    // Pattern 4: Episode 02, Ep 02, Ep.02
+    if (!episode) {
+      const epMatch = filename.match(/(?:Episode|Ep\.?)\s*(\d{1,3})/i)
+      if (epMatch) {
+        episode = parseInt(epMatch[1])
+      }
+    }
+    
+    // Pattern 5: Pilote 01, Pilote01
+    if (!episode) {
+      const pilotMatch = filename.match(/Pilote\s*(\d{1,3})/i)
+      if (pilotMatch) {
+        episode = parseInt(pilotMatch[1])
+        season = 0 // Les pilotes vont dans la saison 0
+      }
+    }
+    
+    if (!episode) return null
     
     // Extraire le nom de la série depuis le dossier parent
     let seriesPath = path.dirname(filepath)
-    let seriesName = path.basename(seriesPath)
+    let folderName = path.basename(seriesPath)
     
-    // Si dans un dossier de saison, remonter
-    const seasonPatterns = [/^Season\s*\d+$/i, /^Saison\s*\d+$/i, /^S\d{1,2}$/i, /\sS\d{1,2}$/i]
-    if (seasonPatterns.some(p => p.test(seriesName))) {
-      seriesPath = path.dirname(seriesPath)
-      seriesName = path.basename(seriesPath)
+    // Si dans un dossier de saison, extraire le numéro ET remonter
+    const seasonPatterns = [
+      /^Season\s*(\d+)$/i, 
+      /^Saison\s*(\d+)$/i, 
+      /^S(\d{1,2})$/i, 
+      /\sS(\d{1,2})$/i,
+      /^Livre\s*(\d+)/i,  // Pour Kaamelott
+      /^Specials?$/i       // Saison 0 pour les spéciaux
+    ]
+    
+    for (const pattern of seasonPatterns) {
+      const match = folderName.match(pattern)
+      if (match) {
+        // Si on n'a pas encore de saison, la prendre du dossier
+        if (season === null) {
+          season = /Specials?/i.test(folderName) ? 0 : parseInt(match[1])
+        }
+        seriesPath = path.dirname(seriesPath)
+        folderName = path.basename(seriesPath)
+        break
+      }
     }
     
-    return { seriesName: seriesName.toLowerCase(), season, episode }
+    // Default saison 1 si toujours pas trouvé
+    if (season === null) season = 1
+    
+    return { seriesName: folderName.toLowerCase(), season, episode }
   }
 
   /**

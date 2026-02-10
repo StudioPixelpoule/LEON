@@ -684,8 +684,10 @@ class TranscodingService {
           console.log(`[TRANSCODE] ✅ Épisode S${data[0].season_number}E${data[0].episode_number} → is_transcoded=true → VISIBLE`)
           success = true
         } else {
-          // Aucune correspondance par filepath exact — essayer par pattern
+          // Aucune correspondance par filepath exact — essayer plusieurs stratégies
           console.warn(`[TRANSCODE] ⚠️ Aucun épisode trouvé par filepath exact: ${filepath}`)
+          
+          // Stratégie 1: Pattern S00E00
           const episodeMatch = filename.match(/S(\d+)E(\d+)/i)
           if (episodeMatch) {
             const { data: fallbackData } = await supabase
@@ -697,7 +699,41 @@ class TranscodingService {
               .select('id')
             
             if (fallbackData && fallbackData.length > 0) {
-              console.log(`[TRANSCODE] ✅ Épisode (fallback filename) → is_transcoded=true → VISIBLE`)
+              console.log(`[TRANSCODE] ✅ Épisode (fallback S00E00) → is_transcoded=true → VISIBLE`)
+              success = true
+            }
+          }
+          
+          // Stratégie 2: Pattern E00 sans saison (pour les mini-séries)
+          if (!success) {
+            const simpleMatch = filename.match(/[^S]E(\d+)/i) || filename.match(/^E(\d+)/i)
+            if (simpleMatch) {
+              const { data: fallbackData } = await supabase
+                .from('episodes')
+                .update({ is_transcoded: true })
+                .eq('episode_number', parseInt(simpleMatch[1]))
+                .ilike('filepath', `%${filename}%`)
+                .select('id')
+              
+              if (fallbackData && fallbackData.length > 0) {
+                console.log(`[TRANSCODE] ✅ Épisode (fallback E00) → is_transcoded=true → VISIBLE`)
+                success = true
+              }
+            }
+          }
+          
+          // Stratégie 3: Recherche par nom de fichier uniquement (dernier recours)
+          if (!success) {
+            // Extraire le nom de base sans extension
+            const baseName = filename.replace(/\.(mkv|mp4|avi|m4v)$/i, '')
+            const { data: fallbackData } = await supabase
+              .from('episodes')
+              .update({ is_transcoded: true })
+              .ilike('filepath', `%${baseName}%`)
+              .select('id, season_number, episode_number')
+            
+            if (fallbackData && fallbackData.length > 0) {
+              console.log(`[TRANSCODE] ✅ Épisode (fallback basename) S${fallbackData[0].season_number}E${fallbackData[0].episode_number} → is_transcoded=true → VISIBLE`)
               success = true
             } else {
               console.error(`[TRANSCODE] ❌ IMPOSSIBLE marquer épisode comme transcodé: ${filename} — RESTERA INVISIBLE`)
