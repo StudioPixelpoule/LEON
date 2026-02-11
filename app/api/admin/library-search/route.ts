@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
     if (type === 'all' || type === 'series') {
       const { data: series, error: seriesError } = await supabase
         .from('series')
-        .select('id, title, year, poster_url')
+        .select('id, title, first_air_date, poster_url')
         .ilike('title', searchPattern)
         .order('title')
         .limit(limit)
