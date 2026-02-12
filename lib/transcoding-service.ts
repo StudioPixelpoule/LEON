@@ -1159,8 +1159,36 @@ class TranscodingService {
       const data = JSON.parse(stdout)
       const streams = data.streams || []
       
+      // Codecs/tags audio non décodables (chiffrés, propriétaires)
+      const INVALID_AUDIO_TAGS = ['enca', 'encv'] // enca = encrypted audio
+      const INVALID_AUDIO_CODECS = ['none', 'unknown']
+      
       const audios = streams
         .filter((s: any) => s.codec_type === 'audio')
+        .filter((s: any) => {
+          const tag = (s.codec_tag_string || '').toLowerCase()
+          const codec = (s.codec_name || '').toLowerCase()
+          
+          // Filtrer les pistes audio chiffrées (DRM)
+          if (INVALID_AUDIO_TAGS.includes(tag)) {
+            console.log(`[TRANSCODE] Piste audio chiffrée ignorée: ${s.tags?.language || 'und'} (tag: ${tag})`)
+            return false
+          }
+          
+          // Filtrer les codecs invalides ou absents
+          if (!codec || INVALID_AUDIO_CODECS.includes(codec)) {
+            console.log(`[TRANSCODE] Piste audio invalide ignorée: ${s.tags?.language || 'und'} (codec: ${codec || 'absent'})`)
+            return false
+          }
+          
+          // Filtrer les pistes avec 0 channels
+          if (s.channels === 0) {
+            console.log(`[TRANSCODE] Piste audio vide ignorée: ${s.tags?.language || 'und'} (0 channels)`)
+            return false
+          }
+          
+          return true
+        })
         .map((s: any, idx: number) => ({
           index: idx,
           language: s.tags?.language || 'und',
