@@ -80,7 +80,7 @@ export function useAudioManager({
     if (!filepath) return
     
     // Vérifier si c'est un MP4 direct (avec pistes audio intégrées)
-    const isDirectMP4 = !src.includes('/api/hls') && !src.includes('/api/hls-v2')
+    const isDirectMP4 = !src.includes('/api/hls')
     
     if (isDirectMP4) {
       // Pour MP4 directs : utiliser les audioTracks natifs du navigateur OU remuxer via API
@@ -418,10 +418,8 @@ export function useAudioManager({
       const currentPos = video.currentTime
       const wasPlaying = !video.paused
       
-      // Construire la nouvelle URL avec l'index de piste correct (API v2)
-      const newUrl = src.includes('hls-v2') 
-        ? `/api/hls-v2?path=${encodeURIComponent(filepath)}&playlist=true&audio=${track.index}`
-        : `/api/hls?path=${encodeURIComponent(filepath)}&playlist=true&audio=${track.index}`
+      // Construire la nouvelle URL avec l'index de piste correct
+      const newUrl = `/api/hls?path=${encodeURIComponent(filepath)}&playlist=true&audio=${track.index}`
       
       console.log(`[PLAYER] Rechargement stream avec piste audio ${track.index}`)
       

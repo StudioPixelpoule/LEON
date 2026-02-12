@@ -59,58 +59,60 @@ export async function GET(request: Request) {
       )
     }
 
-    // Transformer les données - cacher les séries en cours de transcodage
+    // Transformer les données — affichage par saison complète
+    // Une saison est visible seulement quand TOUS ses épisodes sont transcodés
+    // La série reste visible tant qu'au moins une saison est complète
     const seriesWithEpisodes = (series || [])
       .map((serie: any) => {
         const allEpisodes = serie.episodes || []
-        
-        // Compter les épisodes par statut de transcodage
-        const transcodedCount = allEpisodes.filter((ep: any) => 
-          ep.is_transcoded === true || ep.is_transcoded === null
-        ).length
-        const notTranscodedCount = allEpisodes.filter((ep: any) => 
-          ep.is_transcoded === false
-        ).length
-        const totalCount = allEpisodes.length
-        
-        // 🔑 RÈGLE: Si au moins un épisode est en cours de transcodage (is_transcoded=false),
-        // la série entière est cachée jusqu'à ce que TOUS les épisodes soient transcodés
-        const hasUnfinishedTranscoding = notTranscodedCount > 0
-        
-        if (hasUnfinishedTranscoding) {
-          // Série en cours de transcodage - on la cache complètement
-          return null
-        }
-        
-        // Tous les épisodes sont transcodés - afficher la série
-        const episodes = allEpisodes.filter((ep: any) => 
-          ep.is_transcoded === true || ep.is_transcoded === null
-        )
-        
+        if (allEpisodes.length === 0) return null
+
         // Grouper par saison
-        const seasonMap: Record<number, number> = {}
-        episodes.forEach((ep: any) => {
-          seasonMap[ep.season_number] = (seasonMap[ep.season_number] || 0) + 1
+        const seasonMap: Record<number, { transcoded: number; total: number }> = {}
+        allEpisodes.forEach((ep: any) => {
+          const s = ep.season_number
+          if (!seasonMap[s]) seasonMap[s] = { transcoded: 0, total: 0 }
+          seasonMap[s].total++
+          if (ep.is_transcoded === true || ep.is_transcoded === null) {
+            seasonMap[s].transcoded++
+          }
         })
 
-        const seasons = Object.entries(seasonMap)
-          .map(([season, count]) => ({
+        // Ne garder que les saisons entièrement transcodées
+        const readySeasons = Object.entries(seasonMap)
+          .filter(([, counts]) => counts.transcoded === counts.total && counts.total > 0)
+          .map(([season, counts]) => ({
             season: parseInt(season),
-            episodeCount: count
+            episodeCount: counts.transcoded
           }))
           .sort((a, b) => a.season - b.season)
+
+        // Saisons en cours de transcodage (au moins un épisode non transcodé)
+        const pendingSeasons = Object.entries(seasonMap)
+          .filter(([, counts]) => counts.transcoded < counts.total)
+          .map(([season, counts]) => ({
+            season: parseInt(season),
+            ready: counts.transcoded,
+            total: counts.total
+          }))
+
+        // Si aucune saison n'est prête, cacher la série
+        if (readySeasons.length === 0) return null
+
+        const totalReadyEpisodes = readySeasons.reduce((acc, s) => acc + s.episodeCount, 0)
 
         // Supprimer les épisodes détaillés pour alléger la réponse
         const { episodes: _, ...serieWithoutEpisodes } = serie
 
         return {
           ...serieWithoutEpisodes,
-          seasons,
-          totalEpisodes: episodes.length
+          seasons: readySeasons,
+          totalEpisodes: totalReadyEpisodes,
+          // Info optionnelle pour l'interface (saisons en préparation)
+          ...(pendingSeasons.length > 0 ? { pendingSeasons } : {})
         }
       })
-      // Filtrer les séries nulles (en cours de transcodage) et celles sans épisodes
-      .filter((serie: any) => serie !== null && serie.totalEpisodes > 0)
+      .filter((serie: any) => serie !== null)
     
     // Mettre à jour le cache
     seriesCache = {

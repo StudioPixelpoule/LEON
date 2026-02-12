@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import Hls from 'hls.js'
 import styles from './SimpleVideoPlayer.module.css'
-import { useBufferStatus } from '@/lib/hooks/useBufferStatus'
 import { usePlaybackPosition } from '@/lib/hooks/usePlaybackPosition'
 import { useNetworkResilience } from '@/lib/hooks/useNetworkResilience'
 import { usePlayerPreferences } from '@/lib/hooks/usePlayerPreferences'
@@ -213,13 +212,6 @@ export default function SimpleVideoPlayer({
     }
   })
 
-  // Buffer status (nécessite isPlaying de useVideoCore)
-  const { bufferStatus } = useBufferStatus(
-    getFilepath(), 
-    getAudioTrack(), 
-    isPlaying && isRemuxing
-  )
-
   // Position de lecture (nécessite currentTime et duration de useVideoCore)
   const { initialPosition, markAsFinished } = usePlaybackPosition({
     mediaId: mediaId || null,
@@ -403,7 +395,6 @@ export default function SimpleVideoPlayer({
         isPlaying={isPlaying}
         error={error}
         seekWarning={seekWarning}
-        bufferStatus={bufferStatus}
         showNextEpisodeUI={showNextEpisodeUI}
         nextEpisode={nextEpisode}
         nextEpisodeCountdown={nextEpisodeCountdown}

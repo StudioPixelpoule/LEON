@@ -75,7 +75,7 @@ export function useSubtitleManager({
     onCloseSettings?.()
 
     // Vérifier si c'est un MP4 direct (avec sous-titres intégrés mov_text)
-    const isDirectMP4 = !src.includes('/api/hls') && !src.includes('/api/hls-v2')
+    const isDirectMP4 = !src.includes('/api/hls')
 
     if (isDirectMP4) {
       // Pour MP4 directs : essayer d'abord les textTracks natifs, sinon utiliser /api/subtitles

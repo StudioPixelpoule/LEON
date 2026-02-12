@@ -162,7 +162,7 @@ export default function MovieModal({ movie, onClose, onPlayClick, autoPlay = fal
     const needsTranscode = ext === 'mkv' || ext === 'avi'
     
     const videoUrl = needsTranscode
-      ? `/api/hls-v2?path=${encodeURIComponent(currentEpisode.pcloud_fileid)}&playlist=true`
+      ? `/api/hls?path=${encodeURIComponent(currentEpisode.pcloud_fileid)}&playlist=true`
       : `/api/stream?path=${encodeURIComponent(currentEpisode.pcloud_fileid)}`
     
     // Utiliser SimpleVideoPlayer pour tous les formats

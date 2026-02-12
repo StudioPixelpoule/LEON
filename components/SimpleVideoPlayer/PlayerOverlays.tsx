@@ -4,8 +4,7 @@
  * 
  * Responsabilités :
  * - Loader / spinner
- * - Warning de seek (transcodage)
- * - Buffer status (remuxing)
+ * - Warning de seek
  * - Bouton play central
  * - Message d'erreur + retry
  * - Overlay épisode suivant
@@ -15,13 +14,6 @@ import styles from './SimpleVideoPlayer.module.css'
 import NextEpisodeOverlay from './NextEpisodeOverlay'
 import type { EpisodeInfo, PlayerPreferences } from './types'
 
-interface BufferStatusData {
-  currentSpeed: number
-  bufferLevel: number
-  needsBuffering: boolean
-  reason?: string
-}
-
 interface PlayerOverlaysProps {
   isLoading: boolean
   isSeeking: boolean
@@ -29,7 +21,6 @@ interface PlayerOverlaysProps {
   isPlaying: boolean
   error: string | null
   seekWarning: string | null
-  bufferStatus: BufferStatusData | null
   // Épisode suivant
   showNextEpisodeUI: boolean
   nextEpisode?: EpisodeInfo
@@ -45,7 +36,7 @@ interface PlayerOverlaysProps {
 
 export default function PlayerOverlays({
   isLoading, isSeeking, isRemuxing, isPlaying, error,
-  seekWarning, bufferStatus,
+  seekWarning,
   showNextEpisodeUI, nextEpisode, nextEpisodeCountdown,
   onNextEpisode, onPlayNextNow, onCancelNextEpisode,
   onPlayPause, onRetry, onClose
@@ -69,25 +60,6 @@ export default function PlayerOverlays({
         <div className={styles.seekWarning}>
           <span>⏳</span>
           <span>{seekWarning}</span>
-        </div>
-      )}
-      
-      {/* Buffer status (remuxing) */}
-      {bufferStatus && isRemuxing && (
-        <div className={styles.bufferStatus}>
-          <div className={styles.bufferMetric}>
-            <span className={styles.bufferLabel}>Vitesse transcode:</span>
-            <span className={styles.bufferValue}>{bufferStatus.currentSpeed.toFixed(1)}x</span>
-          </div>
-          <div className={styles.bufferMetric}>
-            <span className={styles.bufferLabel}>Buffer:</span>
-            <span className={styles.bufferValue}>{bufferStatus.bufferLevel.toFixed(1)}s</span>
-          </div>
-          {bufferStatus.needsBuffering && (
-            <div className={styles.bufferWarning}>
-              ⏳ {bufferStatus.reason}
-            </div>
-          )}
         </div>
       )}
       

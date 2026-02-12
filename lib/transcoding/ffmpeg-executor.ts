@@ -1,12 +1,17 @@
 /**
- * Exécution FFmpeg pour le transcodage HLS
- * Détection codec, probe streams, transcodage vidéo/audio, extraction sous-titres
+ * Exécution FFmpeg pour le pré-transcodage HLS
+ * 
+ * Fonctionnalités :
+ * - Single-pass multi-output : vidéo + audios + sous-titres en une seule commande
+ * - Détection framerate source + GOP dynamique
+ * - Validation post-transcodage (segments, playlists, intégrité)
+ * - Fallback séquentiel si le single-pass échoue
  */
 
 import { spawn } from 'child_process'
 import { promisify } from 'util'
 import { exec } from 'child_process'
-import { mkdir, readdir, readFile, writeFile, rm, unlink } from 'fs/promises'
+import { mkdir, readdir, readFile, writeFile, rm, unlink, stat } from 'fs/promises'
 import path from 'path'
 import { SEGMENT_DURATION } from './types'
 import type { TranscodeJob, StreamInfo, AudioInfoEntry } from './types'
@@ -36,6 +41,33 @@ export async function detectVideoCodec(filepath: string): Promise<string> {
   } catch (error) {
     console.error('[TRANSCODE] Erreur détection codec:', error)
     return 'unknown'
+  }
+}
+
+/** Détecter le framerate source pour calculer le GOP dynamiquement */
+export async function detectFramerate(filepath: string): Promise<number> {
+  try {
+    const escapedPath = escapeFilePath(filepath)
+    const { stdout } = await execAsync(
+      `ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate -of csv=p=0 '${escapedPath}'`,
+      { timeout: 30000 }
+    )
+    // r_frame_rate est au format "24000/1001" ou "25/1"
+    const raw = stdout.trim().split(',')[0]
+    const parts = raw.split('/')
+    const fps = parts.length === 2 ? parseInt(parts[0]) / parseInt(parts[1]) : parseFloat(raw)
+
+    if (isNaN(fps) || fps <= 0 || fps > 120) {
+      console.warn(`[TRANSCODE] Framerate invalide: "${raw}", fallback 24fps`)
+      return 24
+    }
+
+    const rounded = Math.round(fps * 100) / 100
+    console.log(`[TRANSCODE] Framerate détecté: ${rounded}fps (raw: "${raw}")`)
+    return rounded
+  } catch (error) {
+    console.warn('[TRANSCODE] Erreur détection framerate, fallback 24fps:', error)
+    return 24
   }
 }
 
@@ -139,13 +171,13 @@ export async function probeStreams(filepath: string): Promise<StreamInfo> {
   }
 }
 
-// ─── Extraction sous-titres ─────────────────────────────────────────────────
+// ─── Extraction sous-titres batch ───────────────────────────────────────────
 
 /**
- * Extraire les sous-titres en fichiers WebVTT
- * Note: les sous-titres bitmap (PGS, DVD) sont déjà filtrés dans probeStreams()
+ * Extraire TOUS les sous-titres en une seule commande FFmpeg (batch)
+ * Au lieu de N commandes séparées, une seule lecture du fichier source
  */
-export async function extractSubtitles(
+export async function extractSubtitlesBatch(
   filepath: string,
   outputDir: string,
   subtitles: Array<{ index: number; language: string; title?: string; codec: string }>
@@ -155,26 +187,41 @@ export async function extractSubtitles(
     return
   }
 
-  console.log(`[TRANSCODE] Extraction de ${subtitles.length} sous-titres texte...`)
+  console.log(`[TRANSCODE] Extraction batch de ${subtitles.length} sous-titres texte...`)
 
-  const extractedSubs: Array<{ language: string; title?: string; file: string }> = []
   const escapedPath = escapeFilePath(filepath)
+  const extractedSubs: Array<{ language: string; title?: string; file: string }> = []
+
+  // Construire une seule commande FFmpeg avec tous les -map 0:s:X
+  const args: string[] = ['-y', '-i', `'${escapedPath}'`]
+  const outputFiles: Array<{ sub: typeof subtitles[0]; file: string }> = []
 
   for (const sub of subtitles) {
     const outputFile = path.join(outputDir, `sub_${sub.language}_${sub.index}.vtt`)
+    args.push('-map', `0:s:${sub.index}`, '-c:s', 'webvtt', `"${outputFile}"`)
+    outputFiles.push({ sub, file: `sub_${sub.language}_${sub.index}.vtt` })
+  }
 
-    try {
-      await execAsync(
-        `ffmpeg -y -i '${escapedPath}' -map 0:s:${sub.index} -c:s webvtt "${outputFile}"`
-      )
-      console.log(`[TRANSCODE] Sous-titre extrait: ${sub.language}`)
-      extractedSubs.push({
-        language: sub.language,
-        title: sub.title,
-        file: `sub_${sub.language}_${sub.index}.vtt`
-      })
-    } catch {
-      console.warn(`[TRANSCODE] Impossible d'extraire sous-titre ${sub.language} (${sub.codec}) - ignoré`)
+  try {
+    await execAsync(`ffmpeg ${args.join(' ')}`, { timeout: 120000 })
+    console.log(`[TRANSCODE] Extraction batch réussie: ${subtitles.length} sous-titres`)
+
+    for (const { sub, file } of outputFiles) {
+      extractedSubs.push({ language: sub.language, title: sub.title, file })
+    }
+  } catch (batchError) {
+    console.warn(`[TRANSCODE] Extraction batch échouée, fallback individuel:`, batchError instanceof Error ? batchError.message.slice(0, 100) : batchError)
+
+    // Fallback : extraction individuelle (robustesse)
+    for (const { sub, file } of outputFiles) {
+      const outputFile = path.join(outputDir, file)
+      try {
+        await execAsync(`ffmpeg -y -i '${escapedPath}' -map 0:s:${sub.index} -c:s webvtt "${outputFile}"`, { timeout: 60000 })
+        console.log(`[TRANSCODE] Sous-titre extrait (individuel): ${sub.language}`)
+        extractedSubs.push({ language: sub.language, title: sub.title, file })
+      } catch {
+        console.warn(`[TRANSCODE] Impossible d'extraire sous-titre ${sub.language} (${sub.codec}) - ignoré`)
+      }
     }
   }
 
@@ -219,6 +266,88 @@ export function createMasterPlaylist(
   return lines.join('\n')
 }
 
+// ─── Validation post-transcodage ────────────────────────────────────────────
+
+/**
+ * Valide l'intégrité du transcodage avant de créer .done
+ * Retourne true si tout est correct, false sinon avec raison
+ */
+async function validateTranscodeResult(
+  outputDir: string,
+  audioInfo: AudioInfoEntry[]
+): Promise<{ valid: boolean; reason?: string }> {
+  try {
+    // 1. Vérifier que video.m3u8 existe et contient #EXT-X-ENDLIST
+    const videoPlaylistPath = path.join(outputDir, 'video.m3u8')
+    let videoPlaylist: string
+    try {
+      videoPlaylist = await readFile(videoPlaylistPath, 'utf-8')
+    } catch {
+      return { valid: false, reason: 'video.m3u8 manquant' }
+    }
+
+    if (!videoPlaylist.includes('#EXT-X-ENDLIST')) {
+      return { valid: false, reason: 'video.m3u8 ne contient pas #EXT-X-ENDLIST (transcodage incomplet)' }
+    }
+
+    // 2. Compter les segments vidéo référencés dans la playlist
+    const videoSegmentRefs = videoPlaylist.match(/video_segment\d+\.ts/g) || []
+    const expectedVideoSegments = videoSegmentRefs.length
+
+    if (expectedVideoSegments === 0) {
+      return { valid: false, reason: 'video.m3u8 ne référence aucun segment' }
+    }
+
+    // 3. Vérifier que tous les segments vidéo existent sur disque
+    const files = await readdir(outputDir)
+    const videoSegmentsOnDisk = files.filter(f => f.startsWith('video_segment') && f.endsWith('.ts'))
+
+    if (videoSegmentsOnDisk.length < expectedVideoSegments) {
+      return { 
+        valid: false, 
+        reason: `Segments vidéo manquants: ${videoSegmentsOnDisk.length}/${expectedVideoSegments} sur disque` 
+      }
+    }
+
+    // 4. Vérifier chaque piste audio
+    for (const audio of audioInfo) {
+      const audioPlaylistPath = path.join(outputDir, audio.playlist)
+      let audioPlaylist: string
+      try {
+        audioPlaylist = await readFile(audioPlaylistPath, 'utf-8')
+      } catch {
+        return { valid: false, reason: `${audio.playlist} manquant (piste audio ${audio.index})` }
+      }
+
+      if (!audioPlaylist.includes('#EXT-X-ENDLIST')) {
+        return { valid: false, reason: `${audio.playlist} incomplet (pas de #EXT-X-ENDLIST)` }
+      }
+
+      const audioSegmentRefs = audioPlaylist.match(/audio_\d+_segment\d+\.ts/g) || []
+      const audioSegmentsOnDisk = files.filter(f => f.startsWith(`audio_${audio.index}_segment`) && f.endsWith('.ts'))
+
+      if (audioSegmentsOnDisk.length < audioSegmentRefs.length) {
+        return { 
+          valid: false, 
+          reason: `Segments audio ${audio.index} manquants: ${audioSegmentsOnDisk.length}/${audioSegmentRefs.length}` 
+        }
+      }
+    }
+
+    // 5. Vérifier qu'un segment aléatoire a une taille > 0
+    const randomSegment = videoSegmentsOnDisk[Math.floor(Math.random() * videoSegmentsOnDisk.length)]
+    const segmentStat = await stat(path.join(outputDir, randomSegment))
+    if (segmentStat.size === 0) {
+      return { valid: false, reason: `Segment vide détecté: ${randomSegment}` }
+    }
+
+    console.log(`[TRANSCODE] ✅ Validation réussie: ${expectedVideoSegments} segments vidéo, ${audioInfo.length} pistes audio`)
+    return { valid: true }
+  } catch (error) {
+    return { valid: false, reason: `Erreur validation: ${error instanceof Error ? error.message : error}` }
+  }
+}
+
 // ─── Transcodage principal ──────────────────────────────────────────────────
 
 /** Callbacks pour la gestion des processus actifs */
@@ -228,6 +357,10 @@ export interface TranscodeCallbacks {
 
 /**
  * Transcoder un fichier complet (vidéo + audio + sous-titres + playlist master)
+ * 
+ * Stratégie : single-pass multi-output avec fallback séquentiel
+ * 1. Tente une seule commande FFmpeg avec tous les outputs (vidéo + N audios)
+ * 2. Si ça échoue, repasse en mode séquentiel (vidéo seule, puis audio un par un)
  */
 export async function transcodeFile(
   job: TranscodeJob,
@@ -253,19 +386,23 @@ export async function transcodeFile(
 
   const hardware = await detectHardwareCapabilities()
 
-  // Étape 1: Analyser le fichier
+  // Analyser le fichier
   const streamInfo = await probeStreams(job.filepath)
   console.log(`[TRANSCODE] Pistes détectées: ${streamInfo.audioCount} audio, ${streamInfo.subtitleCount} sous-titres`)
 
-  // Étape 2: Extraire les sous-titres en WebVTT
+  // Détecter le framerate source pour GOP dynamique
+  const fps = await detectFramerate(job.filepath)
+  const gopSize = Math.round(fps * SEGMENT_DURATION)
+  const keyintMin = Math.round(fps)
+  console.log(`[TRANSCODE] GOP dynamique: ${gopSize} frames (${fps}fps × ${SEGMENT_DURATION}s)`)
+
+  // Extraire les sous-titres en WebVTT (batch)
   if (streamInfo.subtitleCount > 0) {
-    await extractSubtitles(job.filepath, job.outputDir, streamInfo.subtitles)
+    await extractSubtitlesBatch(job.filepath, job.outputDir, streamInfo.subtitles)
   }
 
-  // Étape 3: DEMUXED HLS - Standard Netflix/YouTube
+  // Préparer les infos audio
   console.log(`[TRANSCODE] Mode DEMUXED: vidéo séparée + ${streamInfo.audioCount} audio séparés`)
-
-  // Sauvegarder les infos audio
   const audioInfo: AudioInfoEntry[] = streamInfo.audios.map((audio, idx) => ({
     index: idx,
     language: audio.language || 'und',
@@ -282,17 +419,13 @@ export async function transcodeFile(
     console.log(`[TRANSCODE] audio_info.json créé avec ${audioInfo.length} pistes`)
   }
 
-  // PASS 1: Encoder la VIDÉO (sans audio)
-  console.log(`[TRANSCODE] Pass 1: Encodage vidéo...`)
-
+  // Détecter le codec et préparer les args de décodage
   const sourceCodec = await detectVideoCodec(job.filepath)
   const isHEVC = sourceCodec === 'hevc' || sourceCodec === 'h265'
 
   if (isHEVC) {
     console.log(`[TRANSCODE] Source HEVC détectée - décodage software (CPU) + encodage hardware (GPU)`)
   }
-
-  const useHardwareDecoder = hardware.acceleration === 'vaapi' && !isHEVC
 
   let decoderArgs: string[] = []
   let videoFilter: string
@@ -310,68 +443,10 @@ export async function transcodeFile(
     videoFilter = 'format=yuv420p'
   }
 
-  const videoArgs = [
-    ...decoderArgs,
-    '-i', job.filepath,
-    '-map', '0:v:0',
-    '-an',
-    '-map_metadata', '-1',
-    '-vf', videoFilter,
-    ...hardware.encoderArgs,
-    '-g', '48',
-    '-keyint_min', '24',
-    '-sc_threshold', '0',
-    '-force_key_frames', `expr:gte(t,n_forced*${SEGMENT_DURATION})`,
-    '-f', 'hls',
-    '-hls_time', String(SEGMENT_DURATION),
-    '-hls_list_size', '0',
-    '-hls_segment_type', 'mpegts',
-    '-hls_flags', 'independent_segments',
-    '-hls_segment_filename', path.join(job.outputDir, 'video_segment%d.ts'),
-    '-hls_playlist_type', 'vod',
-    '-start_number', '0',
-    path.join(job.outputDir, 'video.m3u8')
-  ]
-
-  // PASS 2+: Encoder chaque piste AUDIO séparément
-  const audioArgsList: string[][] = []
-
-  for (let i = 0; i < streamInfo.audioCount; i++) {
-    const audioArgs = [
-      '-i', job.filepath,
-      '-map', `0:a:${i}`,
-      '-vn',
-      '-map_metadata', '-1',
-      '-c:a', 'aac',
-      '-b:a', '192k',
-      '-ac', '2',
-      '-ar', '48000',
-      '-f', 'hls',
-      '-hls_time', String(SEGMENT_DURATION),
-      '-hls_list_size', '0',
-      '-hls_segment_type', 'mpegts',
-      '-hls_flags', 'independent_segments',
-      '-hls_segment_filename', path.join(job.outputDir, `audio_${i}_segment%d.ts`),
-      '-hls_playlist_type', 'vod',
-      '-start_number', '0',
-      path.join(job.outputDir, `audio_${i}.m3u8`)
-    ]
-    audioArgsList.push(audioArgs)
-  }
-
-  // Si pas d'audio, créer un flux vidéo+audio simple
-  if (streamInfo.audioCount === 0) {
-    videoArgs.splice(videoArgs.indexOf('-an'), 1)
-    videoArgs.splice(videoArgs.indexOf('-map'), 0, '-map', '0:a?')
-  }
-
-  console.log(`[TRANSCODE] Démarrage FFmpeg vidéo...`)
-  console.log(`[TRANSCODE] Video args: ffmpeg ${videoArgs.slice(0, 10).join(' ')} ...`)
-
   // Helper pour exécuter FFmpeg et suivre la progression
   const runFFmpeg = (args: string[], label: string, progressWeight: number, progressOffset: number): Promise<void> => {
     return new Promise((resolve, reject) => {
-      console.log(`[TRANSCODE] FFmpeg ${label}: nice -n 19 ffmpeg`, args.join(' ').slice(0, 200) + '...')
+      console.log(`[TRANSCODE] FFmpeg ${label}: nice -n 19 ffmpeg`, args.join(' ').slice(0, 300) + '...')
 
       const ffmpeg = spawn('nice', ['-n', '19', 'ionice', '-c', '3', 'ffmpeg', ...args], {
         stdio: ['ignore', 'pipe', 'pipe']
@@ -423,54 +498,169 @@ export async function transcodeFile(
     })
   }
 
+  // Arguments HLS communs
+  const hlsArgs = (segmentPrefix: string, playlistName: string) => [
+    '-f', 'hls',
+    '-hls_time', String(SEGMENT_DURATION),
+    '-hls_list_size', '0',
+    '-hls_segment_type', 'mpegts',
+    '-hls_flags', 'independent_segments',
+    '-hls_segment_filename', path.join(job.outputDir, `${segmentPrefix}%d.ts`),
+    '-hls_playlist_type', 'vod',
+    '-start_number', '0',
+    path.join(job.outputDir, playlistName)
+  ]
+
   try {
-    const videoWeight = streamInfo.audioCount > 0 ? 70 : 100
-    const audioWeight = streamInfo.audioCount > 0 ? 30 / streamInfo.audioCount : 0
+    let singlePassSuccess = false
 
-    // PASS 1: Vidéo
-    await runFFmpeg(videoArgs, 'Vidéo', videoWeight, 0)
+    // ═══ TENTATIVE 1 : Single-pass multi-output ═══
+    if (streamInfo.audioCount > 0) {
+      console.log(`[TRANSCODE] 🚀 Tentative single-pass multi-output (vidéo + ${streamInfo.audioCount} audio)...`)
 
-    // PASS 2+: Audio(s)
-    for (let i = 0; i < audioArgsList.length; i++) {
-      const audioOffset = videoWeight + (i * audioWeight)
-      const label = `Audio ${i + 1}/${audioArgsList.length}`
+      const singlePassArgs: string[] = [
+        ...decoderArgs,
+        '-i', job.filepath,
+        // Output 1 : Vidéo
+        '-map', '0:v:0',
+        '-map_metadata', '-1',
+        '-vf', videoFilter,
+        ...hardware.encoderArgs,
+        '-g', String(gopSize),
+        '-keyint_min', String(keyintMin),
+        '-sc_threshold', '0',
+        '-force_key_frames', `expr:gte(t,n_forced*${SEGMENT_DURATION})`,
+        ...hlsArgs('video_segment', 'video.m3u8'),
+      ]
 
-      if (i === 0) {
-        await runFFmpeg(audioArgsList[i], label, audioWeight, audioOffset)
-      } else {
+      // Output 2+N : Audio(s)
+      for (let i = 0; i < streamInfo.audioCount; i++) {
+        singlePassArgs.push(
+          '-map', `0:a:${i}`,
+          '-c:a', 'aac',
+          '-b:a', '192k',
+          '-ac', '2',
+          '-ar', '48000',
+          ...hlsArgs(`audio_${i}_segment`, `audio_${i}.m3u8`)
+        )
+      }
+
+      try {
+        await runFFmpeg(singlePassArgs, 'Single-pass multi-output', 95, 0)
+        singlePassSuccess = true
+        console.log(`[TRANSCODE] ✅ Single-pass réussi`)
+      } catch (singlePassError) {
+        console.warn(`[TRANSCODE] ⚠️ Single-pass échoué, passage en mode séquentiel:`, singlePassError instanceof Error ? singlePassError.message.slice(0, 200) : singlePassError)
+
+        // Nettoyage des fichiers partiels du single-pass
         try {
-          await runFFmpeg(audioArgsList[i], label, audioWeight, audioOffset)
-        } catch (audioError) {
-          console.warn(`[TRANSCODE] ⚠️ Piste ${label} ignorée (non-fatale): ${audioError instanceof Error ? audioError.message : audioError}`)
-          try {
-            const audioFiles = await readdir(job.outputDir)
-            for (const file of audioFiles) {
-              if (file.startsWith(`audio_${i}_`) || file === `audio_${i}.m3u8`) {
-                await unlink(path.join(job.outputDir, file))
-              }
+          const partialFiles = await readdir(job.outputDir)
+          for (const f of partialFiles) {
+            if (f.endsWith('.ts') || f.endsWith('.m3u8')) {
+              await unlink(path.join(job.outputDir, f)).catch(() => {})
             }
-          } catch { /* Ignore les erreurs de nettoyage */ }
+          }
+        } catch { /* Ignore */ }
+      }
+    }
 
+    // ═══ TENTATIVE 2 : Fallback séquentiel ═══
+    if (!singlePassSuccess) {
+      const mode = streamInfo.audioCount > 0 ? 'Fallback séquentiel' : 'Vidéo seule (pas d\'audio)'
+      console.log(`[TRANSCODE] ${mode}...`)
+
+      const videoWeight = streamInfo.audioCount > 0 ? 70 : 100
+      const audioWeight = streamInfo.audioCount > 0 ? 25 / streamInfo.audioCount : 0
+
+      // PASS 1 : Vidéo
+      const videoArgs = [
+        ...decoderArgs,
+        '-i', job.filepath,
+        '-map', '0:v:0',
+        '-an',
+        '-map_metadata', '-1',
+        '-vf', videoFilter,
+        ...hardware.encoderArgs,
+        '-g', String(gopSize),
+        '-keyint_min', String(keyintMin),
+        '-sc_threshold', '0',
+        '-force_key_frames', `expr:gte(t,n_forced*${SEGMENT_DURATION})`,
+        ...hlsArgs('video_segment', 'video.m3u8'),
+      ]
+
+      // Si pas d'audio, mapper l'audio optionnel
+      if (streamInfo.audioCount === 0) {
+        videoArgs.splice(videoArgs.indexOf('-an'), 1)
+        videoArgs.splice(videoArgs.indexOf('-map'), 0, '-map', '0:a?')
+      }
+
+      await runFFmpeg(videoArgs, 'Vidéo (séquentiel)', videoWeight, 0)
+
+      // PASS 2+N : Audio(s)
+      for (let i = 0; i < streamInfo.audioCount; i++) {
+        const audioOffset = videoWeight + (i * audioWeight)
+        const label = `Audio ${i + 1}/${streamInfo.audioCount} (séquentiel)`
+
+        const audioArgs = [
+          '-i', job.filepath,
+          '-map', `0:a:${i}`,
+          '-vn',
+          '-map_metadata', '-1',
+          '-c:a', 'aac',
+          '-b:a', '192k',
+          '-ac', '2',
+          '-ar', '48000',
+          ...hlsArgs(`audio_${i}_segment`, `audio_${i}.m3u8`),
+        ]
+
+        if (i === 0) {
+          await runFFmpeg(audioArgs, label, audioWeight, audioOffset)
+        } else {
           try {
-            const audioInfoPath = path.join(job.outputDir, 'audio_info.json')
-            const audioInfoRaw = await readFile(audioInfoPath, 'utf-8')
-            const audioInfoParsed = JSON.parse(audioInfoRaw)
-            if (audioInfoParsed.tracks) {
-              audioInfoParsed.tracks = audioInfoParsed.tracks.filter((_: unknown, idx: number) => idx !== i)
-              await writeFile(audioInfoPath, JSON.stringify(audioInfoParsed, null, 2))
-              console.log(`[TRANSCODE] audio_info.json mis à jour (piste ${i} retirée)`)
-            }
-          } catch { /* Ignore */ }
+            await runFFmpeg(audioArgs, label, audioWeight, audioOffset)
+          } catch (audioError) {
+            console.warn(`[TRANSCODE] ⚠️ Piste ${label} ignorée (non-fatale): ${audioError instanceof Error ? audioError.message : audioError}`)
+            try {
+              const audioFiles = await readdir(job.outputDir)
+              for (const file of audioFiles) {
+                if (file.startsWith(`audio_${i}_`) || file === `audio_${i}.m3u8`) {
+                  await unlink(path.join(job.outputDir, file))
+                }
+              }
+            } catch { /* Ignore */ }
+
+            try {
+              const audioInfoPath = path.join(job.outputDir, 'audio_info.json')
+              const audioInfoRaw = await readFile(audioInfoPath, 'utf-8')
+              const audioInfoParsed = JSON.parse(audioInfoRaw)
+              if (audioInfoParsed.tracks) {
+                audioInfoParsed.tracks = audioInfoParsed.tracks.filter((_: unknown, idx: number) => idx !== i)
+                await writeFile(audioInfoPath, JSON.stringify(audioInfoParsed, null, 2))
+                console.log(`[TRANSCODE] audio_info.json mis à jour (piste ${i} retirée)`)
+              }
+            } catch { /* Ignore */ }
+          }
         }
       }
     }
 
-    // PASS FINAL: Créer le master playlist
+    // ═══ MASTER PLAYLIST ═══
     console.log(`[TRANSCODE] Création du master playlist...`)
     const masterPlaylist = createMasterPlaylist(streamInfo, audioInfo)
     await writeFile(path.join(job.outputDir, 'playlist.m3u8'), masterPlaylist)
     console.log(`[TRANSCODE] Master playlist créé`)
 
+    // ═══ VALIDATION POST-TRANSCODAGE ═══
+    console.log(`[TRANSCODE] 🔍 Validation post-transcodage...`)
+    const validation = await validateTranscodeResult(job.outputDir, audioInfo)
+
+    if (!validation.valid) {
+      console.error(`[TRANSCODE] ❌ Validation échouée: ${validation.reason}`)
+      await rm(transcodingLockPath, { force: true })
+      throw new Error(`Validation post-transcodage échouée: ${validation.reason}`)
+    }
+
+    // ═══ FINALISATION ═══
     // Supprimer le verrou et créer .done
     await rm(transcodingLockPath, { force: true })
     await writeFile(path.join(job.outputDir, '.done'), new Date().toISOString())

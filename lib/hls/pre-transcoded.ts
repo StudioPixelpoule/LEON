@@ -2,6 +2,9 @@
  * Gestion des fichiers HLS pré-transcodés
  * Sert les playlists master, variantes et segments depuis le dossier pré-transcodé.
  * Permet le seek instantané sans transcodage temps réel.
+ * 
+ * Robustesse : valide l'existence des segments sur disque et tronque la playlist
+ * si le pré-transcodage est incomplet, évitant les erreurs 404 côté player.
  */
 
 import { NextResponse } from 'next/server'
@@ -9,6 +12,9 @@ import { readFile, writeFile } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import { TRANSCODED_DIR } from '@/lib/transcoding-service'
+
+// Cache en mémoire pour les playlists validées (évite de re-vérifier à chaque requête)
+const validatedPlaylistCache = new Map<string, { content: string; validatedAt: number; isIncomplete: boolean }>()
 
 /**
  * Obtenir le répertoire pré-transcodé pour un fichier.
@@ -37,6 +43,7 @@ export function getPreTranscodedDir(filepath: string): string {
 /**
  * Vérifier si un fichier pré-transcodé est disponible.
  * Crée automatiquement .done si le transcodage est complet mais le marqueur manque.
+ * Retourne aussi true pour les transcodages partiels (ils seront tronqués à la lecture).
  */
 export async function hasPreTranscoded(filepath: string): Promise<boolean> {
   const preTranscodedDir = getPreTranscodedDir(filepath)
@@ -62,6 +69,12 @@ export async function hasPreTranscoded(filepath: string): Promise<boolean> {
       if (videoContent.includes('#EXT-X-ENDLIST')) {
         await writeFile(donePath, new Date().toISOString())
         console.log(`[HLS] 📝 .done créé automatiquement pour: ${preTranscodedDir}`)
+        return true
+      }
+      // Même sans #EXT-X-ENDLIST, si le playlist contient des segments,
+      // on le considère comme utilisable (sera tronqué aux segments existants)
+      if (videoContent.includes('.ts')) {
+        console.warn(`[HLS] ⚠️ Pré-transcodage partiel détecté: ${preTranscodedDir}`)
         return true
       }
     } catch (err) {
@@ -97,7 +110,7 @@ export async function servePreTranscoded(
   return servePreTranscodedPlaylist(originalPath, preTranscodedDir, timestamp)
 }
 
-/** Servir un segment pré-transcodé */
+/** Servir un segment pré-transcodé (avec gestion gracieuse des segments manquants) */
 async function servePreTranscodedSegment(
   preTranscodedDir: string,
   segment: string
@@ -115,11 +128,32 @@ async function servePreTranscodedSegment(
       }
     })
   } catch {
-    return NextResponse.json({ error: 'Segment non trouvé' }, { status: 404 })
+    // Au lieu d'un 404 brutal, retourner 503 avec Retry-After
+    // Cela indique à HLS.js que le segment pourrait devenir disponible
+    // et évite un arrêt complet de la lecture
+    console.warn(`[HLS-PRE] ⚠️ Segment manquant: ${segment} dans ${preTranscodedDir}`)
+    
+    // Invalider le cache de playlist pour forcer une revalidation
+    invalidatePlaylistCache(preTranscodedDir)
+    
+    return new NextResponse(
+      JSON.stringify({ 
+        error: 'Segment non disponible (pré-transcodage potentiellement incomplet)',
+        segment,
+        retryable: true 
+      }), {
+        status: 503,
+        headers: { 
+          'Content-Type': 'application/json',
+          'Retry-After': '3',
+          'X-Pre-Transcoded': 'incomplete',
+        }
+      }
+    )
   }
 }
 
-/** Servir une playlist de variante pré-transcodée */
+/** Servir une playlist de variante pré-transcodée (avec validation des segments) */
 async function servePreTranscodedVariant(
   originalPath: string,
   preTranscodedDir: string,
@@ -138,17 +172,43 @@ async function servePreTranscodedVariant(
   }
   
   try {
-    let variantContent = await readFile(variantPath, 'utf-8')
+    // Vérifier le cache de playlist validée
+    const cacheKey = `${preTranscodedDir}/${variant}`
+    const cached = validatedPlaylistCache.get(cacheKey)
+    const cacheMaxAge = 5 * 60 * 1000 // 5 minutes
     
-    // Réécrire les chemins des segments
-    variantContent = rewriteSegmentUrls(variantContent, originalPath)
-    console.log(`[${timestamp}] [HLS-PRE] ✅ Variante: ${variant}`)
+    let variantContent: string
+    let isIncomplete = false
+    
+    if (cached && (Date.now() - cached.validatedAt) < cacheMaxAge) {
+      variantContent = cached.content
+      isIncomplete = cached.isIncomplete
+    } else {
+      const rawContent = await readFile(variantPath, 'utf-8')
+      const validated = validateAndTruncatePlaylist(rawContent, preTranscodedDir)
+      variantContent = rewriteSegmentUrls(validated.content, originalPath)
+      isIncomplete = validated.isIncomplete
+      
+      // Mettre en cache
+      validatedPlaylistCache.set(cacheKey, {
+        content: variantContent,
+        validatedAt: Date.now(),
+        isIncomplete
+      })
+      
+      if (isIncomplete) {
+        console.warn(`[${timestamp}] [HLS-PRE] ⚠️ Variante ${variant} tronquée: ${validated.totalSegments} → ${validated.validSegments} segments`)
+      }
+    }
+    
+    console.log(`[${timestamp}] [HLS-PRE] ✅ Variante: ${variant}${isIncomplete ? ' (tronquée)' : ''}`)
     
     return new NextResponse(variantContent, {
       headers: {
         'Content-Type': 'application/vnd.apple.mpegurl',
-        'Cache-Control': 'public, max-age=3600',
-        'X-Pre-Transcoded': 'true',
+        // Cache plus court si playlist tronquée (le re-transcodage pourrait compléter)
+        'Cache-Control': isIncomplete ? 'no-cache' : 'public, max-age=3600',
+        'X-Pre-Transcoded': isIncomplete ? 'partial' : 'true',
       }
     })
   } catch {
@@ -246,5 +306,76 @@ async function getAudioTrackCount(preTranscodedDir: string): Promise<number> {
   } catch (error) {
     console.warn('[HLS] Erreur lecture audio_info.json:', error instanceof Error ? error.message : error)
     return 0
+  }
+}
+
+/**
+ * Valider une playlist HLS et la tronquer aux segments réellement présents sur disque.
+ * Détecte les pré-transcodages incomplets et coupe la playlist proprement.
+ */
+function validateAndTruncatePlaylist(
+  content: string,
+  preTranscodedDir: string
+): { content: string; isIncomplete: boolean; totalSegments: number; validSegments: number } {
+  const lines = content.split('\n')
+  const resultLines: string[] = []
+  let totalSegments = 0
+  let validSegments = 0
+  let isIncomplete = false
+  let lastValidExtinf: string | null = null
+  
+  for (const line of lines) {
+    // Compter les segments
+    if (line.trim().endsWith('.ts')) {
+      totalSegments++
+      const segmentFile = path.basename(line.trim())
+      const segmentPath = path.join(preTranscodedDir, segmentFile)
+      
+      if (existsSync(segmentPath)) {
+        validSegments++
+        // Ajouter le #EXTINF précédent s'il y en a un en attente
+        if (lastValidExtinf) {
+          resultLines.push(lastValidExtinf)
+          lastValidExtinf = null
+        }
+        resultLines.push(line)
+      } else {
+        // Segment manquant : on tronque ici
+        isIncomplete = true
+        lastValidExtinf = null
+        break
+      }
+    } else if (line.startsWith('#EXTINF:')) {
+      // Garder le #EXTINF en attente (il sera ajouté si le segment existe)
+      lastValidExtinf = line
+    } else if (line === '#EXT-X-ENDLIST' && isIncomplete) {
+      // Ne pas inclure #EXT-X-ENDLIST si on a tronqué
+      // (le player comprendra que le stream est terminé avec un ENDLIST propre)
+      continue
+    } else {
+      resultLines.push(line)
+    }
+  }
+  
+  // Ajouter #EXT-X-ENDLIST à la fin pour indiquer la fin propre du stream
+  // Cela évite que HLS.js tente de recharger la playlist en boucle
+  if (isIncomplete && !resultLines.includes('#EXT-X-ENDLIST')) {
+    resultLines.push('#EXT-X-ENDLIST')
+  }
+  
+  return {
+    content: resultLines.join('\n'),
+    isIncomplete,
+    totalSegments,
+    validSegments
+  }
+}
+
+/** Invalider le cache de playlist pour un dossier donné */
+function invalidatePlaylistCache(preTranscodedDir: string): void {
+  for (const key of validatedPlaylistCache.keys()) {
+    if (key.startsWith(preTranscodedDir)) {
+      validatedPlaylistCache.delete(key)
+    }
   }
 }

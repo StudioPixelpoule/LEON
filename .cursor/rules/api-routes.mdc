@@ -236,49 +236,31 @@ export async function GET(
 }
 ```
 
-## Streaming Response (HLS)
+## Streaming Response (HLS pré-transcodé)
 
 ```typescript
 // app/api/hls/route.ts (simplifié)
-import { NextRequest } from 'next/server'
-import { ffmpegManager } from '@/lib/ffmpeg-manager'
+// Sert exclusivement les fichiers pré-transcodés
+import { NextRequest, NextResponse } from 'next/server'
+import { hasPreTranscoded, servePreTranscoded } from '@/lib/hls/pre-transcoded'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
-  const path = searchParams.get('path')
+  const filepath = searchParams.get('path')
   const segment = searchParams.get('segment')
-  const playlist = searchParams.get('playlist')
   
-  if (!path) {
-    return new Response('Path requis', { status: 400 })
+  if (!filepath) {
+    return NextResponse.json({ error: 'Chemin manquant' }, { status: 400 })
   }
   
-  // Servir playlist
-  if (playlist === 'true') {
-    const m3u8 = generatePlaylist(path)
-    return new Response(m3u8, {
-      headers: {
-        'Content-Type': 'application/vnd.apple.mpegurl',
-        'Cache-Control': 'no-cache',
-      }
-    })
+  const usePreTranscoded = await hasPreTranscoded(filepath)
+  if (usePreTranscoded) {
+    return servePreTranscoded(filepath, preTranscodedDir, segment, variant, timestamp)
   }
   
-  // Servir segment
-  if (segment) {
-    const stream = await ffmpegManager.getSegment(path, parseInt(segment))
-    
-    return new Response(stream, {
-      headers: {
-        'Content-Type': 'video/MP2T',
-        'Cache-Control': 'max-age=3600',
-      }
-    })
-  }
-  
-  return new Response('Paramètres invalides', { status: 400 })
+  return NextResponse.json({ error: 'Média non transcodé' }, { status: 404 })
 }
 ```
 

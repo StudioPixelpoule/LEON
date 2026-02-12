@@ -29,7 +29,7 @@ LEON/
 ├── components/             # Composants React (CSS Modules)
 ├── lib/                    # Services et utilitaires
 │   ├── transcoding-service.ts  (1847 lignes)
-│   ├── ffmpeg-manager.ts       (452 lignes - Singleton)
+│   ├── transcoding/            # FFmpeg executor, queue, service
 │   ├── hardware-detection.ts   (218 lignes)
 │   ├── hls-config.ts           (150 lignes)
 │   ├── media-recognition/      (Identification TMDB)
@@ -41,7 +41,7 @@ LEON/
 
 ### Patterns Établis
 
-1. **Singleton FFmpegManager** — Survie HMR, limite 2 processus
+1. **TranscodingService** — Queue, limite 2 processus simultanés
 2. **CSS Modules** — Isolation styles
 3. **Server Components par défaut** — Client si interactivité
 4. **RLS Supabase** — Tables utilisateur protégées

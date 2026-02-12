@@ -57,6 +57,7 @@ class TranscodingService {
   private isRunning: boolean = false
   private isPaused: boolean = false
   private autoSaveInterval: NodeJS.Timeout | null = null
+  private syncInterval: NodeJS.Timeout | null = null
   private autoStartEnabled: boolean = true
   private initialized: boolean = false
 
@@ -91,6 +92,22 @@ class TranscodingService {
 
       console.log('[TRANSCODE] Synchronisation is_transcoded au boot...')
       await syncTranscodedStatusService()
+
+      // Cycle périodique de sync BDD (filet de sécurité toutes les 5 min)
+      if (!this.syncInterval) {
+        const SYNC_INTERVAL = 5 * 60 * 1000 // 5 minutes
+        this.syncInterval = setInterval(async () => {
+          try {
+            const fixed = await syncTranscodedStatusService()
+            if (fixed > 0) {
+              console.log(`[TRANSCODE] Sync périodique: ${fixed} média(s) corrigé(s)`)
+            }
+          } catch (error) {
+            console.warn('[TRANSCODE] Erreur sync périodique:', error instanceof Error ? error.message : error)
+          }
+        }, SYNC_INTERVAL)
+        console.log('[TRANSCODE] Sync périodique activée (toutes les 5 min)')
+      }
 
       if (this.queue.length > 0 && !this.isPaused && this.autoStartEnabled) {
         console.log('[TRANSCODE] Reprise automatique du transcodage...')

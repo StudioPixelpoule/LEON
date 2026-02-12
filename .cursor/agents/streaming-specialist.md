@@ -238,8 +238,8 @@ if (UNSUPPORTED_SUBTITLE_CODECS.includes(subtitleCodec)) {
 # Vérifier charge CPU
 docker stats leon
 
-# Sessions FFmpeg actives
-curl http://localhost:3000/api/ffmpeg-sessions
+# État du transcodage
+curl http://localhost:3000/api/transcode/status
 ```
 
 ## Métriques Clés

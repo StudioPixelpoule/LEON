@@ -65,8 +65,7 @@ LEON/
 │   ├── SimpleVideoPlayer/  # Lecteur HLS principal
 │   └── [20+ composants]
 ├── lib/                    # Services et utilitaires
-│   ├── transcoding-service.ts
-│   ├── ffmpeg-manager.ts
+│   ├── transcoding/          # Service de pré-transcodage
 │   ├── hardware-detection.ts
 │   ├── hls-config.ts
 │   ├── media-recognition/

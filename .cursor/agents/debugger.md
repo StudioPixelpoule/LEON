@@ -47,7 +47,7 @@ Je suis le debugger du projet LEON. Mon rôle est de diagnostiquer les problème
 
 | Symptôme | Cause probable | Solution |
 |----------|----------------|----------|
-| Vidéo ne démarre pas | FFmpeg non lancé | Vérifier `/api/ffmpeg-sessions` |
+| Vidéo ne démarre pas | FFmpeg non lancé | Vérifier `/api/transcode` |
 | Buffering infini | Transcodage trop lent | Vérifier CPU/GPU, réduire qualité |
 | Erreur 500 segments | Fichier source corrompu | Tester avec `ffprobe` |
 | Redémarrage à 0 | Erreur HLS.js mal gérée | Préserver `currentTime` |
@@ -58,7 +58,7 @@ Je suis le debugger du projet LEON. Mon rôle est de diagnostiquer les problème
 |----------|----------------|----------|
 | HEVC échoue | Décodage GPU impossible | Forcer décodage CPU |
 | Sous-titres 500 | Format PGS/VOBSUB | Skip formats image |
-| Processus zombie | Timeout non déclenché | Vérifier FFmpegManager cleanup |
+| Processus zombie | Timeout non déclenché | Vérifier TranscodingService cleanup |
 | Max 2 atteint | Sessions non libérées | Appeler `killSession()` |
 
 ### Base de Données
@@ -82,11 +82,8 @@ Je suis le debugger du projet LEON. Mon rôle est de diagnostiquer les problème
 ### FFmpeg
 
 ```bash
-# Sessions actives
-curl http://localhost:3000/api/ffmpeg-sessions
-
-# Stats cache
-curl http://localhost:3000/api/cache/stats
+# État transcodage (queue, stats)
+curl http://localhost:3000/api/transcode
 
 # Info fichier vidéo
 docker exec leon ffprobe -v verbose /leon/media/films/test.mkv

@@ -135,7 +135,7 @@ npx prettier --write .
 │     1. SeriesModal.tsx:55     → useState<Episode[]>              │
 │     2. useFavorites.ts:117    → FavoriteItem                     │
 │     3. api/media/route.ts:23  → MediaResponse                    │
-│     4. ffmpeg-manager.ts:89   → FFmpegProcess                    │
+│     4. transcoding/ffmpeg-executor.ts → types explicites         │
 │     5. hls-config.ts:12       → HLSConfig                        │
 │                                                                  │
 │ @ts-ignore à documenter       : 3 occurrences                    │

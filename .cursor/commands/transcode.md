@@ -6,24 +6,14 @@ Exécuter `/transcode` pour diagnostiquer les problèmes de streaming et transco
 
 ## Commandes de Diagnostic
 
-### Sessions FFmpeg Actives
+### État Transcodage
 
 ```bash
-# Via API
-curl http://localhost:3000/api/ffmpeg-sessions
+# Stats et queue via API
+curl http://localhost:3000/api/transcode
 
 # Processus système
 docker exec leon ps aux | grep ffmpeg
-```
-
-### Cache Segments
-
-```bash
-# Stats cache
-curl http://localhost:3000/api/cache/stats
-
-# Vider le cache
-curl -X POST http://localhost:3000/api/cache/clear
 ```
 
 ### Info Fichier Vidéo
@@ -75,8 +65,8 @@ docker exec leon cat /app/transcode-queue.json
 ```markdown
 ## Diagnostic
 
-1. Vérifier FFmpeg lancé
-   curl http://localhost:3000/api/ffmpeg-sessions
+1. Vérifier transcodage
+   curl http://localhost:3000/api/transcode
 
 2. Si 0 sessions :
    - Vérifier le chemin du fichier
@@ -205,17 +195,11 @@ docker exec leon ffmpeg -i /leon/media/films/test.mkv \
 ### Nettoyer Sessions Zombies
 
 ```bash
-# Kill toutes les sessions
-curl -X POST http://localhost:3000/api/transcode -d '{"action":"stop"}'
+# Arrêter le transcodage (admin)
+curl -X POST http://localhost:3000/api/transcode -H "Content-Type: application/json" -d '{"action":"stop"}'
 
 # Ou directement
 docker exec leon pkill -f ffmpeg
-```
-
-### Vider Cache
-
-```bash
-curl -X POST http://localhost:3000/api/cache/clear
 ```
 
 ### Redémarrer Container

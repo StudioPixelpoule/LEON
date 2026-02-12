@@ -27,5 +27,5 @@ export interface HlsResponseHeaders {
   [key: string]: string
 }
 
-/** Répertoire temporaire pour les segments HLS en temps réel */
+/** Répertoire temporaire pour les segments HLS (legacy, nettoyage uniquement) */
 export const HLS_TEMP_DIR = '/tmp/leon-hls'

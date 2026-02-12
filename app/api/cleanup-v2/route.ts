@@ -39,34 +39,15 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // 2. Nettoyer TOUS les caches HLS
-    const cacheDirs = [
-      '/tmp/leon-hls',
-      '/tmp/leon-hls-v2'
-    ]
-    
-    for (const dir of cacheDirs) {
-      try {
-        await rm(dir, { recursive: true, force: true })
-        console.log(`[CLEANUP] Cache nettoyé: ${dir}`)
-      } catch {
-        // Ignorer si le dossier n'existe pas
-      }
-    }
-    
-    // 3. Appeler l'API hls-v2 pour nettoyer ses processus internes
+    // 2. Nettoyer le cache HLS temporaire (legacy)
     try {
-      const response = await fetch('http://localhost:3000/api/hls-v2', {
-        method: 'DELETE'
-      })
-      if (response.ok) {
-        console.log('[CLEANUP] Processus internes HLS-v2 nettoyés')
-      }
+      await rm('/tmp/leon-hls', { recursive: true, force: true })
+      console.log(`[CLEANUP] Cache nettoyé: /tmp/leon-hls`)
     } catch {
-      // Ignorer si l'API n'est pas accessible
+      // Ignorer si le dossier n'existe pas
     }
     
-    // 4. Vérifier qu'il ne reste plus de processus
+    // 3. Vérifier qu'il ne reste plus de processus
     let remainingProcesses = 0
     try {
       const { stdout } = await execAsync('pgrep -c ffmpeg')

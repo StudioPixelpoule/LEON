@@ -190,7 +190,7 @@ Pour chaque erreur détectée:
 
 ### À scanner en priorité
 1. `lib/transcoding-service.ts` - 1847 lignes, cœur du transcodage
-2. `lib/ffmpeg-manager.ts` - 452 lignes, singleton critique
+2. `lib/transcoding/ffmpeg-executor.ts` - Exécution FFmpeg
 3. `components/SimpleVideoPlayer.tsx` - Composant vidéo principal
 4. `app/api/hls/[...path]/route.ts` - Route streaming
 5. `app/api/transcode/start/route.ts` - Démarrage transcodage

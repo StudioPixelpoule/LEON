@@ -14,102 +14,44 @@ globs: ["**/lib/*ffmpeg*", "**/lib/*transcode*", "**/lib/*hls*", "**/api/hls/**"
 │  SimpleVideoPlayer (HLS.js)                                      │
 │         │                                                        │
 │         ▼                                                        │
-│  /api/hls?path=...&segment=N                                     │
+│  /api/hls?path=...&segment=video_segmentN.ts                     │
 │         │                                                        │
-│         ├──► Pré-transcodé existe? ──► Servir segments          │
-│         │                                                        │
-│         └──► Non? ──► FFmpegManager ──► Transcodage temps réel  │
+│         └──► Pré-transcodé? ──► Servir segments                 │
+│              Non? ──► 404 (médias non transcodés masqués en UI) │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-## FFmpegManager (Singleton)
+## Pré-transcodage (ffmpeg-executor.ts)
 
-### Pourquoi Singleton?
+### Stratégie : Single-pass multi-output avec fallback
 
-- Survit au Hot Module Replacement (HMR)
-- Limite les processus FFmpeg (max 2 simultanés)
-- Cleanup automatique des orphelins
-- Gestion centralisée des sessions
+1. **Single-pass** : une seule commande FFmpeg produit vidéo + N pistes audio
+2. **Fallback séquentiel** : si ça échoue, vidéo seule puis audio un par un
+3. **Sous-titres batch** : extraction de tous les sous-titres en une commande
+4. **Validation post-transcodage** : vérification intégrité avant .done
 
-### Pattern Singleton
+### Structure sortie pré-transcodée
 
-```typescript
-// lib/ffmpeg-manager.ts
-const globalForFFmpeg = globalThis as unknown as { 
-  ffmpegManager: FFmpegManager 
-}
-
-class FFmpegManager {
-  private sessions: Map<string, FFmpegSession> = new Map()
-  private readonly MAX_CONCURRENT = 2
-  
-  static getInstance(): FFmpegManager {
-    if (!globalForFFmpeg.ffmpegManager) {
-      globalForFFmpeg.ffmpegManager = new FFmpegManager()
-    }
-    return globalForFFmpeg.ffmpegManager
-  }
-  
-  async createSession(sessionId: string, options: TranscodeOptions) {
-    // Vérifier limite
-    if (this.sessions.size >= this.MAX_CONCURRENT) {
-      await this.cleanOldestSession()
-    }
-    // ...
-  }
-}
-
-export const ffmpegManager = FFmpegManager.getInstance()
 ```
-
-### Gestion des Sessions
-
-```typescript
-interface FFmpegSession {
-  id: string
-  process: ChildProcess
-  filepath: string
-  audioTrack: number
-  startedAt: Date
-  lastActivity: Date
-}
-
-// Timeout automatique (30 min inactivité)
-const SESSION_TIMEOUT_MS = 30 * 60 * 1000
-
-// Cleanup périodique
-setInterval(() => {
-  const now = Date.now()
-  for (const [id, session] of this.sessions) {
-    if (now - session.lastActivity.getTime() > SESSION_TIMEOUT_MS) {
-      this.killSession(id)
-    }
-  }
-}, 60000)
-```
-
-## Transcodage HLS
-
-### Configuration DEMUXED HLS (multi-audio)
-
-```typescript
-// Structure sortie pré-transcodée
 /transcoded/
   Film Name/
     video.m3u8          # Playlist vidéo seule
+    video_segment0.ts   # Segments vidéo
     audio_0.m3u8        # Playlist audio piste 1
+    audio_0_segment0.ts # Segments audio
     audio_1.m3u8        # Playlist audio piste 2
     playlist.m3u8       # Master playlist combinée
     subtitles.json      # Métadonnées sous-titres
     audio_info.json     # Métadonnées pistes audio
-    .done               # Marqueur de complétion
+    sub_fra_0.vtt       # Sous-titres extraits
+    .done               # Marqueur de complétion (après validation)
 ```
 
 ### Master Playlist
 
 ```m3u8
 #EXTM3U
-#EXT-X-VERSION:7
+#EXT-X-VERSION:6
 
 #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="French",LANGUAGE="fra",URI="audio_0.m3u8",DEFAULT=YES
 #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="English",LANGUAGE="eng",URI="audio_1.m3u8"
@@ -118,204 +60,135 @@ setInterval(() => {
 video.m3u8
 ```
 
-### Commande FFmpeg Optimisée
+### GOP Dynamique
 
 ```typescript
-// Encodage avec accélération matérielle (VAAPI Linux)
-const ffmpegArgs = [
-  '-hwaccel', 'vaapi',
-  '-hwaccel_device', '/dev/dri/renderD128',
-  '-hwaccel_output_format', 'vaapi',
-  '-i', inputPath,
-  '-c:v', 'h264_vaapi',           // Encodeur GPU
-  '-profile:v', 'main',
-  '-level', '4.1',
-  '-b:v', '5M',
-  '-maxrate', '6M',
-  '-bufsize', '12M',
-  '-g', '48',                      // GOP = 2 * fps
-  '-sc_threshold', '0',
-  '-f', 'hls',
-  '-hls_time', '2',                // Segments de 2 secondes
-  '-hls_list_size', '0',
-  '-hls_segment_type', 'mpegts',
-  '-hls_flags', 'independent_segments',
-  outputPath
-]
+// Détection framerate source + calcul GOP
+const fps = await detectFramerate(filepath) // ffprobe r_frame_rate
+const gopSize = Math.round(fps * SEGMENT_DURATION)
+// 24fps × 2s = GOP 48, 25fps × 2s = GOP 50, 30fps × 2s = GOP 60
 ```
 
-### Détection Codec Source
+### Validation Post-Transcodage
+
+Avant de créer `.done`, on vérifie :
+- `video.m3u8` contient `#EXT-X-ENDLIST`
+- Nombre de segments sur disque = nombre dans la playlist
+- Chaque piste audio est complète
+- Un segment aléatoire a une taille > 0
+
+### Commande FFmpeg Single-pass
 
 ```typescript
-// lib/hardware-detection.ts
-export async function detectVideoCodec(filepath: string): Promise<string> {
-  const { stdout } = await exec(
-    `ffprobe -v error -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 "${filepath}"`
-  )
-  return stdout.trim() // 'hevc', 'h264', etc.
-}
-
-// HEVC nécessite décodage CPU + encodage GPU
-if (codec === 'hevc') {
-  args.splice(args.indexOf('-hwaccel'), 4) // Retirer hwaccel
-}
+// Single-pass multi-output (vidéo + audios en une lecture)
+const args = [
+  ...decoderArgs,
+  '-i', filepath,
+  // Output 1: Vidéo
+  '-map', '0:v:0', '-vf', videoFilter,
+  ...hardware.encoderArgs,
+  '-g', String(gopSize), '-keyint_min', String(keyintMin),
+  '-f', 'hls', '-hls_time', '2', '-hls_list_size', '0',
+  '-hls_segment_filename', 'video_segment%d.ts',
+  'video.m3u8',
+  // Output 2: Audio 0
+  '-map', '0:a:0', '-c:a', 'aac', '-b:a', '192k',
+  '-f', 'hls', '-hls_time', '2',
+  '-hls_segment_filename', 'audio_0_segment%d.ts',
+  'audio_0.m3u8',
+  // ... Output N pour chaque piste audio
+]
 ```
 
 ## Configuration HLS.js
 
-### Config Standard
+### Config Standard (pré-transcodé)
 
 ```typescript
 // lib/hls-config.ts
 export const HLS_BASE_CONFIG: Partial<HlsConfig> = {
-  // Buffer
   maxBufferLength: 45,
-  maxBufferSize: 60 * 1000 * 1000, // 60MB
-  maxMaxBufferLength: 120,
-  
-  // Latence
-  liveSyncDurationCount: 3,
-  liveMaxLatencyDurationCount: 10,
-  
-  // Stabilité
+  maxMaxBufferLength: 90,
+  maxBufferSize: 90 * 1000 * 1000,
+  backBufferLength: 45,
   maxBufferHole: 0.3,
   nudgeOffset: 0.1,
-  nudgeMaxRetry: 5,
-  
-  // Audio
+  nudgeMaxRetry: 15,
   stretchShortVideoTrack: true,
   forceKeyFrameOnDiscontinuity: true,
-  
-  // Erreurs
-  fragLoadingMaxRetry: 6,
-  manifestLoadingMaxRetry: 4,
-  levelLoadingMaxRetry: 4,
+  fragLoadingMaxRetry: 15,
+  fragLoadingRetryDelay: 1000,
+  fragLoadingMaxRetryTimeout: 120000,
+  lowLatencyMode: false, // VOD, pas live
 }
 ```
 
-### Config Démarrage Rapide
+## Accélération Matérielle
+
+### VAAPI (NAS Synology Intel Quick Sync)
 
 ```typescript
-export const HLS_FAST_START_CONFIG: Partial<HlsConfig> = {
-  ...HLS_BASE_CONFIG,
-  maxBufferLength: 30,
-  maxMaxBufferLength: 60,
-  startPosition: 0,
-}
+encoderArgs: [
+  '-c:v', 'h264_vaapi',
+  '-global_quality', '25',      // Qualité optimisée streaming 1080p
+  '-async_depth', '4',           // Pipeline GPU 4 frames
+  '-compression_level', '1',     // Vitesse > taille fichier
+  '-maxrate', '8000k',
+  '-bufsize', '16000k',
+  '-profile:v', 'main',
+  '-level', '4.1',
+]
 ```
 
-### Config Connexion Lente
+### CPU Fallback
 
 ```typescript
-export const HLS_SLOW_CONNECTION_CONFIG: Partial<HlsConfig> = {
-  ...HLS_BASE_CONFIG,
-  maxBufferLength: 60,
-  maxMaxBufferLength: 180,
-  fragLoadingMaxRetry: 10,
-}
-```
-
-## Gestion des Erreurs Streaming
-
-### Pattern Retry
-
-```typescript
-// Côté player
-hls.on(Hls.Events.ERROR, (event, data) => {
-  if (data.fatal) {
-    switch (data.type) {
-      case Hls.ErrorTypes.NETWORK_ERROR:
-        console.error('[PLAYER] Erreur réseau, tentative recovery')
-        hls.startLoad()
-        break
-      case Hls.ErrorTypes.MEDIA_ERROR:
-        console.error('[PLAYER] Erreur média, tentative recovery')
-        hls.recoverMediaError()
-        break
-      default:
-        // Erreur irrécupérable
-        console.error('[PLAYER] Erreur fatale:', data)
-        hls.destroy()
-        break
-    }
-  }
-})
-```
-
-### Préservation Position sur Erreur
-
-```typescript
-// CRITIQUE: Ne pas perdre la position sur erreur
-const preservePosition = useRef<number>(0)
-
-const handleError = () => {
-  preservePosition.current = videoRef.current?.currentTime || 0
-  // Recovery...
-  videoRef.current.currentTime = preservePosition.current
-}
+encoderArgs: [
+  '-c:v', 'libx264',
+  '-preset', 'veryfast',
+  '-crf', '23',
+  '-maxrate', '4000k',
+  '-bufsize', '8000k',
+]
 ```
 
 ## Sous-titres
 
-### Formats Supportés
-
 | Format | Conversion | Notes |
 |--------|------------|-------|
-| SRT | → WebVTT | Extraction FFmpeg |
+| SRT | WebVTT | Extraction FFmpeg |
 | VTT | Natif | Pas de conversion |
-| ASS/SSA | → WebVTT | Extraction FFmpeg |
-| PGS | ❌ | Image, non supporté |
-| VOBSUB | ❌ | Image, non supporté |
-
-### Extraction Sous-titres
-
-```typescript
-// Extraction SRT → VTT
-const ffmpegArgs = [
-  '-i', inputPath,
-  '-map', `0:s:${subtitleIndex}`,
-  '-c:s', 'webvtt',
-  outputPath
-]
-
-// Détection format (éviter erreur sur PGS)
-const subtitleInfo = await getSubtitleInfo(filepath)
-if (subtitleInfo.codec === 'hdmv_pgs_subtitle') {
-  // Skip - format image non convertible
-  return null
-}
-```
+| ASS/SSA | WebVTT | Extraction FFmpeg |
+| PGS | Non supporté | Image bitmap |
+| VOBSUB | Non supporté | Image bitmap |
 
 ## Bonnes Pratiques
 
-### ✅ À faire
+### A faire
 
-- Toujours vérifier si pré-transcodé existe avant transcodage temps réel
-- Utiliser le singleton FFmpegManager
-- Segments de 2s pour démarrage rapide
-- Buffer adaptatif selon connexion
-- Préserver la position sur erreurs
+- Toujours utiliser le pré-transcodage (pas de temps réel)
+- Segments de 2s pour seek rapide
+- Validation post-transcodage systématique
+- GOP dynamique adapté au framerate source
+- Fallback séquentiel si single-pass échoue
 
-### ❌ À éviter
+### A éviter
 
-- Plus de 2 processus FFmpeg simultanés
+- Plus de 2-3 transcodages simultanés (selon RAM)
 - Segments trop longs (>6s)
+- Créer .done sans validation
 - Ignorer les erreurs HLS.js
 - Transcodage sans timeout
-- Oublier le cleanup des sessions
 
 ## Commandes Debug
 
 ```bash
-# Vérifier sessions FFmpeg actives
-curl http://localhost:3000/api/ffmpeg-sessions
-
-# Stats cache segments
-curl http://localhost:3000/api/cache/stats
-
-# Tester commande FFmpeg
+# Tester commande FFmpeg dans le container
 docker exec leon ffprobe -v verbose /leon/media/films/test.mkv
 
-# Logs FFmpeg
-docker logs leon 2>&1 | grep -i ffmpeg
+# Logs transcodage
+docker logs leon 2>&1 | grep -i transcode
+
+# Vérifier transcodages en cours
+curl http://localhost:3000/api/transcode/status
 ```

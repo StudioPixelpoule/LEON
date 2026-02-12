@@ -30,7 +30,7 @@ export async function GET(
       )
     }
 
-    // Récupérer TOUS les épisodes pour vérifier le statut de transcodage
+    // Récupérer TOUS les épisodes pour filtrer par saison
     const { data: allEpisodes, error: episodesError } = await supabase
       .from('episodes')
       .select('*')
@@ -46,48 +46,60 @@ export async function GET(
       )
     }
 
-    // 🔑 Vérifier si la série est en cours de transcodage
-    const notTranscodedCount = (allEpisodes || []).filter(
-      (ep: any) => ep.is_transcoded === false
-    ).length
+    // Grouper par saison et déterminer le statut de chaque saison
+    const seasonGrouped: Record<number, { episodes: any[]; allTranscoded: boolean }> = {}
+    for (const ep of (allEpisodes || [])) {
+      const s = ep.season_number
+      if (!seasonGrouped[s]) {
+        seasonGrouped[s] = { episodes: [], allTranscoded: true }
+      }
+      seasonGrouped[s].episodes.push(ep)
+      if (ep.is_transcoded === false) {
+        seasonGrouped[s].allTranscoded = false
+      }
+    }
 
-    if (notTranscodedCount > 0) {
-      // Série en cours de transcodage - accès refusé
+    // Ne retourner que les saisons entièrement transcodées
+    const readySeasons = Object.entries(seasonGrouped)
+      .filter(([, data]) => data.allTranscoded && data.episodes.length > 0)
+      .map(([season, data]) => ({
+        season: parseInt(season),
+        episodes: data.episodes
+      }))
+      .sort((a, b) => a.season - b.season)
+
+    // Info sur les saisons en cours de transcodage
+    const pendingSeasons = Object.entries(seasonGrouped)
+      .filter(([, data]) => !data.allTranscoded)
+      .map(([season, data]) => ({
+        season: parseInt(season),
+        ready: data.episodes.filter((ep: any) => ep.is_transcoded === true || ep.is_transcoded === null).length,
+        total: data.episodes.length
+      }))
+
+    // Si aucune saison n'est prête, renvoyer 503
+    if (readySeasons.length === 0) {
+      const totalPending = pendingSeasons.reduce((acc, s) => acc + (s.total - s.ready), 0)
       return NextResponse.json(
         { 
           error: 'Série en cours de transcodage',
-          message: `${notTranscodedCount} épisode(s) en cours de traitement`,
-          transcoding: true
+          message: `${totalPending} épisode(s) en cours de traitement`,
+          transcoding: true,
+          pendingSeasons
         },
         { status: 503 }
       )
     }
 
-    // Filtrer pour ne garder que les épisodes transcodés
-    const episodes = (allEpisodes || []).filter(
-      (ep: any) => ep.is_transcoded === true || ep.is_transcoded === null
-    )
-
-    // Grouper par saison
-    const seasonMap: Record<number, any[]> = {}
-    episodes?.forEach(ep => {
-      if (!seasonMap[ep.season_number]) {
-        seasonMap[ep.season_number] = []
-      }
-      seasonMap[ep.season_number].push(ep)
-    })
-
-    const seasons = Object.entries(seasonMap).map(([season, eps]) => ({
-      season: parseInt(season),
-      episodes: eps
-    }))
+    const totalReadyEpisodes = readySeasons.reduce((acc, s) => acc + s.episodes.length, 0)
 
     return NextResponse.json({
       success: true,
       serie: {
         ...serie,
-        seasons,
-        totalEpisodes: episodes?.length || 0
+        seasons: readySeasons,
+        totalEpisodes: totalReadyEpisodes,
+        ...(pendingSeasons.length > 0 ? { pendingSeasons } : {})
       }
     })
 

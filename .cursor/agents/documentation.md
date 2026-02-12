@@ -47,12 +47,9 @@ const SEGMENT_DURATION = 2
 
 ✅ **Les décisions non évidentes**
 ```typescript
-// Singleton nécessaire pour survivre au HMR de Next.js
-// Sans ça, chaque rechargement crée un nouveau FFmpegManager
-// et perd la trace des processus en cours
-class FFmpegManager {
-  private static instance: FFmpegManager
-}
+// TranscodingService centralise la queue et les processus FFmpeg
+// pour éviter les doublons et garder la trace des jobs en cours
+// (lib/transcoding/transcoding-service.ts)
 ```
 
 ✅ **Les pièges à éviter**
@@ -135,7 +132,7 @@ LEON/
 ├── components/         # Composants React
 ├── lib/               # Services et utilitaires
 │   ├── transcoding-service.ts
-│   └── ffmpeg-manager.ts
+│   └── transcoding/           # FFmpeg, executor, queue
 ├── types/             # Types TypeScript
 └── supabase/          # Migrations
 \`\`\`
@@ -247,17 +244,17 @@ Démarre le transcodage d'un média.
 ## Flux de données streaming
 
 \`\`\`
-[Client] → [API /transcode/start] → [FFmpegManager]
+[Client] → [API /transcode] → [TranscodingService]
                                            ↓
-                                    [Processus FFmpeg]
+                                    [FFmpeg Executor]
                                            ↓
                                     [Segments HLS]
                                            ↓
-[Client HLS.js] ← [API /hls/[path]] ← [Cache local]
+[Client HLS.js] ← [API /hls] ← [Segments pré-transcodés]
 \`\`\`
 
 ### Points clés
-1. FFmpegManager est un singleton (survie HMR)
+1. TranscodingService gère la queue et les processus
 2. Max 2 processus FFmpeg simultanés
 3. Segments de 2 secondes
 4. Timeout session: 30 minutes d'inactivité

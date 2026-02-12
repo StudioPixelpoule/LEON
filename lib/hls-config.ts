@@ -1,6 +1,6 @@
 /**
  * Configuration HLS optimisée pour LEON
- * Paramètres ajustés pour le transcodage en temps réel sur NAS
+ * Paramètres ajustés pour le streaming pré-transcodé sur NAS
  */
 
 import type Hls from 'hls.js'
@@ -47,8 +47,8 @@ export const HLS_BASE_CONFIG: Partial<HlsConfig> = {
   levelLoadingRetryDelay: 1000,
   
   fragLoadingTimeOut: 30000, // 30s pour les fragments
-  fragLoadingMaxRetry: 10, // Plus de retries
-  fragLoadingRetryDelay: 500, // Retry rapide
+  fragLoadingMaxRetry: 15, // 15 retries (supporte les segments lents à transcoder)
+  fragLoadingRetryDelay: 1000, // 1s entre les retries (laisse le temps au serveur)
   
   // 🎯 ABR (Adaptive Bitrate)
   abrEwmaDefaultEstimate: 8000000, // Estimation initiale 8 Mbps
@@ -62,7 +62,7 @@ export const HLS_BASE_CONFIG: Partial<HlsConfig> = {
   
   // 🛡️ RÉCUPÉRATION D'ERREURS
   levelLoadingMaxRetryTimeout: 90000,
-  fragLoadingMaxRetryTimeout: 90000,
+  fragLoadingMaxRetryTimeout: 120000, // 2 minutes max pour un segment (pré-transcodage incomplet)
 }
 
 /**
@@ -101,7 +101,11 @@ export function getRecoveryConfig(startPosition: number): Partial<HlsConfig> {
     startPosition: startPosition > 5 ? startPosition : -1,
     // Plus tolérant après une erreur
     maxBufferHole: 1.0,
-    nudgeMaxRetry: 8,
+    nudgeMaxRetry: 15,
+    appendErrorMaxRetry: 12,
+    fragLoadingMaxRetry: 20,
+    fragLoadingRetryDelay: 2000,
+    fragLoadingMaxRetryTimeout: 180000,
   }
 }
 

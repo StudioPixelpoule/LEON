@@ -15,7 +15,6 @@
 
 import { useState, useRef, useEffect, useCallback, type MutableRefObject, type Dispatch, type SetStateAction } from 'react'
 import Hls from 'hls.js'
-import { SegmentPreloader } from '@/lib/segment-preloader'
 import { selectHlsConfig } from '@/lib/hls-config'
 import { formatTime } from '../utils/timeUtils'
 import type { AudioTrack, SubtitleTrack, PlayerPreferences, VideoElementWithAudioTracks } from '../types'
@@ -122,7 +121,6 @@ export function useVideoCore({
   const [isPreTranscoded, setIsPreTranscoded] = useState<boolean>(false)
 
   // === REFS INTERNES ===
-  const preloaderRef = useRef<SegmentPreloader | null>(null)
   const retryCountRef = useRef(0)
   const realDurationRef = useRef<number>(0)
   const lastKnownPositionRef = useRef<number>(0)
@@ -130,6 +128,11 @@ export function useVideoCore({
   const hasStartedPlaying = useRef(false)
   const bufferCheckIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const lastTimeRef = useRef(0)
+  
+  // Compteurs pour gestion intelligente des erreurs non-fatales
+  const nonFatalErrorCountRef = useRef(0)
+  const lastNonFatalErrorTimeRef = useRef(0)
+  const bufferAppendErrorCountRef = useRef(0)
 
   // Ref pour callbacks (toujours à jour, pas de closure stale)
   const cbRef = useRef(callbacks)
@@ -158,26 +161,6 @@ export function useVideoCore({
   }, [videoRef, duration])
 
   // === EFFETS ===
-
-  // Initialiser le preloader pour HLS
-  useEffect(() => {
-    if (src.includes('/api/hls')) {
-      if (!preloaderRef.current) {
-        preloaderRef.current = new SegmentPreloader({
-          lookaheadSegments: 3,
-          maxConcurrent: 2,
-        })
-        preloaderRef.current.setBaseUrl(src)
-        console.log('[PLAYER] Preloader initialisé pour HLS')
-      }
-    }
-    
-    return () => {
-      if (preloaderRef.current) {
-        preloaderRef.current.reset()
-      }
-    }
-  }, [src])
 
   // Reset des positions au changement de source
   useEffect(() => {
@@ -305,7 +288,7 @@ export function useVideoCore({
     const video = videoRef.current
     if (!video) return
     
-    const isDirectMP4 = !src.includes('/api/hls') && !src.includes('/api/hls-v2')
+    const isDirectMP4 = !src.includes('/api/hls')
     if (!isDirectMP4) return
     
     const handleLoadedMetadata = () => {
@@ -474,23 +457,14 @@ export function useVideoCore({
             bufferCheckIntervalRef.current = null
           }
           
-          // Buffer adaptatif
-          const filepath = getFilepath()
+          // Buffer adaptatif (pré-transcodé uniquement)
+          setIsPreTranscoded(true)
+          setMaxSeekableTime(Infinity)
+          console.log('[PLAYER] Fichier pré-transcodé détecté - scrubbing complet activé')
+          
           let hasStarted = false
-          let checkCount = 0
           
-          const getFFmpegStatus = async () => {
-            if (!filepath) return null
-            try {
-              const res = await fetch(`/api/hls/status?path=${encodeURIComponent(filepath)}`)
-              if (!res.ok) return null
-              return await res.json()
-            } catch {
-              return null
-            }
-          }
-          
-          bufferCheckIntervalRef.current = setInterval(async () => {
+          bufferCheckIntervalRef.current = setInterval(() => {
             if (hasStarted) {
               if (bufferCheckIntervalRef.current) {
                 clearInterval(bufferCheckIntervalRef.current)
@@ -499,46 +473,13 @@ export function useVideoCore({
               return
             }
             
-            checkCount++
-            
             let bufferedSeconds = 0
             if (video.buffered.length > 0) {
               bufferedSeconds = video.buffered.end(0) - video.buffered.start(0)
             }
             
-            let ffmpegStatus = null
-            if (checkCount === 1 || checkCount % 4 === 0) {
-              ffmpegStatus = await getFFmpegStatus()
-            }
-            
-            const segmentsReady = ffmpegStatus?.segmentsReady || 0
-            const isComplete = ffmpegStatus?.isComplete || false
-            const preTranscodedStatus = ffmpegStatus?.preTranscoded || false
-            
-            if (preTranscodedStatus && !isPreTranscoded) {
-              setIsPreTranscoded(true)
-              setMaxSeekableTime(Infinity)
-              console.log('[PLAYER] Fichier pré-transcodé détecté - scrubbing complet activé')
-              
-              if (preloaderRef.current) {
-                preloaderRef.current.setEnabled(false)
-                console.log('[PLAYER] Preloader désactivé pour contenu pré-transcodé')
-              }
-            }
-            
-            let canStart = false
-            if (preTranscodedStatus) {
-              canStart = bufferedSeconds >= 2
-              if (checkCount % 4 === 0 && !canStart) {
-                console.log(`[PLAYER] Pré-transcodé, attente buffer: ${bufferedSeconds.toFixed(1)}s/2s`)
-              }
-            } else if (isComplete) {
-              canStart = bufferedSeconds >= 10
-            } else {
-              canStart = segmentsReady >= 15 || bufferedSeconds >= 30
-            }
-            
-            if (canStart) {
+            // Contenu pré-transcodé : démarrage rapide dès 2s de buffer
+            if (bufferedSeconds >= 2) {
               hasStarted = true
               if (bufferCheckIntervalRef.current) {
                 clearInterval(bufferCheckIntervalRef.current)
@@ -642,14 +583,82 @@ export function useVideoCore({
                 break
               }
             }
-          } else if (data.details === 'bufferStalledError') {
-            console.log('[PLAYER] Buffer en attente du transcodage...')
-          } else if (data.details === 'fragLoadError' || data.details === 'fragLoadTimeOut') {
-            console.log(`[PLAYER] Segment non prêt, FFmpeg en cours de transcodage...`)
-          } else if (data.details === 'levelLoadError') {
-            console.warn('[PLAYER] Erreur chargement playlist (non-fatal):', data.response?.code)
-            if (data.response?.code === 500) {
-              console.warn('[PLAYER] Serveur retourne 500 - possible FFmpeg mort')
+          } else {
+            // === Gestion intelligente des erreurs non-fatales ===
+            const now = Date.now()
+            
+            // Réinitialiser le compteur si la dernière erreur date de plus de 30s
+            if (now - lastNonFatalErrorTimeRef.current > 30000) {
+              nonFatalErrorCountRef.current = 0
+              bufferAppendErrorCountRef.current = 0
+            }
+            lastNonFatalErrorTimeRef.current = now
+            
+            if (data.details === 'bufferStalledError') {
+              nonFatalErrorCountRef.current++
+              console.log(`[PLAYER] Buffer stall (${nonFatalErrorCountRef.current}/10)`)
+              
+              // Après plusieurs stalls, tenter un nudge de position
+              if (nonFatalErrorCountRef.current >= 5 && video) {
+                const bufferedEnd = video.buffered.length > 0 
+                  ? video.buffered.end(video.buffered.length - 1) 
+                  : 0
+                if (bufferedEnd > video.currentTime + 1) {
+                  // Il y a du buffer devant nous, forcer un petit saut
+                  console.log(`[PLAYER] Nudge +0.5s pour débloquer (buffer: ${bufferedEnd.toFixed(1)}s)`)
+                  video.currentTime = Math.min(video.currentTime + 0.5, bufferedEnd - 0.5)
+                  nonFatalErrorCountRef.current = 0
+                }
+              }
+              
+              // Si trop de stalls consécutifs, essayer recoverMediaError
+              if (nonFatalErrorCountRef.current >= 10 && hls) {
+                console.warn('[PLAYER] Trop de stalls, tentative de récupération média...')
+                hls.recoverMediaError()
+                nonFatalErrorCountRef.current = 0
+              }
+              
+            } else if (data.details === 'fragLoadError' || data.details === 'fragLoadTimeOut') {
+              nonFatalErrorCountRef.current++
+              const httpStatus = data.response?.code
+              
+              if (httpStatus === 503) {
+                // Serveur dit "pas encore prêt" (Retry-After) — comportement attendu
+                console.log(`[PLAYER] Segment en attente (503), retry automatique HLS.js`)
+              } else if (httpStatus === 502) {
+                console.log(`[PLAYER] Segment indisponible (502), retry automatique`)
+              } else {
+                console.log(`[PLAYER] Fragment non chargé (${httpStatus || '?'}), ${nonFatalErrorCountRef.current}/15`)
+              }
+              
+              // Si trop d'erreurs consécutives de fragments : forcer rechargement HLS
+              if (nonFatalErrorCountRef.current >= 15 && hls) {
+                console.warn('[PLAYER] Trop d\'erreurs fragments, rechargement stream...')
+                const currentPos = lastKnownPositionRef.current || video.currentTime || 0
+                hls.stopLoad()
+                setTimeout(() => {
+                  hls.startLoad(currentPos)
+                  nonFatalErrorCountRef.current = 0
+                }, 2000)
+              }
+              
+            } else if (data.details === 'bufferAppendError') {
+              bufferAppendErrorCountRef.current++
+              console.log(`[PLAYER] Buffer append error (${bufferAppendErrorCountRef.current}/5)`)
+              
+              // Les bufferAppendError surviennent souvent après un seek
+              // Après plusieurs erreurs, flush et relance
+              if (bufferAppendErrorCountRef.current >= 3 && hls) {
+                console.warn('[PLAYER] Flush buffer et récupération après bufferAppendErrors...')
+                hls.recoverMediaError()
+                bufferAppendErrorCountRef.current = 0
+              }
+              
+            } else if (data.details === 'levelLoadError') {
+              console.warn('[PLAYER] Erreur chargement playlist (non-fatal):', data.response?.code)
+              if (data.response?.code === 500) {
+                console.warn('[PLAYER] Serveur retourne 500 - possible FFmpeg mort')
+              }
             }
           }
         })
@@ -760,11 +769,6 @@ export function useVideoCore({
         }
       }
       
-      if (preloaderRef.current && currentPos > 0) {
-        const currentSegmentIndex = Math.floor(currentPos / 2)
-        preloaderRef.current.updateCurrentSegment(currentSegmentIndex)
-      }
-      
       // Next episode check
       const videoDuration = isFinite(video.duration) && video.duration > 0 ? video.duration : 0
       const totalDuration = realDurationRef.current || videoDuration || duration
@@ -865,10 +869,6 @@ export function useVideoCore({
       if (bufferCheckIntervalRef.current) {
         clearInterval(bufferCheckIntervalRef.current)
         bufferCheckIntervalRef.current = null
-      }
-      if (preloaderRef.current) {
-        preloaderRef.current.reset()
-        preloaderRef.current = null
       }
       if (subtitleAbortControllerRef.current) {
         subtitleAbortControllerRef.current.abort()

@@ -85,7 +85,7 @@ find . -name "*.ts" -o -name "*.tsx" | xargs wc -l | sort -rn | head -20
 **Fichiers connus volumineux** :
 - `transcoding-service.ts` : 1847 lignes
 - `SimpleVideoPlayer.tsx` : ~3000 lignes (à refactorer)
-- `ffmpeg-manager.ts` : 452 lignes
+- `lib/transcoding/` : modules FFmpeg, queue, executor
 
 ## Audit Dépendances
 
