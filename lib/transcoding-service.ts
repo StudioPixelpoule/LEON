@@ -10,7 +10,7 @@
 
 import { spawn, exec } from 'child_process'
 import { promisify } from 'util'
-import { mkdir, readdir, stat, writeFile, readFile, rm, access } from 'fs/promises'
+import { mkdir, readdir, stat, writeFile, readFile, rm, access, unlink } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import crypto from 'crypto'
@@ -48,6 +48,7 @@ export interface TranscodeJob {
   pid?: number
   fileSize?: number // Taille du fichier en bytes
   mtime?: string // Date de modification du fichier
+  retryCount?: number // Nombre de tentatives (max 3)
 }
 
 export interface TranscodeStats {
@@ -1059,18 +1060,24 @@ class TranscodingService {
           job.error = error instanceof Error ? error.message : String(error)
           job.completedAt = new Date().toISOString()
           
-          // Réessayer plus tard SAUF si fichier corrompu ou erreur fatale
+          // Réessayer plus tard SAUF si fichier corrompu, erreur fatale ou trop de tentatives
+          const retryCount = (job.retryCount || 0) + 1
+          const MAX_RETRIES = 3
+          
           const isFatalError = job.error.includes('SIGKILL') || 
                               job.error.includes('SIGTERM') ||
                               job.error.includes('corrompu') ||
                               job.error.includes('Invalid data')
           
-          if (!isFatalError) {
+          if (!isFatalError && retryCount < MAX_RETRIES) {
             job.status = 'pending'
+            job.retryCount = retryCount
             job.priority = 0 // Basse priorité pour les retry
             this.queue.push(job)
+            console.log(`[TRANSCODE] [Worker ${workerId}] Retry ${retryCount}/${MAX_RETRIES} pour: ${job.filename}`)
           } else {
-            console.log(`[TRANSCODE] [Worker ${workerId}] Fichier ignoré définitivement: ${job.filename}`)
+            const reason = isFatalError ? 'erreur fatale' : `${MAX_RETRIES} tentatives échouées`
+            console.log(`[TRANSCODE] [Worker ${workerId}] Fichier ignoré définitivement (${reason}): ${job.filename}`)
           }
           
           console.error(`[TRANSCODE] [Worker ${workerId}] Échec: ${job.filename}`, error)
@@ -1473,9 +1480,43 @@ class TranscodingService {
       await runFFmpeg(videoArgs, 'Vidéo', videoWeight, 0)
       
       // PASS 2+: Audio(s)
+      // La première piste audio est obligatoire, les suivantes sont optionnelles
       for (let i = 0; i < audioArgsList.length; i++) {
         const audioOffset = videoWeight + (i * audioWeight)
-        await runFFmpeg(audioArgsList[i], `Audio ${i + 1}/${audioArgsList.length}`, audioWeight, audioOffset)
+        const label = `Audio ${i + 1}/${audioArgsList.length}`
+        
+        if (i === 0) {
+          // Piste audio principale : obligatoire
+          await runFFmpeg(audioArgsList[i], label, audioWeight, audioOffset)
+        } else {
+          // Pistes audio secondaires : optionnelles (on skip en cas d'erreur)
+          try {
+            await runFFmpeg(audioArgsList[i], label, audioWeight, audioOffset)
+          } catch (audioError) {
+            console.warn(`[TRANSCODE] ⚠️ Piste ${label} ignorée (non-fatale): ${audioError instanceof Error ? audioError.message : audioError}`)
+            // Nettoyer les fichiers partiels de cette piste audio
+            try {
+              const audioFiles = await readdir(job.outputDir)
+              for (const file of audioFiles) {
+                if (file.startsWith(`audio_${i}_`) || file === `audio_${i}.m3u8`) {
+                  await unlink(path.join(job.outputDir, file))
+                }
+              }
+            } catch { /* Ignore les erreurs de nettoyage */ }
+            
+            // Mettre à jour audio_info.json pour retirer la piste échouée
+            try {
+              const audioInfoPath = path.join(job.outputDir, 'audio_info.json')
+              const audioInfoRaw = await readFile(audioInfoPath, 'utf-8')
+              const audioInfo = JSON.parse(audioInfoRaw)
+              if (audioInfo.tracks) {
+                audioInfo.tracks = audioInfo.tracks.filter((_: unknown, idx: number) => idx !== i)
+                await writeFile(audioInfoPath, JSON.stringify(audioInfo, null, 2))
+                console.log(`[TRANSCODE] audio_info.json mis à jour (piste ${i} retirée)`)
+              }
+            } catch { /* Ignore */ }
+          }
+        }
       }
       
       // PASS FINAL: Créer le master playlist
