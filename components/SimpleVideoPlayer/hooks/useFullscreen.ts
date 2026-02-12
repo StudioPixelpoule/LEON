@@ -1,212 +1,89 @@
 /**
- * Hook: useFullscreen
- * Gestion du plein écran compatible Safari, Chrome, Firefox et iOS
+ * Hook useFullscreen
+ * Gère le plein écran cross-browser (standard, webkit, iOS)
+ * S'appuie sur les utilitaires de fullscreenUtils.ts
  */
 
-import { useEffect, useState, useCallback, RefObject } from 'react'
-
-// Types étendus pour la compatibilité Safari/iOS
-interface ExtendedDocument extends Document {
-  webkitFullscreenElement?: Element | null
-  webkitExitFullscreen?: () => Promise<void>
-}
-
-interface ExtendedHTMLElement extends HTMLElement {
-  webkitRequestFullscreen?: () => Promise<void>
-}
-
-interface ExtendedHTMLVideoElement extends HTMLVideoElement {
-  webkitEnterFullscreen?: () => void // iOS Safari specific
-  webkitExitFullscreen?: () => void
-  webkitDisplayingFullscreen?: boolean
-  webkitSupportsFullscreen?: boolean
-}
-
-/**
- * Détecter iOS (iPhone, iPad, iPod)
- */
-export const isIOS = (): boolean => {
-  if (typeof navigator === 'undefined') return false
-  return /iPad|iPhone|iPod/.test(navigator.userAgent) || 
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
-}
-
-/**
- * Détecter Safari
- */
-export const isSafari = (): boolean => {
-  if (typeof navigator === 'undefined') return false
-  return /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
-}
-
-/**
- * Obtenir l'élément en plein écran
- */
-export const getFullscreenElement = (): Element | null => {
-  if (typeof document === 'undefined') return null
-  const doc = document as ExtendedDocument
-  return doc.fullscreenElement || doc.webkitFullscreenElement || null
-}
-
-/**
- * Demander le plein écran (compatible iOS/Safari)
- */
-export const requestFullscreen = async (
-  element: HTMLElement, 
-  videoElement?: HTMLVideoElement
-): Promise<void> => {
-  // Sur iOS, utiliser webkitEnterFullscreen sur la vidéo directement
-  if (isIOS() && videoElement) {
-    const video = videoElement as ExtendedHTMLVideoElement
-    if (video.webkitSupportsFullscreen && video.webkitEnterFullscreen) {
-      video.webkitEnterFullscreen()
-      return
-    }
-  }
-  
-  // Desktop et Android
-  const el = element as ExtendedHTMLElement
-  if (el.requestFullscreen) {
-    await el.requestFullscreen()
-  } else if (el.webkitRequestFullscreen) {
-    await el.webkitRequestFullscreen()
-  }
-}
-
-/**
- * Quitter le plein écran (compatible iOS/Safari)
- */
-export const exitFullscreen = async (videoElement?: HTMLVideoElement): Promise<void> => {
-  if (typeof document === 'undefined') return
-  
-  // Sur iOS, utiliser webkitExitFullscreen sur la vidéo
-  if (isIOS() && videoElement) {
-    const video = videoElement as ExtendedHTMLVideoElement
-    if (video.webkitDisplayingFullscreen && video.webkitExitFullscreen) {
-      video.webkitExitFullscreen()
-      return
-    }
-  }
-  
-  const doc = document as ExtendedDocument
-  if (doc.exitFullscreen) {
-    await doc.exitFullscreen()
-  } else if (doc.webkitExitFullscreen) {
-    await doc.webkitExitFullscreen()
-  }
-}
-
-/**
- * Vérifier si la vidéo est en plein écran (compatible iOS)
- */
-export const isVideoFullscreen = (videoElement?: HTMLVideoElement): boolean => {
-  if (isIOS() && videoElement) {
-    const video = videoElement as ExtendedHTMLVideoElement
-    return video.webkitDisplayingFullscreen || false
-  }
-  return !!getFullscreenElement()
-}
-
-/**
- * Ajouter un listener de changement de plein écran (compatible iOS/Safari)
- */
-export const addFullscreenChangeListener = (
-  handler: () => void, 
-  videoElement?: HTMLVideoElement
-): (() => void) => {
-  if (typeof document === 'undefined') return () => {}
-  
-  document.addEventListener('fullscreenchange', handler)
-  document.addEventListener('webkitfullscreenchange', handler)
-  
-  // Sur iOS, écouter aussi les événements vidéo spécifiques
-  if (videoElement) {
-    videoElement.addEventListener('webkitbeginfullscreen', handler)
-    videoElement.addEventListener('webkitendfullscreen', handler)
-  }
-  
-  return () => {
-    document.removeEventListener('fullscreenchange', handler)
-    document.removeEventListener('webkitfullscreenchange', handler)
-    if (videoElement) {
-      videoElement.removeEventListener('webkitbeginfullscreen', handler)
-      videoElement.removeEventListener('webkitendfullscreen', handler)
-    }
-  }
-}
+import { useState, useRef, useEffect, useCallback } from 'react'
+import {
+  requestFullscreen,
+  exitFullscreen,
+  isVideoFullscreen,
+  addFullscreenChangeListener
+} from '../utils/fullscreenUtils'
 
 interface UseFullscreenOptions {
-  containerRef: RefObject<HTMLElement>
-  videoRef?: RefObject<HTMLVideoElement>
-  onEnter?: () => void
-  onExit?: () => void
+  containerRef: React.RefObject<HTMLDivElement | null>
+  videoRef: React.RefObject<HTMLVideoElement | null>
+  /** Si true, restaure le plein écran au montage (transition entre épisodes) */
+  initialWasFullscreen?: boolean
+  /** Callback pour masquer les contrôles après passage en fullscreen */
+  onFullscreenEnter?: () => void
 }
 
-/**
- * Hook pour gérer le plein écran avec support iOS/Safari
- */
-export function useFullscreen({ 
-  containerRef, 
-  videoRef,
-  onEnter,
-  onExit 
-}: UseFullscreenOptions) {
-  const [isFullscreen, setIsFullscreen] = useState(false)
+interface UseFullscreenReturn {
+  isFullscreen: boolean
+  isFullscreenRef: React.RefObject<boolean>
+  toggleFullscreen: () => void
+}
 
-  // Écouter les changements de plein écran
+export function useFullscreen({
+  containerRef,
+  videoRef,
+  initialWasFullscreen,
+  onFullscreenEnter
+}: UseFullscreenOptions): UseFullscreenReturn {
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  const isFullscreenRef = useRef(false)
+
+  // Synchroniser la ref avec le state
+  useEffect(() => {
+    isFullscreenRef.current = isFullscreen
+  }, [isFullscreen])
+
+  // Écouter les changements fullscreen (natif, webkit, iOS)
   useEffect(() => {
     const handleFullscreenChange = () => {
-      const fullscreen = isVideoFullscreen(videoRef?.current || undefined)
+      const fullscreen = isVideoFullscreen(videoRef.current || undefined)
       setIsFullscreen(fullscreen)
-      
-      if (fullscreen) {
-        onEnter?.()
-      } else {
-        onExit?.()
+
+      if (fullscreen && onFullscreenEnter) {
+        // Forcer la disparition des contrôles après 3s en fullscreen
+        setTimeout(() => {
+          onFullscreenEnter()
+        }, 3000)
       }
     }
-    
-    const cleanup = addFullscreenChangeListener(
-      handleFullscreenChange, 
-      videoRef?.current || undefined
-    )
-    
-    return cleanup
-  }, [videoRef, onEnter, onExit])
 
-  // Entrer en plein écran
-  const enterFullscreen = useCallback(async () => {
-    if (!containerRef.current) return
-    
-    try {
-      await requestFullscreen(containerRef.current, videoRef?.current || undefined)
-    } catch (error) {
-      console.warn('[FULLSCREEN] Impossible d\'entrer en plein écran:', error)
+    const cleanup = addFullscreenChangeListener(handleFullscreenChange, videoRef.current || undefined)
+    return cleanup
+  }, [videoRef, onFullscreenEnter])
+
+  // Restaurer le plein écran entre épisodes
+  useEffect(() => {
+    if (initialWasFullscreen && containerRef.current && videoRef.current) {
+      const restoreFullscreen = async () => {
+        await new Promise(resolve => setTimeout(resolve, 500))
+        try {
+          await requestFullscreen(containerRef.current!, videoRef.current || undefined)
+          setIsFullscreen(true)
+          console.log('[PLAYER] Plein écran restauré depuis l\'épisode précédent')
+        } catch (err) {
+          console.log('[PLAYER] Impossible de restaurer le plein écran:', err)
+        }
+      }
+      restoreFullscreen()
+    }
+  }, [initialWasFullscreen, containerRef, videoRef])
+
+  // Toggle fullscreen
+  const toggleFullscreen = useCallback(() => {
+    if (isVideoFullscreen(videoRef.current || undefined)) {
+      exitFullscreen(videoRef.current || undefined)
+    } else if (containerRef.current) {
+      requestFullscreen(containerRef.current, videoRef.current || undefined)
     }
   }, [containerRef, videoRef])
 
-  // Quitter le plein écran
-  const exitFullscreenMode = useCallback(async () => {
-    try {
-      await exitFullscreen(videoRef?.current || undefined)
-    } catch (error) {
-      console.warn('[FULLSCREEN] Impossible de quitter le plein écran:', error)
-    }
-  }, [videoRef])
-
-  // Toggle plein écran
-  const toggleFullscreen = useCallback(async () => {
-    if (isFullscreen) {
-      await exitFullscreenMode()
-    } else {
-      await enterFullscreen()
-    }
-  }, [isFullscreen, enterFullscreen, exitFullscreenMode])
-
-  return {
-    isFullscreen,
-    enterFullscreen,
-    exitFullscreen: exitFullscreenMode,
-    toggleFullscreen
-  }
+  return { isFullscreen, isFullscreenRef, toggleFullscreen }
 }

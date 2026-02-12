@@ -5,6 +5,9 @@
 
 # testing
 /coverage
+/test-results/
+/playwright-report/
+/e2e/.auth/
 
 # next.js
 /.next/
@@ -26,6 +29,7 @@ yarn-error.log*
 .env*.local
 .env
 .env.production
+.env.test
 
 # vercel
 .vercel

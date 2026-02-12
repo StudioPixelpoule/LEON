@@ -32,6 +32,23 @@ export interface NextEpisodeInfo {
   thumbnail?: string
 }
 
+// Info épisode pour la modale de sélection
+export interface EpisodeInfo {
+  id: string
+  title: string
+  seasonNumber: number
+  episodeNumber: number
+  thumbnail?: string
+  overview?: string
+  runtime?: number
+}
+
+// Info saison pour la modale de sélection
+export interface SeasonInfo {
+  seasonNumber: number
+  episodes: EpisodeInfo[]
+}
+
 // Préférences à conserver entre épisodes
 export interface PlayerPreferences {
   audioTrackIndex?: number
@@ -40,6 +57,22 @@ export interface PlayerPreferences {
   subtitleTrackIndex?: number | null
   wasFullscreen?: boolean
   volume?: number
+  lastUpdated?: number            // Timestamp de dernière mise à jour (utilisé par usePlayerPreferences)
+}
+
+// Extension pour audioTracks natifs (supporté uniquement sur Safari/WebKit)
+export interface BrowserAudioTrack {
+  enabled: boolean
+  language: string
+  label: string
+}
+
+// Extension HTMLVideoElement avec audioTracks Safari
+export interface VideoElementWithAudioTracks extends HTMLVideoElement {
+  audioTracks?: {
+    length: number
+    [index: number]: BrowserAudioTrack
+  }
 }
 
 // Props du lecteur vidéo
@@ -49,11 +82,16 @@ export interface SimpleVideoPlayerProps {
   subtitle?: string
   onClose: () => void
   poster?: string
-  mediaId?: string
-  mediaType?: 'movie' | 'episode'
-  nextEpisode?: NextEpisodeInfo
-  onNextEpisode?: (preferences: PlayerPreferences) => void
-  initialPreferences?: PlayerPreferences
+  mediaId?: string                // ID du film/épisode pour sauvegarder la position
+  mediaType?: 'movie' | 'episode' // Type de média
+  nextEpisode?: NextEpisodeInfo   // Épisode suivant (pour les séries)
+  onNextEpisode?: (preferences: PlayerPreferences) => void // Callback pour passer à l'épisode suivant
+  initialPreferences?: PlayerPreferences // Préférences de l'épisode précédent
+  creditsDuration?: number        // Durée du générique en secondes (temps avant la fin, défaut: 45)
+  // Props pour la navigation des épisodes (séries uniquement)
+  allSeasons?: SeasonInfo[]       // Toutes les saisons avec leurs épisodes
+  currentEpisodeId?: string       // ID de l'épisode en cours
+  onEpisodeSelect?: (episodeId: string, preferences: PlayerPreferences) => void // Callback pour sélectionner un épisode
 }
 
 // État des contrôles vidéo

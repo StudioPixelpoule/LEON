@@ -11,7 +11,10 @@
     "lint": "next lint",
     "gen:types": "npx supabase gen types typescript --project-id $SUPABASE_PROJECT_ID > lib/database.types.ts",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "playwright test --config e2e/playwright.config.ts",
+    "test:e2e:ui": "playwright test --config e2e/playwright.config.ts --ui",
+    "test:e2e:headed": "playwright test --config e2e/playwright.config.ts --headed"
   },
   "dependencies": {
     "@sentry/nextjs": "^10.27.0",
@@ -21,15 +24,18 @@
     "lucide-react": "^0.554.0",
     "next": "^14.2.35",
     "opensubtitles-api": "^5.1.2",
+    "process": "^0.11.10",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^20.11.5",
     "@types/react": "^18.2.48",
     "@types/react-dom": "^18.2.18",
+    "dotenv": "^17.2.4",
     "eslint": "^8.56.0",
     "eslint-config-next": "^14.2.10",
     "jsdom": "^28.0.0",

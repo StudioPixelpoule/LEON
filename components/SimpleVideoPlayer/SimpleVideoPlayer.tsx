@@ -1,106 +1,37 @@
 'use client'
 
 import { useEffect, useRef, useState, useCallback } from 'react'
-import Image from 'next/image'
 import Hls from 'hls.js'
 import styles from './SimpleVideoPlayer.module.css'
-import menuStyles from './SettingsMenu.module.css'
 import { useBufferStatus } from '@/lib/hooks/useBufferStatus'
-import { SegmentPreloader } from '@/lib/segment-preloader'
 import { usePlaybackPosition } from '@/lib/hooks/usePlaybackPosition'
 import { useNetworkResilience } from '@/lib/hooks/useNetworkResilience'
 import { usePlayerPreferences } from '@/lib/hooks/usePlayerPreferences'
-import { HLS_BASE_CONFIG, selectHlsConfig } from '@/lib/hls-config'
 import { useAuth } from '@/contexts/AuthContext'
 
-// Utilitaires extraits
-import { isIOS, isSafari, requestFullscreen, exitFullscreen, isVideoFullscreen, addFullscreenChangeListener } from './utils/fullscreenUtils'
-import { formatTime } from './utils/timeUtils'
+// Hooks extraits
+import { useControlsVisibility } from './hooks/useControlsVisibility'
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts'
+import { useVolumeControl } from './hooks/useVolumeControl'
+import { useFullscreen } from './hooks/useFullscreen'
+import { useNextEpisode } from './hooks/useNextEpisode'
+import { useSubtitleManager } from './hooks/useSubtitleManager'
+import { useAudioManager } from './hooks/useAudioManager'
+import { useVideoCore } from './hooks/useVideoCore'
 
-interface NextEpisodeInfo {
-  id: string
-  title: string
-  seasonNumber: number
-  episodeNumber: number
-  thumbnail?: string
-}
+// Composants extraits
+import EpisodesModal from './EpisodesModal'
+import PlayerOverlays from './PlayerOverlays'
+import PlayerControls from './PlayerControls'
 
-// Info épisode pour la modale de sélection
-export interface EpisodeInfo {
-  id: string
-  title: string
-  seasonNumber: number
-  episodeNumber: number
-  thumbnail?: string
-  overview?: string
-  runtime?: number
-}
+// Types centralisés (source unique de vérité)
+import type {
+  PlayerPreferences,
+  SimpleVideoPlayerProps,
+} from './types'
 
-// Info saison pour la modale de sélection
-export interface SeasonInfo {
-  seasonNumber: number
-  episodes: EpisodeInfo[]
-}
-
-// Préférences à conserver entre épisodes
-export interface PlayerPreferences {
-  audioTrackIndex?: number
-  audioStreamIndex?: number       // Index absolu FFprobe (pour construction URL HLS en transcodage temps réel)
-  audioLanguage?: string          // Code langue ISO (fre, eng...) pour résolution robuste entre épisodes
-  subtitleTrackIndex?: number | null
-  wasFullscreen?: boolean
-}
-
-interface SimpleVideoPlayerProps {
-  src: string
-  title?: string
-  subtitle?: string
-  onClose: () => void
-  poster?: string
-  mediaId?: string // ID du film/épisode pour sauvegarder la position
-  mediaType?: 'movie' | 'episode' // Type de média
-  nextEpisode?: NextEpisodeInfo // Épisode suivant (pour les séries)
-  onNextEpisode?: (preferences: PlayerPreferences) => void // Callback pour passer à l'épisode suivant (avec préférences)
-  initialPreferences?: PlayerPreferences // Préférences de l'épisode précédent
-  creditsDuration?: number // Durée du générique en secondes (temps avant la fin, défaut: 45)
-  // Props pour la navigation des épisodes (séries uniquement)
-  allSeasons?: SeasonInfo[] // Toutes les saisons avec leurs épisodes
-  currentEpisodeId?: string // ID de l'épisode en cours
-  onEpisodeSelect?: (episodeId: string, preferences: PlayerPreferences) => void // Callback pour sélectionner un épisode
-}
-
-interface AudioTrack {
-  index: number
-  language: string
-  title?: string
-  codec?: string
-  hlsPlaylist?: string // 🆕 Pour les pistes audio pré-transcodées (ex: stream_1.m3u8)
-}
-
-interface SubtitleTrack {
-  index: number
-  language: string
-  title?: string
-  codec?: string
-  forced?: boolean
-  isDownloaded?: boolean // Pour les tracks téléchargés depuis OpenSubtitles
-  sourceUrl?: string // URL de l'API pour les tracks téléchargés
-  vttFile?: string // 🆕 Pour les sous-titres VTT pré-transcodés (ex: sub_fre_0.vtt)
-}
-
-// Extension pour audioTracks (supporté uniquement sur Safari/WebKit)
-interface BrowserAudioTrack {
-  enabled: boolean
-  language: string
-  label: string
-}
-
-interface VideoElementWithAudioTracks extends HTMLVideoElement {
-  audioTracks?: {
-    length: number
-    [index: number]: BrowserAudioTrack
-  }
-}
+// Re-exports pour compatibilité avec les consumers existants (ex: SeriesModal.tsx)
+export type { PlayerPreferences, SeasonInfo, EpisodeInfo } from './types'
 
 // 🔧 IMPORTANT: cleanupFFmpeg() a été SUPPRIMÉ
 // Il tuait TOUS les FFmpeg, même ceux d'autres vidéos en cours de lecture
@@ -129,49 +60,46 @@ export default function SimpleVideoPlayer({
   // 🔧 Hook pour persister les préférences (langue audio, sous-titres)
   const { savePreferences, getInitialPreferences, isLoaded: prefsLoaded } = usePlayerPreferences(userId)
   
+  // Refs partagés (utilisés par plusieurs hooks)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const progressRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const settingsMenuRef = useRef<HTMLDivElement>(null)
   const hlsRef = useRef<Hls | null>(null)
-  const preloaderRef = useRef<SegmentPreloader | null>(null)
-  const retryCountRef = useRef(0)
-  const maxRetries = 10
-  const realDurationRef = useRef<number>(0) // Durée réelle du fichier
+  const currentVideoUrl = useRef(src)
   
-  // 🔧 FIX #1: Refs pour préserver la position lors des récupérations d'erreur
-  const lastKnownPositionRef = useRef<number>(0)
-  const isRecoveringRef = useRef<boolean>(false)
-  
-  // États du lecteur
-  const [isPlaying, setIsPlaying] = useState(false)
-  const [currentTime, setCurrentTime] = useState(0)
-  const [duration, setDuration] = useState(0)
-  const [buffered, setBuffered] = useState(0)
-  const [volume, setVolume] = useState(1)
-  const [isMuted, setIsMuted] = useState(false)
-  const [showControls, setShowControls] = useState(true)
+  // États partagés (setters utilisés par audio/subtitle managers ET videoCore)
   const [isLoading, setIsLoading] = useState(true)
-  const [isRemuxing, setIsRemuxing] = useState(false)
-  const [isSeeking, setIsSeeking] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [isDragging, setIsDragging] = useState(false)
-  const [bufferReady, setBufferReady] = useState(false) // 🚦 Flag pour bloquer l'autoplay
-  
-  // 🔧 FIX #2: Tracker le temps maximum disponible (transcodé)
-  const [maxSeekableTime, setMaxSeekableTime] = useState<number>(Infinity)
-  const [seekWarning, setSeekWarning] = useState<string | null>(null)
-  const [isPreTranscoded, setIsPreTranscoded] = useState<boolean>(false) // 🎯 PRÉ-TRANSCODÉ = seek illimité
   
   // Menu et pistes
   const [showSettingsMenu, setShowSettingsMenu] = useState(false)
-  const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([])
-  const audioTracksRef = useRef<AudioTrack[]>([]) // Ref synchronisée pour accès dans les closures (countdown, etc.)
-  const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([])
-  const [selectedAudio, setSelectedAudio] = useState(0)
-  const [selectedSubtitle, setSelectedSubtitle] = useState<number | null>(null)
-  const [isDownloadingSubtitles, setIsDownloadingSubtitles] = useState(false)
-  const [subtitleOffset, setSubtitleOffset] = useState<number>(0) // Décalage en secondes pour synchroniser les sous-titres
+
+  // Callback partagé
+  const getFilepath = useCallback(() => {
+    const urlParams = new URLSearchParams(src.split('?')[1] || '')
+    return urlParams.get('path')
+  }, [src])
+
+  // Volume (indépendant)
+  const { volume, isMuted, setVolume, setIsMuted, handleVolumeToggle, handleVolumeChange } = useVolumeControl({
+    videoRef: videoRef as React.RefObject<HTMLVideoElement>
+  })
+
+  // Hook audio (extrait Phase 7)
+  const {
+    audioTracks, selectedAudio, isRemuxing,
+    audioTracksRef, selectedAudioRef, isChangingTrack,
+    setAudioTracks, setSelectedAudio, handleAudioChange
+  } = useAudioManager({
+    videoRef: videoRef as React.RefObject<HTMLVideoElement | null>,
+    hlsRef,
+    src,
+    getFilepath,
+    currentVideoUrl,
+    onLoading: setIsLoading,
+    onError: setError,
+    onCloseSettings: () => setShowSettingsMenu(false)
+  })
   
   // Modale des épisodes (séries uniquement)
   const [showEpisodesModal, setShowEpisodesModal] = useState(false)
@@ -188,56 +116,23 @@ export default function SimpleVideoPlayer({
       }
     }
   }, [allSeasons, currentEpisodeId])
-  
-  // État fullscreen
-  const [isFullscreen, setIsFullscreen] = useState(false)
-  
-  // États pour l'épisode suivant (style Netflix)
-  const [showNextEpisodeUI, setShowNextEpisodeUI] = useState(false)
-  const [nextEpisodeCountdown, setNextEpisodeCountdown] = useState(5) // Compte à rebours 5 secondes (comme Netflix)
-  const [isNextEpisodeCancelled, setIsNextEpisodeCancelled] = useState(false) // Si l'utilisateur a annulé
-  const nextEpisodeTimerRef = useRef<NodeJS.Timeout | null>(null) // Timer pour le compte à rebours
-  
-  // 🔧 FIX: Refs pour éviter les closures stale dans le countdown et handleTimeUpdate
-  const selectedAudioRef = useRef(0)
-  const selectedSubtitleRef = useRef<number | null>(null)
-  const isFullscreenRef = useRef(false)
-  const showNextEpisodeUIRef = useRef(false) // Pour handleTimeUpdate
-  const creditsDurationRef = useRef(creditsDuration) // 🎬 Durée du générique (ref pour closure)
-  // 🆕 Refs pour éviter que le countdown se réinitialise quand les props changent
-  const nextEpisodeRef = useRef(nextEpisode)
-  const onNextEpisodeRef = useRef(onNextEpisode)
-  const markAsFinishedRef = useRef<(() => Promise<void>) | null>(null)
-  
-  // Refs pour la gestion d'état
-  const hideControlsTimeout = useRef<NodeJS.Timeout>()
-  const currentVideoUrl = useRef(src)
-  const isChangingTrack = useRef(false)
-  const hasStartedPlaying = useRef(false)
-  const bufferCheckIntervalRef = useRef<NodeJS.Timeout | null>(null) // 🔧 Pour nettoyer l'intervalle buffer
-  const lastTimeRef = useRef(0) // 🔧 Pour détecter les vrais sauts (pas les faux positifs)
-  const subtitleAbortControllerRef = useRef<AbortController | null>(null) // 🔧 Pour annuler les fetch de sous-titres
-  const pendingSubtitleApplyRef = useRef<number | null>(null) // 🔧 FIX: Sous-titre à appliquer après chargement des pistes
 
-  // Extraire le filepath depuis l'URL
-  const getFilepath = useCallback(() => {
-    const urlParams = new URLSearchParams(src.split('?')[1] || '')
-    return urlParams.get('path')
-  }, [src])
-  
-  const getAudioTrack = useCallback(() => {
-    const urlParams = new URLSearchParams(src.split('?')[1] || '')
-    return urlParams.get('audio') || '0'
-  }, [src])
-  
-  // 🔧 PHASE 4: Hook pour récupérer le statut du buffer adaptatif
-  const { bufferStatus } = useBufferStatus(
-    getFilepath(), 
-    getAudioTrack(), 
-    isPlaying && isRemuxing // Activer seulement pendant le HLS remuxing
-  )
-
-  // 🔧 PHASE 5: Hook pour la résilience réseau (reconnexion automatique)
+  // Hook subtitle manager (extrait Phase 6)
+  const {
+    subtitleTracks, selectedSubtitle, subtitleOffset,
+    isDownloadingSubtitles, selectedSubtitleRef,
+    pendingSubtitleApplyRef, subtitleAbortControllerRef,
+    setSubtitleTracks, setSelectedSubtitle,
+    handleSubtitleChange, handleSubtitleOffsetChange,
+    handleSubtitleOffsetReset, handleDownloadOpenSubtitles
+  } = useSubtitleManager({
+    videoRef: videoRef as React.RefObject<HTMLVideoElement>,
+    src,
+    getFilepath,
+    onError: setError,
+    onCloseSettings: () => setShowSettingsMenu(false)
+  })
+  // Résilience réseau (fournit connectionQuality utilisé par useVideoCore)
   const { 
     isOnline, 
     connectionQuality, 
@@ -247,14 +142,12 @@ export default function SimpleVideoPlayer({
     getSavedPosition,
   } = useNetworkResilience({
     onReconnect: () => {
-      console.log('[PLAYER] Reconnexion détectée, reprise de lecture...')
       const video = videoRef.current
       if (video && video.paused) {
         video.play().catch(() => {})
       }
     },
     onDisconnect: () => {
-      console.log('[PLAYER] Déconnexion détectée')
       const video = videoRef.current
       if (video) {
         savePosition(video.currentTime)
@@ -262,87 +155,135 @@ export default function SimpleVideoPlayer({
     },
   })
 
-  // 🔧 PHASE 3: Hook pour charger ET sauvegarder la position de lecture
+  // Bridge ref pour résoudre la dépendance circulaire useVideoCore <-> useNextEpisode
+  const checkNextEpisodeRef = useRef<(currentTime: number, duration: number) => void>(() => {})
+
+  // Hook principal vidéo (extrait Phase 8)
+  const {
+    isPlaying, currentTime, duration, buffered,
+    isSeeking, isDragging, bufferReady,
+    maxSeekableTime, seekWarning, isPreTranscoded,
+    setIsDragging, setSeekWarning, setMaxSeekableTime,
+    realDurationRef, getAudioTrack,
+    handlePlayPause, handleSkip
+  } = useVideoCore({
+    src,
+    initialPreferences,
+    connectionQuality,
+    videoRef: videoRef as React.RefObject<HTMLVideoElement | null>,
+    hlsRef,
+    currentVideoUrl,
+    getFilepath,
+    audioTracksRef,
+    selectedAudioRef,
+    isChangingTrack,
+    subtitleAbortControllerRef,
+    pendingSubtitleApplyRef,
+    getInitialPreferences,
+    callbacks: {
+      onAudioTracksDiscovered: (tracks) => { setAudioTracks(tracks); audioTracksRef.current = tracks },
+      onInitialAudioSet: (idx) => { setSelectedAudio(idx); selectedAudioRef.current = idx },
+      onSubtitleTracksDiscovered: (tracks) => setSubtitleTracks(tracks),
+      onInitialSubtitleSet: (idx) => { setSelectedSubtitle(idx !== null ? idx : null); if (idx !== null) pendingSubtitleApplyRef.current = idx },
+      checkNextEpisode: (ct, d) => checkNextEpisodeRef.current(ct, d),
+      setIsLoading,
+      setError,
+      setVolume,
+      setIsMuted,
+    }
+  })
+
+  // Visibilité des contrôles (nécessite isPlaying de useVideoCore)
+  const { showControls, setShowControls, handleMouseMove } = useControlsVisibility({
+    videoRef: videoRef as React.RefObject<HTMLVideoElement>,
+    isPlaying,
+    showSettingsMenu
+  })
+
+  // Fullscreen (extrait Phase 5)
+  const { isFullscreen, isFullscreenRef, toggleFullscreen: handleFullscreen } = useFullscreen({
+    containerRef: containerRef as React.RefObject<HTMLDivElement>,
+    videoRef: videoRef as React.RefObject<HTMLVideoElement>,
+    initialWasFullscreen: initialPreferences?.wasFullscreen,
+    onFullscreenEnter: () => {
+      const video = videoRef.current
+      if (video && !video.paused) {
+        setShowControls(false)
+      }
+    }
+  })
+
+  // Buffer status (nécessite isPlaying de useVideoCore)
+  const { bufferStatus } = useBufferStatus(
+    getFilepath(), 
+    getAudioTrack(), 
+    isPlaying && isRemuxing
+  )
+
+  // Position de lecture (nécessite currentTime et duration de useVideoCore)
   const { initialPosition, markAsFinished } = usePlaybackPosition({
     mediaId: mediaId || null,
     currentTime,
     duration: realDurationRef.current || duration,
-    enabled: !!mediaId, // Activer seulement si mediaId est fourni
+    enabled: !!mediaId,
     mediaType,
     userId
   })
 
-  // 🔧 PHASE 3: Restaurer la position initiale une fois que la vidéo est prête (UNE SEULE FOIS)
+  // Préférences courantes (utilisées par useNextEpisode et handleEpisodeSelect)
+  const getPreferences = useCallback((): PlayerPreferences => {
+    const currentTrack = audioTracksRef.current[selectedAudioRef.current]
+    return {
+      audioTrackIndex: selectedAudioRef.current,
+      audioStreamIndex: currentTrack?.index,
+      audioLanguage: currentTrack?.language,
+      subtitleTrackIndex: selectedSubtitleRef.current,
+      wasFullscreen: isFullscreenRef.current ?? undefined
+    }
+  }, [audioTracksRef, isFullscreenRef])
+
+  // Épisode suivant (extrait Phase 5)
+  const {
+    showUI: showNextEpisodeUI,
+    countdown: nextEpisodeCountdown,
+    isCancelled: isNextEpisodeCancelled,
+    showUIRef: showNextEpisodeUIRef,
+    cancel: handleCancelNextEpisode,
+    playNow: handlePlayNextNow,
+    checkTimeRemaining: checkNextEpisode
+  } = useNextEpisode({
+    videoRef: videoRef as React.RefObject<HTMLVideoElement>,
+    src,
+    nextEpisode,
+    creditsDuration,
+    onNextEpisode,
+    markAsFinished,
+    mediaId,
+    getPreferences
+  })
+
+  // Mise à jour du bridge après useNextEpisode
+  checkNextEpisodeRef.current = checkNextEpisode
+
+  // Restaurer la position initiale (UNE SEULE FOIS)
   const hasRestoredPositionRef = useRef(false)
   
   useEffect(() => {
     const video = videoRef.current
     if (!video || initialPosition === 0 || !bufferReady || hasRestoredPositionRef.current) return
 
-    // Attendre que le lecteur soit prêt et qu'on ait du buffer
     if (video.readyState >= 2 && buffered > 0) {
-      console.log(`[PLAYER] Position restaurée une seule fois: ${initialPosition}s`)
+      console.log(`[PLAYER] Position restaurée: ${initialPosition}s`)
       video.currentTime = initialPosition
-      setCurrentTime(initialPosition)
-      hasRestoredPositionRef.current = true // Marquer comme restauré
+      hasRestoredPositionRef.current = true
     }
   }, [initialPosition, bufferReady, buffered])
   
-  // Réinitialiser le flag si le média change
   useEffect(() => {
     hasRestoredPositionRef.current = false
   }, [src])
 
-  // 🔧 PHASE 4: Initialiser le preloader pour HLS
-  useEffect(() => {
-    // Vérifier si c'est du HLS
-    if (src.includes('/api/hls')) {
-      if (!preloaderRef.current) {
-        preloaderRef.current = new SegmentPreloader({
-          lookaheadSegments: 3, // Précharger 3 segments (6s)
-          maxConcurrent: 2, // 2 requêtes parallèles max
-        })
-        preloaderRef.current.setBaseUrl(src)
-        console.log('[PLAYER] Preloader initialisé pour HLS')
-      }
-    }
-    
-    return () => {
-      // Cleanup au démontage
-      if (preloaderRef.current) {
-        preloaderRef.current.reset()
-      }
-    }
-  }, [src])
 
-  // 🎬 Reset de l'état épisode suivant quand la source change
-  useEffect(() => {
-    // 🔧 FIX CRITIQUE: Mettre à jour currentVideoUrl quand src change
-    // Sans ça, le player garde l'ancienne URL après changement d'épisode
-    currentVideoUrl.current = src
-    
-    // 🔧 FIX: Reset currentTime pour éviter que handleTimeUpdate déclenche
-    // l'UI "épisode suivant" immédiatement avec l'ancienne position
-    setCurrentTime(0)
-    lastTimeRef.current = 0
-    lastKnownPositionRef.current = 0
-    
-    setShowNextEpisodeUI(false)
-    setIsNextEpisodeCancelled(false)
-    setNextEpisodeCountdown(5) // 5s comme Netflix
-  }, [src])
-
-  // 🔧 FIX: Synchroniser les refs avec les valeurs de state et props (pour éviter closures stale)
-  useEffect(() => {
-    selectedAudioRef.current = selectedAudio
-    selectedSubtitleRef.current = selectedSubtitle
-    isFullscreenRef.current = isFullscreen
-    showNextEpisodeUIRef.current = showNextEpisodeUI
-    nextEpisodeRef.current = nextEpisode
-    onNextEpisodeRef.current = onNextEpisode
-    markAsFinishedRef.current = markAsFinished
-    creditsDurationRef.current = creditsDuration // 🎬 Durée du générique configurée
-  }, [selectedAudio, selectedSubtitle, isFullscreen, showNextEpisodeUI, nextEpisode, onNextEpisode, markAsFinished, creditsDuration])
 
   // 🔧 Sauvegarder les préférences quand elles changent (localStorage) - avec debounce
   const savePrefsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
@@ -379,255 +320,6 @@ export default function SimpleVideoPlayer({
     }
   }, [selectedAudio, selectedSubtitle, volume, prefsLoaded, savePreferences])
 
-  // Charger les infos des pistes et la durée
-  useEffect(() => {
-    const filepath = getFilepath()
-    
-    if (!filepath) return
-
-    // Récupérer la durée (optionnel)
-    fetch(`/api/video-duration?path=${encodeURIComponent(filepath)}`)
-      .then(res => {
-        if (!res.ok) throw new Error('API video-duration non disponible')
-        return res.json()
-      })
-      .then(data => {
-        if (data.duration > 0) {
-          realDurationRef.current = data.duration // Sauvegarder la vraie durée
-          setDuration(data.duration)
-        }
-      })
-      .catch(() => {
-        // API durée non disponible, récupération depuis la vidéo
-      })
-    
-    // Récupérer les pistes (optionnel)
-    fetch(`/api/media-info?path=${encodeURIComponent(filepath)}`)
-      .then(res => {
-        if (!res.ok) throw new Error('API media-info non disponible')
-        return res.json()
-      })
-      .then(data => {
-        const tracks = (data.audioTracks || []) as AudioTrack[]
-        setAudioTracks(tracks)
-        audioTracksRef.current = tracks
-        setSubtitleTracks(data.subtitleTracks || [])
-        
-        // 🎬 Résolution de la piste audio préférée
-        // Priorité : 1) audioLanguage (résolution robuste entre épisodes, indépendante de l'ordre des pistes)
-        //            2) audioTrackIndex (fallback numérique, compat ascendante)
-        //            3) Français par défaut si disponible
-        const savedPrefs = getInitialPreferences()
-        const effectivePrefs = initialPreferences || savedPrefs
-        
-        let resolvedAudioIdx = 0
-        let audioResolved = false
-        
-        // 1) Résolution par code langue (plus fiable car indépendant de l'ordre des pistes entre épisodes)
-        if (effectivePrefs?.audioLanguage && tracks.length > 0) {
-          const langMatchIdx = tracks.findIndex(t => 
-            t.language.toLowerCase() === effectivePrefs.audioLanguage!.toLowerCase()
-          )
-          if (langMatchIdx !== -1) {
-            resolvedAudioIdx = langMatchIdx
-            audioResolved = true
-            console.log(`[PLAYER] Piste audio résolue par langue: "${effectivePrefs.audioLanguage}" → index ${langMatchIdx} (${tracks[langMatchIdx].language})`, initialPreferences ? '(épisode)' : '(localStorage)')
-          }
-        }
-        
-        // 2) Fallback par index numérique (compat ascendante avec anciennes préférences)
-        if (!audioResolved && effectivePrefs?.audioTrackIndex !== undefined && tracks.length > effectivePrefs.audioTrackIndex) {
-          resolvedAudioIdx = effectivePrefs.audioTrackIndex
-          audioResolved = true
-          console.log('[PLAYER] Préférence audio restaurée par index:', effectivePrefs.audioTrackIndex, initialPreferences ? '(épisode)' : '(localStorage)')
-        }
-        
-        // 3) Fallback : français par défaut si disponible
-        if (!audioResolved && tracks.length > 0) {
-          const frenchAudioIdx = tracks.findIndex(t => 
-            /^(fr|fre|fra|français)$/i.test(t.language) || /français/i.test(t.language)
-          )
-          if (frenchAudioIdx !== -1) {
-            resolvedAudioIdx = frenchAudioIdx
-            console.log(`[PLAYER] Piste audio française détectée: index ${frenchAudioIdx} (${tracks[frenchAudioIdx].language})`)
-          }
-        }
-        
-        setSelectedAudio(resolvedAudioIdx)
-        // Mise à jour directe de la ref : si MANIFEST_PARSED n'a pas encore tiré,
-        // il utilisera cette valeur. Évite la désynchronisation state/ref entre les renders.
-        selectedAudioRef.current = resolvedAudioIdx
-        
-        // 🔧 FIX AUDIO: Si HLS.js est déjà initialisé (pré-transcodé), corriger la piste si nécessaire
-        // Pour le transcodage temps réel, l'URL contient déjà &audio=X via SeriesModal
-        if (hlsRef.current && hlsRef.current.audioTracks && hlsRef.current.audioTracks.length > 1) {
-          if (hlsRef.current.audioTrack !== resolvedAudioIdx) {
-            console.log(`[PLAYER] Correction audio post-fetch: HLS.js piste ${hlsRef.current.audioTrack} → ${resolvedAudioIdx}`)
-            hlsRef.current.audioTrack = resolvedAudioIdx
-          }
-        }
-        
-        // Sous-titres : préférence explicite ou sélection intelligente
-        if (effectivePrefs?.subtitleTrackIndex !== undefined && effectivePrefs.subtitleTrackIndex !== null) {
-          setSelectedSubtitle(effectivePrefs.subtitleTrackIndex)
-          // 🔧 FIX: Stocker le sous-titre à appliquer réellement après le prochain rendu
-          // setSelectedSubtitle ne fait que mettre à jour l'UI, pas la vidéo
-          pendingSubtitleApplyRef.current = effectivePrefs.subtitleTrackIndex
-          console.log('[PLAYER] Préférence sous-titres restaurée:', effectivePrefs.subtitleTrackIndex, initialPreferences ? '(épisode)' : '(localStorage)')
-        } else if (tracks.length > 0 && data.subtitleTracks?.length > 0) {
-          // Pas de préférences sauvegardées : logique intelligente selon la langue audio résolue
-          const subtitles = data.subtitleTracks as SubtitleTrack[]
-          const selectedTrack = tracks[resolvedAudioIdx]
-          const isFrenchAudio = selectedTrack && (/^(fr|fre|fra|français)$/i.test(selectedTrack.language) || /français/i.test(selectedTrack.language))
-          
-          if (isFrenchAudio) {
-            // Audio en français → sous-titres forced uniquement (traductions langues étrangères)
-            const forcedFrIdx = subtitles.findIndex(t => 
-              t.forced === true && (/^(fr|fre|fra|français)$/i.test(t.language) || /français/i.test(t.language))
-            )
-            if (forcedFrIdx !== -1) {
-              setSelectedSubtitle(forcedFrIdx)
-              pendingSubtitleApplyRef.current = forcedFrIdx
-              console.log(`[PLAYER] Audio FR → sous-titres forced FR activés: index ${forcedFrIdx}`)
-            } else {
-              // Pas de forced → pas de sous-titres
-              console.log('[PLAYER] Audio FR → pas de sous-titres (aucun forced FR trouvé)')
-            }
-          } else {
-            // Audio non-française → sous-titres français complets par défaut
-            const frSubIdx = subtitles.findIndex(t => 
-              !t.forced && (/^(fr|fre|fra|français)$/i.test(t.language) || /français/i.test(t.language))
-            )
-            if (frSubIdx !== -1) {
-              setSelectedSubtitle(frSubIdx)
-              pendingSubtitleApplyRef.current = frSubIdx
-              console.log(`[PLAYER] Audio non-FR → sous-titres FR activés: index ${frSubIdx} (${subtitles[frSubIdx].language})`)
-            } else {
-              console.log('[PLAYER] Audio non-FR → aucun sous-titre FR disponible')
-            }
-          }
-        }
-      })
-      .catch(err => {
-      })
-  }, [getFilepath, src, getInitialPreferences])
-
-  // Pour les MP4 directs : s'assurer que la première piste audio est sélectionnée et détecter les sous-titres natifs
-  useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
-    
-    // Seulement pour les fichiers MP4 directs (pas HLS)
-    const isDirectMP4 = !src.includes('/api/hls') && !src.includes('/api/hls-v2')
-    if (!isDirectMP4) return
-    
-    // Attendre que la vidéo soit chargée
-    const handleLoadedMetadata = () => {
-      // Vérification des pistes audio natives pour MP4 directs
-      
-      // S'assurer que le volume est à 1 et non muet
-      if (video.volume === 0) {
-        video.volume = 1
-        setVolume(1)
-      }
-      if (video.muted) {
-        video.muted = false
-        setIsMuted(false)
-      }
-      
-      // Vérifier les pistes audio natives du browser
-      const videoWithAudioTracks = video as VideoElementWithAudioTracks
-      if ('audioTracks' in videoWithAudioTracks && videoWithAudioTracks.audioTracks && videoWithAudioTracks.audioTracks.length > 0) {
-        // 🔧 FIX: Activer la piste préférée (pas toujours la première)
-        const preferredIdx = selectedAudioRef.current
-        const nativeTracks = videoWithAudioTracks.audioTracks
-        
-        // Désactiver toutes les pistes d'abord
-        for (let i = 0; i < nativeTracks.length; i++) {
-          const t = nativeTracks[i]
-          if (t) t.enabled = false
-        }
-        
-        // Activer la piste préférée (ou la première si l'index est invalide)
-        const targetIdx = preferredIdx < nativeTracks.length ? preferredIdx : 0
-        const targetTrack = nativeTracks[targetIdx]
-        if (targetTrack) {
-          targetTrack.enabled = true
-          console.log(`[PLAYER] Piste audio native activée: ${targetIdx} (${targetTrack.language || targetTrack.label || 'inconnue'})`)
-        }
-      } else {
-      }
-      
-      // 📝 Détecter les sous-titres natifs (mov_text intégrés dans le MP4)
-      // ⚠️ IMPORTANT: Les textTracks peuvent ne pas être immédiatement disponibles après un remuxage
-      // On vérifie immédiatement ET après un court délai
-      const checkTextTracks = () => {
-        const textTracks = Array.from(video.textTracks)
-        if (textTracks.length > 0) {
-          textTracks.forEach((track, i) => {
-            const cuesCount = track.cues ? track.cues.length : 0
-            const activeCuesCount = track.activeCues ? track.activeCues.length : 0
-          })
-          
-          // ⚠️ CRITIQUE: S'assurer qu'une seule piste est active à la fois
-          // Plusieurs pistes en mode 'showing' peuvent empêcher l'affichage
-          const showingTracks = textTracks.filter(t => t.mode === 'showing')
-          if (showingTracks.length > 1) {
-            console.warn(`[PLAYER] ${showingTracks.length} pistes en mode 'showing' simultanément, désactivation des doublons`)
-            // Garder seulement la première piste en 'showing', désactiver les autres
-            for (let i = 1; i < showingTracks.length; i++) {
-              showingTracks[i].mode = 'disabled'
-            }
-          }
-          
-          // Si on a des sous-titres natifs mais pas encore de correspondance avec subtitleTracks,
-          // synchroniser les deux listes
-          if (subtitleTracks.length === 0 && textTracks.length > 0) {
-            // Les sous-titres seront détectés via /api/media-info, mais on peut déjà les activer si default
-            const defaultTrack = textTracks.find(t => t.mode === 'showing' || t.mode === 'hidden')
-            if (defaultTrack && defaultTrack.mode !== 'showing') {
-              // S'assurer qu'une seule piste est active
-              textTracks.forEach(t => {
-                if (t !== defaultTrack) t.mode = 'disabled'
-              })
-              defaultTrack.mode = 'showing'
-            }
-          }
-        }
-      }
-      
-      checkTextTracks()
-      
-      // ⚠️ CRITIQUE: Vérifier périodiquement qu'une seule piste est active
-      // Certains navigateurs peuvent réactiver plusieurs pistes automatiquement
-      const subtitleCheckInterval = setInterval(() => {
-        const textTracks = Array.from(video.textTracks)
-        const showingTracks = textTracks.filter(t => t.mode === 'showing')
-        if (showingTracks.length > 1) {
-          // Garder seulement la première piste active
-          for (let i = 1; i < showingTracks.length; i++) {
-            showingTracks[i].mode = 'disabled'
-          }
-        }
-      }, 1000) // Vérifier toutes les secondes
-      
-      // Nettoyer l'intervalle quand la vidéo est démontée
-      return () => {
-        clearInterval(subtitleCheckInterval)
-      }
-    }
-    
-    if (video.readyState >= 1) {
-      // Vidéo déjà chargée
-      handleLoadedMetadata()
-    } else {
-      // Attendre le chargement
-      video.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true })
-      return () => {
-        video.removeEventListener('loadedmetadata', handleLoadedMetadata)
-      }
-    }
-  }, [src, audioTracks, subtitleTracks])
 
   // Fermer le menu au clic extérieur
   useEffect(() => {
@@ -645,1861 +337,33 @@ export default function SimpleVideoPlayer({
     }
   }, [showSettingsMenu])
 
-  // 🔧 FIX #3: Synchroniser isPlaying avec l'état réel du video
-  useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
-    
-    const syncPlayState = () => {
-      const actuallyPlaying = !video.paused && !video.ended && video.readyState > 2
-      if (actuallyPlaying !== isPlaying) {
-        setIsPlaying(actuallyPlaying)
-      }
-    }
-    
-    // Vérifier périodiquement (backup)
-    const syncInterval = setInterval(syncPlayState, 1000)
-    
-    // Événements directs
-    video.addEventListener('playing', syncPlayState)
-    video.addEventListener('pause', syncPlayState)
-    video.addEventListener('ended', syncPlayState)
-    video.addEventListener('waiting', syncPlayState)
-    
-    return () => {
-      clearInterval(syncInterval)
-      video.removeEventListener('playing', syncPlayState)
-      video.removeEventListener('pause', syncPlayState)
-      video.removeEventListener('ended', syncPlayState)
-      video.removeEventListener('waiting', syncPlayState)
-    }
-  }, [isPlaying])
-
-  // 🎬 FIX: Gestion de la fin de vidéo
-  useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
-
-    const handleVideoEnded = () => {
-      console.log('[PLAYER] Vidéo terminée')
-      
-      // Marquer comme terminé (supprimer la position)
-      if (mediaId) {
-        markAsFinished()
-      }
-      
-      // Note: L'épisode suivant est maintenant géré par le compte à rebours de 10s
-      // Si on arrive ici et que le UI n'est pas affiché (vidéo courte), lancer l'épisode suivant
-      if (nextEpisode && onNextEpisode && !isNextEpisodeCancelled && !showNextEpisodeUI) {
-        console.log('[PLAYER] Vidéo terminée, passage direct à l\'épisode suivant:', nextEpisode.title)
-        // 🔧 FIX: Utiliser les refs pour avoir les valeurs actuelles
-        const currentTrack = audioTracksRef.current[selectedAudioRef.current]
-        const preferences: PlayerPreferences = {
-          audioTrackIndex: selectedAudioRef.current,
-          audioStreamIndex: currentTrack?.index,
-          audioLanguage: currentTrack?.language,
-          subtitleTrackIndex: selectedSubtitleRef.current,
-          wasFullscreen: isFullscreenRef.current
-        }
-        onNextEpisode(preferences)
-      }
-    }
-
-    video.addEventListener('ended', handleVideoEnded)
-    return () => video.removeEventListener('ended', handleVideoEnded)
-    // 🔧 FIX: Retrait des valeurs de state des dépendances car on utilise les refs
-  }, [mediaId, nextEpisode, onNextEpisode, markAsFinished, isNextEpisodeCancelled, showNextEpisodeUI])
-
-  // 🎬 Netflix: Compte à rebours de 5 secondes pour l'épisode suivant
-  // 🔧 FIX MAJEUR: Utilise UNIQUEMENT showNextEpisodeUI et isNextEpisodeCancelled comme dépendances
-  // Les autres valeurs (nextEpisode, onNextEpisode, markAsFinished) sont lues via refs
-  // pour éviter que le countdown se réinitialise quand ces props changent
-  useEffect(() => {
-    console.log('[PLAYER] useEffect countdown déclenché:', {
-      showNextEpisodeUI,
-      isNextEpisodeCancelled
-    })
-    
-    // Nettoyer le timer précédent
-    if (nextEpisodeTimerRef.current) {
-      clearInterval(nextEpisodeTimerRef.current)
-      nextEpisodeTimerRef.current = null
-    }
-
-    // Si l'UI n'est pas affichée ou annulée, ne rien faire
-    // 🔧 FIX: Utiliser les refs pour nextEpisode et onNextEpisode
-    if (!showNextEpisodeUI || isNextEpisodeCancelled || !nextEpisodeRef.current || !onNextEpisodeRef.current) {
-      console.log('[PLAYER] Countdown non démarré - conditions non remplies')
-      return
-    }
-
-    console.log('[PLAYER] Démarrage du compte à rebours 5s (style Netflix)')
-    
-    // Variable locale pour suivre le compteur (évite les problèmes de closure)
-    let currentCount = 5
-    setNextEpisodeCountdown(5)
-    
-    // Démarrer le compte à rebours
-    nextEpisodeTimerRef.current = setInterval(() => {
-      currentCount -= 1
-      console.log('[PLAYER] Countdown:', currentCount)
-      
-      if (currentCount <= 0) {
-        // Compte à rebours terminé - lancer l'épisode suivant
-        console.log('[PLAYER] Compte à rebours terminé, lancement épisode suivant')
-        
-        // Nettoyer le timer
-        if (nextEpisodeTimerRef.current) {
-          clearInterval(nextEpisodeTimerRef.current)
-          nextEpisodeTimerRef.current = null
-        }
-        
-        // 🔧 FIX: Utiliser les refs pour avoir les valeurs actuelles (pas de closure stale)
-        const currentTrack = audioTracksRef.current[selectedAudioRef.current]
-        const preferences: PlayerPreferences = {
-          audioTrackIndex: selectedAudioRef.current,
-          audioStreamIndex: currentTrack?.index,
-          audioLanguage: currentTrack?.language,
-          subtitleTrackIndex: selectedSubtitleRef.current,
-          wasFullscreen: isFullscreenRef.current
-        }
-        
-        console.log('[PLAYER] Préférences transmises:', preferences)
-        
-        // Marquer l'épisode actuel comme terminé (via ref)
-        if (mediaId && markAsFinishedRef.current) {
-          markAsFinishedRef.current()
-        }
-        
-        // Lancer l'épisode suivant avec les préférences (via ref)
-        if (onNextEpisodeRef.current) {
-          onNextEpisodeRef.current(preferences)
-        }
-      } else {
-        setNextEpisodeCountdown(currentCount)
-      }
-    }, 1000)
-
-    // Cleanup
-    return () => {
-      console.log('[PLAYER] Cleanup countdown timer')
-      if (nextEpisodeTimerRef.current) {
-        clearInterval(nextEpisodeTimerRef.current)
-        nextEpisodeTimerRef.current = null
-      }
-    }
-    // 🔧 FIX MAJEUR: UNIQUEMENT ces 2 dépendances !
-    // Les autres valeurs sont lues via refs pour éviter les re-renders qui réinitialisent le timer
-  }, [showNextEpisodeUI, isNextEpisodeCancelled, mediaId])
-
-  // 🔧 FIX #3: Gérer spécifiquement le fullscreen (compatible Safari et iOS)
-  useEffect(() => {
-    const handleFullscreenChange = () => {
-      const fullscreen = isVideoFullscreen(videoRef.current || undefined)
-      setIsFullscreen(fullscreen)
-      
-      if (fullscreen) {
-        // En fullscreen : forcer la disparition des contrôles après 3s
-        setTimeout(() => {
-          const video = videoRef.current
-          if (video && !video.paused) {
-            setShowControls(false)
-          }
-        }, 3000)
-      }
-    }
-    
-    const cleanup = addFullscreenChangeListener(handleFullscreenChange, videoRef.current || undefined)
-    return cleanup
-  }, [])
-
-  // 🎬 Netflix: Restaurer le plein écran entre épisodes
-  useEffect(() => {
-    if (initialPreferences?.wasFullscreen && containerRef.current && videoRef.current) {
-      // Attendre un peu que la vidéo soit prête avant de passer en plein écran
-      const restoreFullscreen = async () => {
-        await new Promise(resolve => setTimeout(resolve, 500))
-        try {
-          await requestFullscreen(containerRef.current!, videoRef.current || undefined)
-          setIsFullscreen(true)
-          console.log('[PLAYER] Plein écran restauré depuis l\'épisode précédent')
-        } catch (err) {
-          console.log('[PLAYER] Impossible de restaurer le plein écran:', err)
-        }
-      }
-      restoreFullscreen()
-    }
-  }, [initialPreferences?.wasFullscreen]) // Ne s'exécute qu'au montage
-
-  // 🔧 FIX #3b: Masquer automatiquement les contrôles quand la vidéo joue
-  useEffect(() => {
-    if (isPlaying && !showSettingsMenu) {
-      // Démarrer le timer pour masquer les contrôles
-      if (hideControlsTimeout.current) {
-        clearTimeout(hideControlsTimeout.current)
-      }
-      hideControlsTimeout.current = setTimeout(() => {
-        setShowControls(false)
-      }, 3000)
-    }
-    
-    return () => {
-      if (hideControlsTimeout.current) {
-        clearTimeout(hideControlsTimeout.current)
-      }
-    }
-  }, [isPlaying, showSettingsMenu])
-
   // Raccourcis clavier
-  useEffect(() => {
-    const handleKeyPress = (e: KeyboardEvent) => {
-      if (!videoRef.current) return
-      
-      switch(e.key.toLowerCase()) {
-        case ' ':
-        case 'k':
-          e.preventDefault()
-          handlePlayPause()
-          break
-        case 'arrowleft':
-          e.preventDefault()
-          handleSkip(-10)
-          break
-        case 'arrowright':
-          e.preventDefault()
-          handleSkip(10)
-          break
-        case 'f':
-          e.preventDefault()
-          handleFullscreen()
-          break
-        case 'm':
-          e.preventDefault()
-          handleVolumeToggle()
-          break
-        case 'escape':
-          if (showSettingsMenu) {
-            setShowSettingsMenu(false)
-          } else if (isVideoFullscreen(videoRef.current || undefined)) {
-            exitFullscreen(videoRef.current || undefined)
-          }
-          break
-      }
-    }
+  useKeyboardShortcuts({
+    videoRef: videoRef as React.RefObject<HTMLVideoElement>,
+    onPlayPause: handlePlayPause,
+    onSkip: handleSkip,
+    onFullscreen: handleFullscreen,
+    onToggleMute: handleVolumeToggle,
+    onCloseSettings: () => setShowSettingsMenu(false),
+    showSettingsMenu
+  })
 
-    document.addEventListener('keydown', handleKeyPress)
-    return () => document.removeEventListener('keydown', handleKeyPress)
-  }, [showSettingsMenu])
+  // Callback : sélection d'un épisode depuis la modale
+  const handleEpisodeSelect = useCallback((episodeId: string) => {
+    if (!onEpisodeSelect) return
+    onEpisodeSelect(episodeId, getPreferences())
+    setShowEpisodesModal(false)
+  }, [onEpisodeSelect, getPreferences])
 
-  // Initialiser la vidéo
-  useEffect(() => {
-    if (!videoRef.current) return
-
-    const video = videoRef.current
-    
-    // Ne pas recharger si on est en train de changer de piste
-    if (isChangingTrack.current) {
-      isChangingTrack.current = false
-      return
-    }
-    
-    
-    // Nettoyer l'instance HLS précédente (SANS tuer FFmpeg global)
-    if (hlsRef.current) {
-      hlsRef.current.destroy()
-      hlsRef.current = null
-    }
-    
-    // 🔧 IMPORTANT: On ne tue PAS FFmpeg ici, juste HLS.js
-    // FFmpegManager va automatiquement gérer les sessions expirées
-    
-    // Vérifier si c'est une URL HLS
-    const isHLS = currentVideoUrl.current.includes('playlist=true') || currentVideoUrl.current.includes('.m3u8')
-    
-    if (isHLS) {
-      // Utiliser HLS.js pour les navigateurs non-Safari
-      if (Hls.isSupported()) {
-        // 🎯 PHASE 5: Configuration OPTIMISÉE avec sélection intelligente
-        const hlsConfig = selectHlsConfig({
-          isFirstLoad: true,
-          connectionQuality: connectionQuality as 'excellent' | 'good' | 'poor',
-        })
-        const hls = new Hls(hlsConfig)
-        hlsRef.current = hls
-        
-        // 🔧 FIX #1: Ne PAS reset à 0 si on a une position sauvegardée (ex: reprise de lecture)
-        // Seulement reset si c'est vraiment une nouvelle vidéo
-        if (lastKnownPositionRef.current === 0 && initialPosition === 0) {
-        video.currentTime = 0
-        video.load() // Force reset de l'état interne du <video>
-        } else {
-        }
-        
-        hls.loadSource(currentVideoUrl.current)
-        hls.attachMedia(video)
-        
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          retryCountRef.current = 0
-          
-          // 🔧 FIX #1: Restaurer la position si on en avait une (ex: après changement de piste)
-          if (lastKnownPositionRef.current > 5 && video.currentTime < 5) {
-            video.currentTime = lastKnownPositionRef.current
-          }
-          
-          // 🔧 FIX AUDIO: Appliquer la piste audio préférée sur HLS.js après chargement du manifeste
-          // selectedAudioRef contient la valeur à jour (mise à jour par media-info fetch ou useEffect sync)
-          if (hls.audioTracks && hls.audioTracks.length > 1) {
-            const preferredIdx = selectedAudioRef.current
-            // 🔧 FIX: >= 0 au lieu de > 0 pour couvrir TOUS les index valides (y compris 0)
-            // Toujours forcer l'application pour garantir la cohérence, même si c'est l'index 0
-            if (preferredIdx >= 0 && preferredIdx < hls.audioTracks.length && hls.audioTrack !== preferredIdx) {
-              console.log(`[PLAYER] MANIFEST_PARSED: application piste audio préférée: ${preferredIdx} (${hls.audioTracks[preferredIdx]?.name || hls.audioTracks[preferredIdx]?.lang})`)
-              hls.audioTrack = preferredIdx
-            }
-          }
-          
-          // 🧹 Nettoyer l'ancien intervalle si existant
-          if (bufferCheckIntervalRef.current) {
-            clearInterval(bufferCheckIntervalRef.current)
-            bufferCheckIntervalRef.current = null
-          }
-          
-          // 🧠 BUFFER ADAPTATIF: check FFmpeg + buffer toutes les 250ms
-          
-          const filepath = getFilepath()
-          let hasStarted = false
-          let checkCount = 0
-          
-          // Fonction pour récupérer l'état FFmpeg
-          const getFFmpegStatus = async () => {
-            if (!filepath) return null
-            try {
-              const res = await fetch(`/api/hls/status?path=${encodeURIComponent(filepath)}`)
-              if (!res.ok) return null
-              const data = await res.json()
-              return data
-            } catch {
-              return null
-            }
-          }
-          
-          bufferCheckIntervalRef.current = setInterval(async () => {
-            if (hasStarted) {
-              if (bufferCheckIntervalRef.current) {
-                clearInterval(bufferCheckIntervalRef.current)
-                bufferCheckIntervalRef.current = null
-              }
-              return
-            }
-            
-            checkCount++
-            
-            // Buffer local
-            let bufferedSeconds = 0
-            if (video.buffered.length > 0) {
-              bufferedSeconds = video.buffered.end(0) - video.buffered.start(0)
-            }
-            
-            // État FFmpeg (check au 1er appel PUIS toutes les secondes)
-            let ffmpegStatus = null
-            if (checkCount === 1 || checkCount % 4 === 0) {
-              ffmpegStatus = await getFFmpegStatus()
-            }
-            
-            const segmentsReady = ffmpegStatus?.segmentsReady || 0
-            const isComplete = ffmpegStatus?.isComplete || false
-            const preTranscodedStatus = ffmpegStatus?.preTranscoded || false
-            
-            // 🎯 Mettre à jour l'état pré-transcodé pour permettre le scrubbing complet
-            if (preTranscodedStatus && !isPreTranscoded) {
-              setIsPreTranscoded(true)
-              setMaxSeekableTime(Infinity) // Seek illimité pour pré-transcodé
-              console.log('[PLAYER] Fichier pré-transcodé détecté - scrubbing complet activé')
-              
-              // 🔧 FIX: Désactiver le preloader pour le contenu pré-transcodé
-              // HLS.js gère nativement le buffering VOD - pas besoin de préchargement manuel
-              if (preloaderRef.current) {
-                preloaderRef.current.setEnabled(false)
-                console.log('[PLAYER] Preloader désactivé pour contenu pré-transcodé')
-              }
-            }
-            
-            // 🧠 DÉCISION INTELLIGENTE
-            // - Si PRÉ-TRANSCODÉ : démarrer dès qu'on a 2s de buffer (seek instantané disponible)
-            // - Si transcodage complet en temps réel : lancer dès qu'on a 10s
-            // - Sinon : attendre 15 segments OU 30s de buffer
-            let canStart = false
-            if (preTranscodedStatus) {
-              // Fichier pré-transcodé = démarrage ultra-rapide
-              canStart = bufferedSeconds >= 2
-              if (checkCount % 4 === 0 && !canStart) {
-                console.log(`[PLAYER] Pré-transcodé, attente buffer: ${bufferedSeconds.toFixed(1)}s/2s`)
-              }
-            } else if (isComplete) {
-              canStart = bufferedSeconds >= 10
-            } else {
-              canStart = segmentsReady >= 15 || bufferedSeconds >= 30
-            }
-            
-            // Log toutes les secondes
-            if (checkCount % 4 === 0) {
-            }
-            
-            if (canStart) {
-              hasStarted = true
-              if (bufferCheckIntervalRef.current) {
-                clearInterval(bufferCheckIntervalRef.current)
-                bufferCheckIntervalRef.current = null
-              }
-              setBufferReady(true)
-              
-              // Muter temporairement pour autoplay
-              const wasMuted = video.muted
-              video.muted = true
-              
-              video.play().then(() => {
-                setIsPlaying(true)
-                setIsLoading(false)
-                setTimeout(() => { video.muted = wasMuted }, 100)
-              }).catch((err) => {
-                console.warn('[PLAYER] Autoplay bloqué:', err.message)
-                video.muted = wasMuted
-                setIsLoading(false)
-              })
-            }
-          }, 250) // Check toutes les 250ms
-        })
-        
-        // 🛡️ PROTECTION: Surveillance légère du buffer (seuil d'urgence uniquement)
-        // HLS.js gère déjà le buffer automatiquement, on intervient seulement en cas critique
-        let bufferWatchdog: NodeJS.Timeout | null = null
-        
-        hls.on(Hls.Events.FRAG_LOADED, (event, data) => {
-          // Log silencieux (décommenter pour debug)
-          // const frag = data.frag
-        })
-        
-        // 🛡️ DÉSACTIVÉ: Buffer Watchdog trop agressif, HLS.js gère lui-même
-        // Le watchdog créait des pause/reprise en boucle qui surchargeaient le CPU
-        // HLS.js a déjà son propre système de buffer management intégré
-        
-        // const startBufferWatchdog = () => {
-        //   // DÉSACTIVÉ
-        // }
-        
-        // video.addEventListener('play', startBufferWatchdog, { once: true })
-        
-        hls.on(Hls.Events.ERROR, (event, data) => {
-          console.error('[PLAYER] Erreur HLS:', data.type, data.details)
-          
-          // 🔧 FIX #1: TOUJOURS sauvegarder la position AVANT toute action
-          const savedPosition = lastKnownPositionRef.current || video.currentTime || 0
-          const wasPlaying = !video.paused
-          
-          if (savedPosition > 5) {
-          }
-          
-          if (data.fatal) {
-            switch(data.type) {
-              case Hls.ErrorTypes.NETWORK_ERROR:
-                console.log('[PLAYER] Erreur réseau détectée')
-                
-                // ✅ RETRY GRADUEL : 1s, 3s, 5s, 10s
-                const retryDelays = [1000, 3000, 5000, 10000]
-                const maxNetworkRetries = retryDelays.length
-                
-                if (retryCountRef.current >= maxNetworkRetries) {
-                  console.error(`[PLAYER] Maximum de tentatives atteint (${maxNetworkRetries})`)
-                  setError(`Impossible de charger la vidéo après plusieurs tentatives. Position sauvegardée: ${formatTime(savedPosition)}`)
-                  setIsLoading(false)
-                  return
-                }
-                
-                const delay = retryDelays[retryCountRef.current]
-                retryCountRef.current++
-                console.log(`[PLAYER] Retry ${retryCountRef.current}/${maxNetworkRetries} dans ${delay}ms`)
-                
-                // ✅ NE PAS détruire HLS.js, juste recharger la source
-                setTimeout(() => {
-                  console.log('[PLAYER] Rechargement...')
-                  if (data.details === 'levelLoadError' || data.details === 'manifestLoadError') {
-                    hls.loadSource(currentVideoUrl.current)
-                  } else {
-                    hls.startLoad()
-                  }
-                }, delay)
-                break
-              case Hls.ErrorTypes.MEDIA_ERROR:
-                console.log('[PLAYER] Tentative de récupération média...')
-                hls.recoverMediaError()
-                break
-              default:
-                // 🔧 FIX #1: Pour les erreurs fatales, préserver la position
-                console.log(`[PLAYER] Rechargement complet dans 3s... (position: ${savedPosition.toFixed(1)}s)`)
-                isRecoveringRef.current = true
-                
-                setTimeout(() => {
-                  hls.destroy()
-                  
-                  // 🔧 PHASE 5: Config de récupération avec position sauvegardée
-                  const recoveryConfig = selectHlsConfig({
-                    isRecovery: true,
-                    startPosition: savedPosition,
-                  })
-                  const newHls = new Hls(recoveryConfig)
-                  hlsRef.current = newHls
-                  
-                  // 🔧 FIX #1: Ne PAS reset à 0 si on a une position sauvegardée
-                  if (savedPosition <= 5) {
-                  video.currentTime = 0
-                  video.load()
-                  }
-                  
-                  newHls.loadSource(currentVideoUrl.current)
-                  newHls.attachMedia(video)
-                  
-                  // 🔧 FIX #1: Restaurer la position après rechargement
-                  newHls.on(Hls.Events.MANIFEST_PARSED, () => {
-                    console.log(`[PLAYER] Manifest rechargé, restauration position: ${savedPosition.toFixed(1)}s`)
-                    if (video && savedPosition > 5) {
-                      video.currentTime = savedPosition
-                      if (wasPlaying) {
-                        video.play().catch(() => {})
-                      }
-                    }
-                    retryCountRef.current = 0
-                    setTimeout(() => {
-                      isRecoveringRef.current = false
-                    }, 2000)
-                  })
-                }, 3000)
-                break
-            }
-          } else if (data.details === 'bufferStalledError') {
-            console.log('[PLAYER] Buffer en attente du transcodage...')
-          } else if (data.details === 'fragLoadError' || data.details === 'fragLoadTimeOut') {
-            console.log(`[PLAYER] Segment non prêt, FFmpeg en cours de transcodage...`)
-            // Ne rien faire, HLS.js va réessayer automatiquement
-          } else if (data.details === 'levelLoadError') {
-            // 🔧 Erreur non-fatale de chargement de playlist (souvent 500)
-            console.warn('[PLAYER] Erreur chargement playlist (non-fatal):', data.response?.code)
-            
-            if (data.response?.code === 500) {
-              console.warn('[PLAYER] Serveur retourne 500 - possible FFmpeg mort')
-            }
-          }
-        })
-      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Safari support natif HLS
-        video.src = currentVideoUrl.current
-        video.load()
-        // Pour Safari, on doit aussi attendre le buffer (pas de HLS.js pour gérer)
-        // TODO: Implémenter l'attente de buffer pour Safari
-        setBufferReady(true) // Temporairement débloquer
-      } else {
-        console.error('[PLAYER] HLS non supporté sur ce navigateur')
-        setError('Format vidéo non supporté sur ce navigateur')
-        return
-      }
-    } else {
-      // Vidéo normale (MP4) - pas besoin d'attendre
-      setBufferReady(true) // ✅ Débloquer immédiatement pour MP4
-      video.src = currentVideoUrl.current
-      video.load()
-    }
-    
-    // Essayer de jouer dès que possible
-    const tryAutoplay = async () => {
-      // 🚦 BLOQUER si le buffer n'est pas prêt (pour HLS uniquement)
-      const isHLS = src.includes('/api/hls')
-      if (isHLS && !bufferReady) {
-        return
-      }
-      
-      try {
-        // Attendre un peu si la vidéo n'est pas prête
-        if (video.readyState < 2) {
-          await new Promise(resolve => setTimeout(resolve, 500))
-        }
-        
-        const playPromise = video.play()
-        hasStartedPlaying.current = true
-        
-        if (playPromise !== undefined) {
-          await playPromise
-        }
-        
-        // Forcer la mise à jour de l'UI immédiatement
-        setIsPlaying(true)
-        setIsLoading(false)
-      } catch (err: any) {
-        console.log('[PLAYER] Autoplay bloqué:', err.message)
-        setIsLoading(false)
-        // Afficher le bouton play
-      }
-    }
-    
-    // ✅ Le buffer check intelligent gère tout maintenant (pas de timeout fixe)
-    
-    const handleCanPlay = () => {
-      // ⚠️ NE PAS appeler tryAutoplay ici pour HLS
-      // Le buffer check intelligent le fera au bon moment
-      const isHLS = src.includes('/api/hls')
-      if (!isHLS) {
-        setIsLoading(false)
-        tryAutoplay()
-      }
-    }
-    
-    const handleCanPlayThrough = () => {
-      // ⚠️ NE PAS appeler tryAutoplay ici pour HLS
-      // Le buffer check intelligent le fera au bon moment
-      const isHLS = src.includes('/api/hls')
-      if (!isHLS && !isPlaying) {
-        tryAutoplay()
-      }
-    }
-    
-    const handlePlay = () => {
-      hasStartedPlaying.current = true
-      setIsPlaying(true)
-      setIsLoading(false)
-    }
-    
-    const handlePause = () => {
-      setIsPlaying(false)
-    }
-    
-    const handleTimeUpdate = () => {
-      const currentPos = video.currentTime
-      const lastTime = lastTimeRef.current
-      
-      // 🔧 FIX #1: Sauvegarder la position valide (> 1s pour éviter les faux positifs)
-      if (currentPos > 1 && !isRecoveringRef.current) {
-        lastKnownPositionRef.current = currentPos
-      }
-      
-      // 🔍 DEBUG: Détecter les VRAIS sauts anormaux (pas les initialisations)
-      if (Math.abs(currentPos - lastTime) > 10 && lastTime > 0.1 && !isSeeking && !isRecoveringRef.current) {
-        console.warn(`[PLAYER] SAUT DÉTECTÉ: ${lastTime.toFixed(1)}s → ${currentPos.toFixed(1)}s (delta: ${(currentPos - lastTime).toFixed(1)}s)`)
-        
-        // 🔧 FIX #1: Si c'est un reset non voulu vers 0, restaurer la position
-        if (currentPos < 5 && lastKnownPositionRef.current > 30) {
-          console.log(`[PLAYER] RÉCUPÉRATION: Restauration vers ${lastKnownPositionRef.current.toFixed(1)}s`)
-          isRecoveringRef.current = true
-          video.currentTime = lastKnownPositionRef.current
-          setTimeout(() => {
-            isRecoveringRef.current = false
-          }, 2000)
-          return // Ne pas mettre à jour l'état avec la mauvaise position
-        }
-      }
-      
-      // Mettre à jour la référence
-      lastTimeRef.current = currentPos
-      setCurrentTime(currentPos)
-      
-      // Ne PAS écraser la durée si on a déjà la vraie durée depuis l'API
-      if ((!duration || duration === 0) && !realDurationRef.current && isFinite(video.duration) && video.duration > 0) {
-        setDuration(video.duration)
-      }
-      
-      // Buffer - utiliser la vraie durée si disponible
-      const actualDuration = realDurationRef.current || video.duration
-      if (video.buffered.length > 0 && actualDuration > 0) {
-        const bufferedEnd = video.buffered.end(video.buffered.length - 1)
-        setBuffered((bufferedEnd / actualDuration) * 100)
-        
-        // 🔧 FIX #2: Calculer le temps max seekable (dernier segment disponible + marge)
-        // Le temps seekable = dernier buffer + 10s de marge (segments en cours de chargement)
-        // Ne mettre à jour que si la différence est significative (>5s) pour éviter les re-renders inutiles
-        const newMaxSeekable = bufferedEnd + 10
-        if (Math.abs(newMaxSeekable - maxSeekableTime) > 5) {
-          setMaxSeekableTime(newMaxSeekable)
-        }
-      }
-      
-      // 🔧 PHASE 4: Mise à jour du preloader (segments de 2s)
-      if (preloaderRef.current && currentPos > 0) {
-        const currentSegmentIndex = Math.floor(currentPos / 2) // Segments de 2s
-        preloaderRef.current.updateCurrentSegment(currentSegmentIndex)
-      }
-      
-      // 🎬 Épisode suivant: Afficher le UI quand on arrive au générique
-      // 🔧 FIX: Fallback robuste pour la durée (API, vidéo native, puis state)
-      const videoDuration = isFinite(video.duration) && video.duration > 0 ? video.duration : 0
-      const totalDuration = realDurationRef.current || videoDuration || duration
-      // Ne pas afficher l'UI pour les vidéos trop courtes (< 60s) ou si durée inconnue
-      if (nextEpisode && onNextEpisode && !isNextEpisodeCancelled && totalDuration > 60) {
-        // 🎯 Calculer le moment de déclenchement: durée totale - durée du générique
-        // 🔧 FIX: Utiliser la ref pour éviter closure stale (handleTimeUpdate est défini avec [src])
-        const triggerTime = totalDuration - creditsDurationRef.current
-        const shouldShowUI = currentPos >= triggerTime && currentPos < totalDuration
-        
-        // 🔧 FIX: Utiliser la ref pour éviter closure stale (handleTimeUpdate est défini avec [src] uniquement)
-        const isUICurrentlyShown = showNextEpisodeUIRef.current
-        
-        // Afficher l'UI au début du générique (timing précis configurable via admin)
-        // Le countdown de 5s démarre automatiquement via useEffect
-        if (shouldShowUI && !isUICurrentlyShown) {
-          console.log(`[PLAYER] Déclenchement UI épisode suivant à ${currentPos.toFixed(1)}s (trigger: ${triggerTime.toFixed(1)}s, générique: ${creditsDurationRef.current}s)`)
-          setShowNextEpisodeUI(true)
-        }
-        
-        // Masquer si on recule avant le générique
-        if (!shouldShowUI && isUICurrentlyShown) {
-          console.log('[PLAYER] Masquage UI épisode suivant (recul)')
-          setShowNextEpisodeUI(false)
-          setNextEpisodeCountdown(5) // Reset à 5s
-          // Annuler le timer si on recule
-          if (nextEpisodeTimerRef.current) {
-            clearInterval(nextEpisodeTimerRef.current)
-            nextEpisodeTimerRef.current = null
-          }
-        }
-      }
-    }
-    
-    const handleLoadedMetadata = () => {
-      // Ne PAS écraser la durée si on a déjà la vraie durée depuis l'API
-      if (!realDurationRef.current && isFinite(video.duration) && video.duration > 0) {
-        setDuration(video.duration)
-      }
-    }
-    
-    const handleLoadedData = () => {
-      // ⚠️ NE PAS appeler tryAutoplay ici pour HLS
-      // Le buffer check intelligent le fera au bon moment
-      const isHLS = src.includes('/api/hls')
-      if (!isHLS && !isPlaying && video.readyState >= 3) {
-        tryAutoplay()
-      }
-    }
-    
-    const handleWaiting = () => setIsLoading(true)
-    const handlePlaying = () => setIsLoading(false)
-    const handleSeeking = () => setIsSeeking(true)
-    const handleSeeked = () => {
-      setIsSeeking(false)
-      
-      // 🔧 FIX: Resynchroniser les sous-titres après un seek
-      // Le navigateur ne recalcule pas toujours les activeCues correctement
-      const textTracks = Array.from(video.textTracks)
-      const activeTrack = textTracks.find(t => t.mode === 'showing')
-      if (activeTrack) {
-        // Force refresh: désactiver puis réactiver le track
-        activeTrack.mode = 'disabled'
-        // Utiliser requestAnimationFrame pour le réactiver au prochain frame
-        requestAnimationFrame(() => {
-          activeTrack.mode = 'showing'
-          console.log(`[PLAYER] Sous-titres resynchronisés après seek à ${video.currentTime.toFixed(1)}s`)
-        })
-      }
-    }
-    
-    const handleError = () => {
-      if (video.error) {
-        console.error('[PLAYER] Erreur vidéo:', video.error)
-        let msg = 'Erreur de lecture'
-        
-        switch(video.error.code) {
-          case 1:
-            msg = 'Chargement interrompu'
-            break
-          case 2:
-            msg = 'Erreur réseau - Vérifiez votre connexion'
-            break
-          case 3:
-            msg = 'Erreur de décodage - Format vidéo incompatible'
-            break
-          case 4:
-            // ⚠️ Limiter les tentatives pour éviter boucle infinie
-            if (retryCountRef.current >= 3) {
-              console.error('[PLAYER] Échec après 3 tentatives')
-              msg = 'Format vidéo non supporté. Le transcodage a échoué.'
-              setError(msg)
-              setIsLoading(false)
-              return
-            }
-            
-            retryCountRef.current++
-            msg = 'Format non supporté - Transcodage en cours...'
-            
-            // Réessayer après un délai
-            setTimeout(() => {
-              if (video.src && !video.src.includes('blob:')) { // ⚠️ Ne pas recharger si URL blob corrompue
-                video.load()
-                tryAutoplay()
-              } else {
-                console.error('[PLAYER] URL blob invalide, arrêt des tentatives')
-                setError('Erreur de lecture vidéo. Veuillez réessayer.')
-                setIsLoading(false)
-              }
-            }, 2000)
-            return // Ne pas afficher l'erreur tout de suite
-        }
-        
-        setError(msg)
-      }
-      setIsLoading(false)
-    }
-
-    // Ajouter les événements
-    video.addEventListener('loadeddata', handleLoadedData)
-    video.addEventListener('loadedmetadata', handleLoadedMetadata)
-    video.addEventListener('canplay', handleCanPlay)
-    video.addEventListener('canplaythrough', handleCanPlayThrough)
-    video.addEventListener('play', handlePlay)
-    video.addEventListener('pause', handlePause)
-    video.addEventListener('timeupdate', handleTimeUpdate)
-    video.addEventListener('waiting', handleWaiting)
-    video.addEventListener('playing', handlePlaying)
-    video.addEventListener('seeking', handleSeeking)
-    video.addEventListener('seeked', handleSeeked)
-    video.addEventListener('error', handleError)
-
-    return () => {
-      // 🧹 Nettoyer l'intervalle buffer check
-      if (bufferCheckIntervalRef.current) {
-        clearInterval(bufferCheckIntervalRef.current)
-        bufferCheckIntervalRef.current = null
-      }
-      // 🧹 Nettoyer le timer épisode suivant (FIX FUITE MÉMOIRE)
-      if (nextEpisodeTimerRef.current) {
-        clearInterval(nextEpisodeTimerRef.current)
-        nextEpisodeTimerRef.current = null
-      }
-      // 🧹 Nettoyer le timeout des contrôles (FIX FUITE MÉMOIRE)
-      if (hideControlsTimeout.current) {
-        clearTimeout(hideControlsTimeout.current)
-        hideControlsTimeout.current = undefined
-      }
-      // 🧹 Nettoyer le preloader (FIX FUITE MÉMOIRE)
-      if (preloaderRef.current) {
-        preloaderRef.current.reset()
-        preloaderRef.current = null
-      }
-      // 🧹 Annuler les fetch de sous-titres en cours (FIX FUITE MÉMOIRE)
-      if (subtitleAbortControllerRef.current) {
-        subtitleAbortControllerRef.current.abort()
-        subtitleAbortControllerRef.current = null
-      }
-      // Nettoyer HLS.js
-      if (hlsRef.current) {
-        hlsRef.current.destroy()
-        hlsRef.current = null
-      }
-      video.removeEventListener('loadeddata', handleLoadedData)
-      video.removeEventListener('loadedmetadata', handleLoadedMetadata)
-      video.removeEventListener('canplay', handleCanPlay)
-      video.removeEventListener('canplaythrough', handleCanPlayThrough)
-      video.removeEventListener('play', handlePlay)
-      video.removeEventListener('pause', handlePause)
-      video.removeEventListener('timeupdate', handleTimeUpdate)
-      video.removeEventListener('waiting', handleWaiting)
-      video.removeEventListener('playing', handlePlaying)
-      video.removeEventListener('seeking', handleSeeking)
-      video.removeEventListener('seeked', handleSeeked)
-      video.removeEventListener('error', handleError)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [src]) // 🔧 FIX: Dépendre uniquement de src, PAS de duration (sinon boucle infinie)
-
-  // Changement de langue audio DYNAMIQUE
-  const handleAudioChange = useCallback((track: AudioTrack, idx: number) => {
-    if (!videoRef.current) {
-      setShowSettingsMenu(false)
-      return
-    }
-    
-    // 🔧 FIX: Ne PAS bloquer si selectedAudio === idx
-    // Après un changement d'épisode, le state peut afficher la bonne piste
-    // mais HLS.js/la vidéo peut jouer une autre piste (désynchronisation)
-    
-    
-    const video = videoRef.current
-    const filepath = getFilepath()
-    
-    if (!filepath) return
-    
-    // Vérifier si c'est un MP4 direct (avec pistes audio intégrées)
-    const isDirectMP4 = !src.includes('/api/hls') && !src.includes('/api/hls-v2')
-    
-    if (isDirectMP4) {
-      // Pour MP4 directs : utiliser les audioTracks natifs du navigateur OU remuxer via API
-      
-      // Vérifier si le navigateur supporte audioTracks (Safari/WebKit uniquement)
-      const videoWithAudioTracks = video as VideoElementWithAudioTracks
-      if ('audioTracks' in videoWithAudioTracks && videoWithAudioTracks.audioTracks && videoWithAudioTracks.audioTracks.length > 0) {
-        // Utiliser l'API native audioTracks (Safari)
-        
-        // Désactiver toutes les pistes audio d'abord
-        for (let i = 0; i < videoWithAudioTracks.audioTracks.length; i++) {
-          const t = videoWithAudioTracks.audioTracks[i]
-          if (t) {
-            t.enabled = false
-          }
-        }
-        
-        // Activer la piste correspondante
-        const nativeTrack = videoWithAudioTracks.audioTracks[idx]
-        if (nativeTrack) {
-          nativeTrack.enabled = true
-          setSelectedAudio(idx)
-          setShowSettingsMenu(false)
-        } else {
-          const availableTracks: Array<{ index: number; language: string; label: string; enabled: boolean }> = []
-          for (let i = 0; i < videoWithAudioTracks.audioTracks.length; i++) {
-            const t = videoWithAudioTracks.audioTracks[i]
-            if (t) {
-              availableTracks.push({
-                index: i,
-                language: t.language,
-                label: t.label,
-                enabled: t.enabled
-              })
-            }
-          }
-        }
-      } else {
-        // Fallback: le navigateur ne supporte pas audioTracks (Chrome/Firefox)
-        // Utiliser l'API /api/stream-audio pour remuxer avec la piste sélectionnée
-        
-        const currentPos = video.currentTime
-        const wasPlaying = !video.paused
-        
-        // Construire la nouvelle URL avec remuxage
-        const newUrl = `/api/stream-audio?path=${encodeURIComponent(filepath)}&audioTrack=${track.index}`
-        
-        
-        // Marquer qu'on change de piste
-        isChangingTrack.current = true
-        currentVideoUrl.current = newUrl
-        setSelectedAudio(idx)
-        setShowSettingsMenu(false)
-        setIsLoading(true)
-        setIsRemuxing(true) // Indiquer qu'on est en train de remuxer
-        
-        // ⚠️ CRITIQUE: Sauvegarder la position AVANT de changer la source
-        // car video.load() va réinitialiser currentTime à 0
-        const savedPosition = currentPos
-        
-        // Changer la source de la vidéo
-        video.src = newUrl
-        video.load()
-        
-        // ⚠️ IMPORTANT: S'assurer que currentTime est bien à 0 après load()
-        // pour éviter que le navigateur essaie de restaurer une ancienne position
-        video.currentTime = 0
-        
-        // Gérer les erreurs de chargement
-        const errorHandler = () => {
-          console.error(`[PLAYER] Erreur chargement vidéo remuxée: ${newUrl}`)
-          const error = video.error
-          let errorMessage = 'Erreur lors du changement de langue audio.'
-          
-          if (error) {
-            switch (error.code) {
-              case MediaError.MEDIA_ERR_ABORTED:
-                errorMessage = 'Changement de langue annulé.'
-                break
-              case MediaError.MEDIA_ERR_NETWORK:
-                errorMessage = 'Erreur réseau lors du remuxage. Le fichier est peut-être trop volumineux.'
-                break
-              case MediaError.MEDIA_ERR_DECODE:
-                errorMessage = 'Erreur de décodage. Le fichier remuxé est peut-être corrompu.'
-                break
-              case MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED:
-                errorMessage = 'Format non supporté. Veuillez réessayer.'
-                break
-              default:
-                errorMessage = 'Erreur lors du changement de langue audio. Le remuxage a peut-être échoué.'
-            }
-          }
-          
-          setError(errorMessage)
-              setIsLoading(false)
-              setIsRemuxing(false)
-              isChangingTrack.current = false
-          
-          // Restaurer l'URL précédente en cas d'erreur
-          if (currentVideoUrl.current !== src) {
-            video.src = src
-            video.load()
-          }
-        }
-        video.addEventListener('error', errorHandler, { once: true })
-        
-        // Gérer les erreurs HTTP (404, 500, etc.) avant même que la vidéo ne charge
-        // On va faire une requête HEAD pour vérifier que l'API répond correctement
-        fetch(newUrl, { method: 'HEAD' })
-          .then((response) => {
-            if (!response.ok) {
-              // Erreur HTTP (404, 500, etc.)
-              let errorMessage = 'Erreur lors du remuxage.'
-              if (response.status === 404) {
-                errorMessage = 'Fichier non trouvé. Vérifiez que le fichier existe.'
-              } else if (response.status === 500) {
-                errorMessage = 'Erreur serveur lors du remuxage. Le fichier est peut-être trop volumineux ou corrompu.'
-              } else if (response.status === 408 || response.status === 504) {
-                errorMessage = 'Le remuxage prend trop de temps. Le fichier est peut-être trop volumineux.'
-              } else {
-                errorMessage = `Erreur ${response.status} lors du remuxage.`
-              }
-              
-              console.error(`[PLAYER] Erreur HTTP ${response.status} pour ${newUrl}`)
-              setError(errorMessage)
-              setIsLoading(false)
-              setIsRemuxing(false)
-              isChangingTrack.current = false
-              
-              // Restaurer l'URL précédente
-              if (currentVideoUrl.current !== src) {
-                video.src = src
-                video.load()
-              }
-            }
-          })
-          .catch((err) => {
-            // Erreur réseau ou autre
-            console.error('[PLAYER] Erreur réseau lors de la vérification:', err)
-            // Ne pas bloquer, laisser la vidéo essayer de charger
-            // (peut-être que c'est juste un problème de CORS ou autre)
-          })
-        
-        // Restaurer la position après chargement complet des métadonnées
-        // On attend que la durée soit disponible pour pouvoir naviguer correctement
-        let restoreAttempted = false
-        let restoreAttempts = 0
-        const maxRestoreAttempts = 50 // 5 secondes max (50 * 100ms)
-        
-        const restorePlayback = () => {
-          if (restoreAttempted) return // Éviter les appels multiples
-          
-          restoreAttempts++
-          
-          // Attendre que la durée soit disponible ET que la vidéo soit prête
-          if (video.duration && isFinite(video.duration) && video.duration > 0 && video.readyState >= 2) {
-            restoreAttempted = true
-            
-            // Retirer le handler d'erreur si tout va bien
-            video.removeEventListener('error', errorHandler)
-            
-            // Restaurer la position (utiliser savedPosition au lieu de currentPos)
-            // car currentPos pourrait avoir été réinitialisé à 0 par video.load()
-            const safePos = Math.min(savedPosition, video.duration - 0.1)
-            
-            // ⚠️ CRITIQUE: S'assurer que la vidéo est vraiment prête avant de changer currentTime
-            // Parfois currentTime se réinitialise à 0 si on le change trop tôt
-            if (video.readyState >= 3) {
-              // Vidéo a assez de données, on peut directement seek
-              video.currentTime = safePos
-            } else {
-              // Vidéo pas encore assez chargée, attendre un peu
-              setTimeout(() => {
-                video.currentTime = safePos
-              }, 100)
-            }
-            
-            // Attendre que la position soit vraiment restaurée avant de reprendre la lecture
-            let seekedFired = false
-            const seekedHandler = () => {
-              if (seekedFired) return
-              seekedFired = true
-              video.removeEventListener('seeked', seekedHandler)
-              
-              // Vérifier que la position est bien restaurée
-              const actualPos = video.currentTime
-              const diff = Math.abs(actualPos - safePos)
-              
-              if (diff > 1) {
-                // Position pas assez proche, réessayer
-                console.warn(`[PLAYER] Position incorrecte: ${actualPos.toFixed(1)}s (attendu: ${safePos.toFixed(1)}s), réessai...`)
-                video.currentTime = safePos
-                // Réattendre seeked
-                video.addEventListener('seeked', seekedHandler, { once: true })
-                return
-              }
-              
-              
-              if (wasPlaying) {
-                // Petit délai avant de reprendre la lecture pour être sûr
-                setTimeout(() => {
-                  video.play().catch((err) => {
-                    console.error('[PLAYER] Erreur play après restauration:', err)
-                  })
-                }, 100)
-              }
-              setIsLoading(false)
-              setIsRemuxing(false) // Remuxage terminé
-            }
-            video.addEventListener('seeked', seekedHandler, { once: true })
-            
-            // Timeout de sécurité pour le seeked (si seeked ne se déclenche pas)
-            setTimeout(() => {
-              if (!seekedFired) {
-                const actualPos = video.currentTime
-                console.warn(`[PLAYER] Seeked non déclenché, position actuelle: ${actualPos.toFixed(1)}s`)
-                // Forcer la restauration une dernière fois
-                if (Math.abs(actualPos - safePos) > 1) {
-                  video.currentTime = safePos
-                  // Attendre encore un peu
-                  setTimeout(() => {
-                    setIsLoading(false)
-                    setIsRemuxing(false)
-                    if (wasPlaying) {
-                      video.play().catch(() => {})
-                    }
-                  }, 500)
-                } else {
-                  setIsLoading(false)
-                  setIsRemuxing(false)
-                  if (wasPlaying) {
-                    video.play().catch(() => {})
-                  }
-                }
-              }
-            }, 3000)
-          } else if (restoreAttempts < maxRestoreAttempts) {
-            // Si la durée n'est pas encore disponible ou readyState < 2, réessayer dans 100ms
-            setTimeout(() => {
-              if (!restoreAttempted) {
-                restorePlayback()
-              }
-            }, 100)
-          } else {
-            // Timeout: la durée n'est jamais devenue disponible
-            console.error('[PLAYER] Timeout restauration: durée non disponible après 5s')
-            console.error(`[PLAYER] Durée: ${video.duration}, readyState: ${video.readyState}`)
-            restoreAttempted = true
-            setIsLoading(false)
-            setIsRemuxing(false)
-            setError('Erreur: impossible de charger les métadonnées de la vidéo.')
-          }
-        }
-        
-        // Essayer de restaurer dès que les métadonnées sont chargées
-        video.addEventListener('loadedmetadata', restorePlayback, { once: true })
-        
-        // Fallback: aussi essayer sur loadeddata
-        video.addEventListener('loadeddata', restorePlayback, { once: true })
-        
-        // Fallback supplémentaire: canplay (vidéo peut être lue)
-        video.addEventListener('canplay', () => {
-          // Si la position n'a pas encore été restaurée et qu'on est toujours à 0
-          if (!restoreAttempted && video.currentTime === 0 && savedPosition > 1) {
-            restorePlayback()
-          }
-        }, { once: true })
-        
-        // Fallback supplémentaire: canplaythrough (toutes les données sont chargées)
-        video.addEventListener('canplaythrough', () => {
-          // Si la position n'a pas encore été restaurée et qu'on est toujours à 0
-          if (!restoreAttempted && video.currentTime === 0 && savedPosition > 1) {
-            restorePlayback()
-          }
-        }, { once: true })
-        
-        // Polling pour vérifier périodiquement si la position doit être restaurée
-        // (nécessaire car le remuxage peut prendre 2-3 minutes et les événements peuvent ne pas se déclencher)
-        const pollingInterval = setInterval(() => {
-          if (!restoreAttempted && video.duration && video.duration > 0 && video.readyState >= 2 && video.currentTime === 0 && savedPosition > 1) {
-            restorePlayback()
-          }
-        }, 500) // Vérifier toutes les 500ms
-        
-        // Nettoyer le polling après 5 minutes
-        setTimeout(() => {
-          clearInterval(pollingInterval)
-        }, 300000)
-        
-        // Timeout global: si rien ne se passe après 5 minutes, afficher une erreur
-        // (le remuxage peut prendre 2-3 minutes pour un gros fichier)
-        setTimeout(() => {
-          if (!restoreAttempted && video.readyState === 0) {
-            clearInterval(pollingInterval)
-            console.error('[PLAYER] Timeout global: vidéo ne charge pas après 5 minutes')
-            setIsLoading(false)
-            setIsRemuxing(false)
-            setError('Le remuxage prend trop de temps. Le fichier est peut-être trop volumineux.')
-          }
-        }, 300000) // 5 minutes
-      }
-    } else {
-      // Pour HLS : essayer d'abord de changer via l'API HLS.js audioTrack
-      
-      // 🔧 FIX: Si HLS.js est actif avec plusieurs pistes audio, utiliser son API native
-      if (hlsRef.current && hlsRef.current.audioTracks && hlsRef.current.audioTracks.length > 1) {
-        console.log(`[PLAYER] Changement piste audio via HLS.js API: ${idx}`)
-        console.log(`[PLAYER] Pistes disponibles:`, hlsRef.current.audioTracks.map((t, i) => `${i}: ${t.name || t.lang}`))
-        
-        // Trouver la piste correspondante dans HLS.js
-        // L'index dans audioTracks peut différer de notre index
-        const hlsAudioTracks = hlsRef.current.audioTracks
-        let hlsTrackIndex = idx
-        
-        // Si on a un track.index spécifique, chercher par langue
-        if (track.language) {
-          const matchingTrack = hlsAudioTracks.findIndex(t => 
-            t.lang === track.language || 
-            t.name?.toLowerCase().includes(track.language.toLowerCase())
-          )
-          if (matchingTrack !== -1) {
-            hlsTrackIndex = matchingTrack
-          }
-        }
-        
-        // Changer la piste audio via HLS.js
-        hlsRef.current.audioTrack = hlsTrackIndex
-        setSelectedAudio(idx)
-        setShowSettingsMenu(false)
-        console.log(`[PLAYER] Audio changé via HLS.js (piste ${hlsTrackIndex})`)
-        return
-      }
-      
-      // Fallback: recharger avec la nouvelle piste audio (si HLS.js n'a pas plusieurs pistes)
-      const currentPos = video.currentTime
-      const wasPlaying = !video.paused
-      
-      // Construire la nouvelle URL avec l'index de piste correct (API v2)
-      const newUrl = src.includes('hls-v2') 
-        ? `/api/hls-v2?path=${encodeURIComponent(filepath)}&playlist=true&audio=${track.index}`
-        : `/api/hls?path=${encodeURIComponent(filepath)}&playlist=true&audio=${track.index}`
-      
-      console.log(`[PLAYER] Rechargement stream avec piste audio ${track.index}`)
-      
-      // Marquer qu'on change de piste
-      isChangingTrack.current = true
-      currentVideoUrl.current = newUrl
-      setSelectedAudio(idx)
-      setShowSettingsMenu(false)
-      setIsLoading(true)
-      
-      // Nettoyer l'instance HLS existante
-      if (hlsRef.current) {
-        hlsRef.current.destroy()
-        hlsRef.current = null
-      }
-      
-      // Recharger avec HLS.js
-      if (Hls.isSupported()) {
-        // 🔧 PHASE 5: Config optimisée pour changement de piste
-        const hls = new Hls(HLS_BASE_CONFIG)
-        hlsRef.current = hls
-        
-        // 🔧 Nettoyer l'état vidéo avant rechargement (mais garder currentPos pour le restaurer après)
-        video.load()
-        
-        hls.loadSource(newUrl)
-        hls.attachMedia(video)
-        
-        hls.on(Hls.Events.MANIFEST_PARSED, () => {
-          video.currentTime = currentPos
-          if (wasPlaying) {
-            video.play().catch(() => {})
-          }
-          setIsLoading(false)
-          console.log('[PLAYER] Audio changé et position restaurée')
-        })
-      } else {
-        // Safari ou fallback
-        video.src = newUrl
-        video.load()
-        
-        const restorePlayback = () => {
-          video.currentTime = currentPos
-          if (wasPlaying) {
-            video.play().catch(() => {})
-          }
-          video.removeEventListener('loadeddata', restorePlayback)
-          setIsLoading(false)
-          console.log('[PLAYER] Audio changé et position restaurée')
-        }
-        
-        video.addEventListener('loadeddata', restorePlayback)
-      }
-    }
-  }, [selectedAudio, getFilepath, src])
-
-  // Changement de sous-titres DYNAMIQUE
-  const handleSubtitleChange = useCallback((idx: number | null) => {
-    if (!videoRef.current) return
-    
-    console.log(`[PLAYER] Changement sous-titres: ${idx === null ? 'Désactivés' : `piste ${idx}`}`)
-    
-    // 🔧 Annuler le fetch précédent s'il existe
-    if (subtitleAbortControllerRef.current) {
-      console.log(`[PLAYER] Annulation fetch sous-titres précédent`)
-      subtitleAbortControllerRef.current.abort()
-      subtitleAbortControllerRef.current = null
-    }
-    
-    const video = videoRef.current
-    setSelectedSubtitle(idx)
-    setShowSettingsMenu(false)
-    
-    // Vérifier si c'est un MP4 direct (avec sous-titres intégrés mov_text)
-    const isDirectMP4 = !src.includes('/api/hls') && !src.includes('/api/hls-v2')
-    
-    if (isDirectMP4) {
-      // Pour MP4 directs : essayer d'abord les textTracks natifs, sinon utiliser /api/subtitles
-      
-      // ⚠️ CRITIQUE: Ne PAS supprimer les éléments <track> natifs (sous-titres intégrés dans le MP4)
-      // Ils sont nécessaires pour les textTracks natifs
-      // On supprime seulement les tracks ajoutés dynamiquement (depuis /api/subtitles)
-      const existingTracks = video.querySelectorAll('track')
-      existingTracks.forEach(t => {
-        // Ne supprimer que les tracks ajoutés dynamiquement (qui ont un src avec /api/subtitles)
-        if (t.src && t.src.includes('/api/subtitles')) {
-          t.remove()
-        }
-      })
-      
-      // Désactiver toutes les text tracks d'abord (mais les garder dans le DOM)
-      Array.from(video.textTracks).forEach(t => {
-        t.mode = 'disabled'
-      })
-      
-      // Si pas de sous-titres, on s'arrête
-      if (idx === null) {
-        console.log('[PLAYER] Sous-titres désactivés')
-        return
-      }
-      
-      const track = subtitleTracks[idx]
-      if (!track) return
-      
-      // ⚠️ CRITIQUE: Si c'est un track téléchargé, utiliser directement son URL avec offset
-      if ((track as any).isDownloaded && (track as any).sourceUrl) {
-        console.log(`[PLAYER] Détection track téléchargé: ${track.language}`)
-        
-        // Ajouter l'offset à l'URL si présent
-        let trackUrl = (track as any).sourceUrl
-        if (subtitleOffset !== 0) {
-          // Ajouter ou mettre à jour le paramètre offset dans l'URL
-          if (trackUrl.includes('&offset=')) {
-            trackUrl = trackUrl.replace(/&offset=[-\d.]+/, `&offset=${subtitleOffset}`)
-          } else {
-            trackUrl += `&offset=${subtitleOffset}`
-          }
-        }
-        
-        // Supprimer les tracks existants qui ne sont pas natifs
-        const existingTracks = video.querySelectorAll('track')
-        existingTracks.forEach(t => {
-          // Ne supprimer que les tracks ajoutés dynamiquement (qui ont un src avec /api/subtitles ou /api/subtitles/fetch)
-          if (t.src && (t.src.includes('/api/subtitles') || t.src.includes('/api/subtitles/fetch'))) {
-            t.remove()
-          }
-        })
-        
-        // Désactiver toutes les text tracks
-        Array.from(video.textTracks).forEach(t => {
-          t.mode = 'disabled'
-        })
-        
-        // Ajouter le track téléchargé avec l'offset
-        const trackElement = document.createElement('track')
-        trackElement.kind = 'subtitles'
-        trackElement.label = track.language
-        trackElement.srclang = track.language.toLowerCase().slice(0, 2)
-        trackElement.src = trackUrl
-        trackElement.default = false
-        
-        video.appendChild(trackElement)
-        
-        // Activer une fois chargé
-        trackElement.addEventListener('load', () => {
-          const textTrack = Array.from(video.textTracks).find(
-            t => t.label === track.language || t.language === track.language.toLowerCase().slice(0, 2)
-          )
-          if (textTrack) {
-            const cuesCount = textTrack.cues ? textTrack.cues.length : 0
-            textTrack.mode = 'showing'
-            console.log(`[PLAYER] Track téléchargé activé ${track.language}: mode="${textTrack.mode}", cues=${cuesCount}`)
-          } else {
-            console.error(`[PLAYER] Track téléchargé "${track.language}" non trouvé après chargement`)
-          }
-        })
-        
-        trackElement.addEventListener('error', (e) => {
-          console.error(`[PLAYER] Erreur track téléchargé ${track.language}:`, e)
-          console.error(`[PLAYER] URL: ${trackElement.src}`)
-          trackElement.remove()
-        })
-        
-        return // Sortir ici, ne pas continuer avec la logique native
-      }
-      
-      // Vérifier si on a des textTracks natifs disponibles
-      const textTracks = Array.from(video.textTracks)
-      
-      
-      // ⚠️ CRITIQUE: Pour les MP4 avec sous-titres intégrés, on doit TOUJOURS utiliser les textTracks natifs
-      // s'ils existent, en utilisant directement l'index (plus fiable que la correspondance)
-      let nativeTrack: TextTrack | null = null
-      
-      // PRIORITÉ 1: Utiliser directement l'index si disponible
-      // (c'est le cas le plus courant - subtitleTracks[0] = textTracks[0])
-      if (textTracks.length > 0 && idx !== null && idx >= 0 && idx < textTracks.length) {
-        nativeTrack = textTracks[idx]
-      } else if (textTracks.length > 0) {
-        // PRIORITÉ 2: Chercher par correspondance language/label si l'index ne fonctionne pas
-        const trackLanguageShort = track.language.toLowerCase().slice(0, 2) // "fr", "en", etc.
-        const trackLanguageFull = track.language.toLowerCase() // "français", "english", etc.
-        
-        nativeTrack = textTracks.find((t, i) => {
-          // Correspondance par index exact
-          if (i === idx) return true
-          
-          // Correspondance par language (court ou complet)
-          if (t.language && (
-            t.language.toLowerCase() === trackLanguageShort ||
-            t.language.toLowerCase() === trackLanguageFull ||
-            t.language.toLowerCase().slice(0, 2) === trackLanguageShort
-          )) return true
-          
-          // Correspondance par label
-          if (t.label && (
-            t.label.toLowerCase().includes(trackLanguageShort) ||
-            t.label.toLowerCase().includes(track.language.toLowerCase())
-          )) return true
-          
-          return false
-        }) || null
-        
-        if (nativeTrack) {
-        }
-      }
-      
-      if (nativeTrack) {
-        // ⚠️ CRITIQUE: Désactiver TOUTES les autres pistes AVANT d'activer celle-ci
-        // Plusieurs pistes en mode 'showing' simultanément peuvent causer des conflits
-        textTracks.forEach(t => {
-          t.mode = 'disabled'
-        })
-        
-        // Ensuite activer uniquement la piste sélectionnée
-        nativeTrack.mode = 'showing'
-        
-        // Utiliser les textTracks natifs si disponibles
-        // ⚠️ CRITIQUE: Vérifier que les cues sont chargés avant d'activer
-        const activateTrack = () => {
-          if (nativeTrack) {
-            const cuesCount = nativeTrack.cues ? nativeTrack.cues.length : 0
-            const activeCuesCount = nativeTrack.activeCues ? nativeTrack.activeCues.length : 0
-            
-            // Activer le track
-            nativeTrack.mode = 'showing'
-            
-            // Log pour diagnostic
-            
-            if (cuesCount === 0) {
-              console.warn(`[PLAYER] Aucun cue chargé`)
-            } else if (activeCuesCount === 0 && video.currentTime > 1) {
-              console.warn(`[PLAYER] Cues disponibles mais aucun actif au temps ${video.currentTime.toFixed(1)}s`)
-            }
-            
-            // Vérifier périodiquement que le track reste activé et affiche les sous-titres
-            let checkCount = 0
-            const checkInterval = setInterval(() => {
-              checkCount++
-              if (!nativeTrack || checkCount > 20) { // Vérifier pendant 4 secondes (20 * 200ms)
-                clearInterval(checkInterval)
-                return
-              }
-              
-              // ⚠️ CRITIQUE: S'assurer qu'aucune autre piste n'est en mode 'showing'
-              const allTracks = Array.from(video.textTracks)
-              const otherShowingTracks = allTracks.filter(t => t !== nativeTrack && t.mode === 'showing')
-              if (otherShowingTracks.length > 0) {
-                console.warn(`[PLAYER] Détection de ${otherShowingTracks.length} autre(s) piste(s) en mode 'showing', désactivation...`)
-                otherShowingTracks.forEach(t => t.mode = 'disabled')
-              }
-              
-              if (nativeTrack.mode !== 'showing') {
-                console.warn(`[PLAYER] Le track n'est plus en mode "showing", réactivation...`)
-                nativeTrack.mode = 'showing'
-              }
-              
-              // Vérifier les cues actifs
-              const activeCues = nativeTrack.activeCues ? nativeTrack.activeCues.length : 0
-              const totalCues = nativeTrack.cues ? nativeTrack.cues.length : 0
-              
-              if (activeCues > 0) {
-                // Cues actifs détectés - les sous-titres devraient s'afficher
-                clearInterval(checkInterval) // Arrêter la vérification si ça fonctionne
-              } else if (totalCues > 0 && video.currentTime > 2) {
-                // Cues disponibles mais non actifs après 2 secondes de lecture
-                // Cela peut indiquer un problème de timing ou de format
-                if (checkCount === 10) { // Log une seule fois après 2 secondes
-                  console.warn(`[PLAYER] Track "${nativeTrack.label}" : ${totalCues} cues disponibles mais aucun actif au temps ${video.currentTime.toFixed(1)}s`)
-                }
-              }
-            }, 200)
-          }
-        }
-        
-        // Activer immédiatement (les cues peuvent être chargés plus tard)
-        activateTrack()
-        
-        // Écouter aussi l'événement cuechange pour s'assurer que les sous-titres s'affichent
-        const cueChangeHandler = () => {
-          if (nativeTrack && nativeTrack.mode !== 'showing') {
-            nativeTrack.mode = 'showing'
-          }
-          
-          // Log les cues actifs pour debug
-          if (nativeTrack && nativeTrack.activeCues && nativeTrack.activeCues.length > 0) {
-          }
-        }
-        nativeTrack.addEventListener('cuechange', cueChangeHandler)
-        
-        // Nettoyer le listener après 10 secondes
-        setTimeout(() => {
-          nativeTrack?.removeEventListener('cuechange', cueChangeHandler)
-        }, 10000)
-        
-        return // ⚠️ IMPORTANT: Sortir ici pour éviter le fallback
-      } else {
-        // Fallback: utiliser /api/subtitles (comme pour HLS)
-        const filepath = getFilepath()
-        if (!filepath) return
-        
-        const trackElement = document.createElement('track')
-        trackElement.kind = 'subtitles'
-        trackElement.label = track.language
-        trackElement.srclang = track.language.toLowerCase().slice(0, 2)
-        trackElement.src = `/api/subtitles?path=${encodeURIComponent(filepath)}&track=${track.index}`
-        trackElement.default = true
-        
-        video.appendChild(trackElement)
-        
-        // Activer une fois chargé
-        trackElement.addEventListener('load', () => {
-          const textTrack = Array.from(video.textTracks).find(
-            t => t.label === track.language
-          )
-          if (textTrack) {
-            textTrack.mode = 'showing'
-          }
-        })
-        
-        // Gestion d'erreur
-        trackElement.addEventListener('error', async (e) => {
-          e.preventDefault()
-          e.stopPropagation()
-          console.error(`[PLAYER] Erreur chargement sous-titres: ${track.language}`)
-          trackElement.remove()
-          setError(`Impossible de charger les sous-titres "${track.language}"`)
-          setSelectedSubtitle(null)
-          setTimeout(() => setError(null), 5000)
-        })
-      }
-    } else {
-      // Pour HLS : utiliser l'API /api/subtitles pour extraire les sous-titres
-      console.log(`[PLAYER] Gestion sous-titres HLS`)
-      
-      // Supprimer les pistes existantes
-      const existingTracks = video.querySelectorAll('track')
-      console.log(`[PLAYER] Suppression ${existingTracks.length} pistes existantes`)
-      existingTracks.forEach(t => t.remove())
-      
-      // Désactiver toutes les text tracks
-      Array.from(video.textTracks).forEach(t => {
-        t.mode = 'disabled'
-      })
-      
-      // Si pas de sous-titres, on s'arrête
-      if (idx === null) {
-        console.log('[PLAYER] Sous-titres désactivés')
-        return
-      }
-      
-      // Ajouter la nouvelle piste via API
-      const track = subtitleTracks[idx]
-      const filepath = getFilepath()
-      
-      
-      if (!filepath || !track) {
-        console.error(`[PLAYER] Filepath ou track manquant`)
-        return
-      }
-      
-      // 🆕 Pour les fichiers pré-transcodés avec VTT, utiliser l'API dédiée
-      let subtitleUrl: string
-      if (track.vttFile) {
-        subtitleUrl = `/api/hls/subtitles?path=${encodeURIComponent(filepath)}&file=${encodeURIComponent(track.vttFile)}`
-      } else {
-        subtitleUrl = `/api/subtitles?path=${encodeURIComponent(filepath)}&track=${track.index}`
-      }
-      
-      // 🔧 NOUVELLE APPROCHE : Charger manuellement les sous-titres via fetch
-      // Car les browsers ne chargent pas toujours les <track> ajoutés dynamiquement
-      console.log(`[PLAYER] Chargement manuel des sous-titres...`)
-      
-      // Créer un nouveau AbortController pour ce fetch
-      const abortController = new AbortController()
-      subtitleAbortControllerRef.current = abortController
-      
-      fetch(subtitleUrl, { signal: abortController.signal })
-        .then(async (response) => {
-          const status = response.status
-          const contentType = response.headers.get('Content-Type')
-          
-          if (status !== 200) {
-            const errorText = await response.text()
-            console.error(`[PLAYER] Erreur API subtitles:`, errorText.slice(0, 300))
-            setError(`Impossible de charger les sous-titres: ${status}`)
-            return
-          }
-          
-          const vttContent = await response.text()
-          console.log(`[PLAYER] Sous-titres reçus: ${vttContent.length} caractères`)
-          
-          // Créer un Blob URL pour les sous-titres
-          const blob = new Blob([vttContent], { type: 'text/vtt' })
-          const blobUrl = URL.createObjectURL(blob)
-          
-          // Créer et ajouter l'élément <track>
-      const trackElement = document.createElement('track')
-      trackElement.kind = 'subtitles'
-      trackElement.label = track.language
-      trackElement.srclang = track.language.toLowerCase().slice(0, 2)
-      trackElement.default = true
-          trackElement.src = blobUrl
-      
-      video.appendChild(trackElement)
-      
-          // Activer immédiatement
-          setTimeout(() => {
-        const textTrack = Array.from(video.textTracks).find(
-          t => t.label === track.language
-        )
-            
-        if (textTrack) {
-          textTrack.mode = 'showing'
-              console.log(`[PLAYER] TextTrack activé: ${textTrack.label}, cues=${textTrack.cues?.length || 0}`)
-              
-              // Forcer le rendu des sous-titres en vérifiant périodiquement
-              const checkInterval = setInterval(() => {
-                if (textTrack.activeCues && textTrack.activeCues.length > 0) {
-                  console.log(`[PLAYER] Sous-titres visibles ! ${textTrack.activeCues.length} cues actifs`)
-                  clearInterval(checkInterval)
-                }
-              }, 500)
-              
-              // Arrêter après 10 secondes
-              setTimeout(() => clearInterval(checkInterval), 10000)
-            }
-          }, 100)
-        })
-        .catch((err) => {
-          // Si l'erreur est une annulation (AbortError), ne pas logger ni afficher d'erreur
-          if (err.name === 'AbortError') {
-            return
-          }
-          
-          console.error(`[PLAYER] Erreur fetch subtitles:`, err)
-          console.error(`[PLAYER] Message:`, err.message)
-          console.error(`[PLAYER] Stack:`, err.stack)
-          setError(`Erreur chargement sous-titres: ${err.message}`)
-        })
-      
-      // Retourner immédiatement (le chargement est asynchrone)
-    }
-  }, [subtitleTracks, getFilepath, src])
-
-  // 🔧 FIX: Appliquer réellement les sous-titres préférés après chargement des pistes
-  // Le useEffect media-info ne fait que setSelectedSubtitle (UI), pas l'application réelle sur la vidéo
-  useEffect(() => {
-    if (pendingSubtitleApplyRef.current !== null && subtitleTracks.length > 0 && videoRef.current) {
-      const idx = pendingSubtitleApplyRef.current
-      pendingSubtitleApplyRef.current = null // Consommer pour éviter les ré-applications
-      
-      if (idx >= 0 && idx < subtitleTracks.length) {
-        // Délai pour laisser la vidéo se charger (textTracks natifs ou HLS)
-        const timer = setTimeout(() => {
-          console.log(`[PLAYER] Application sous-titres préférés: piste ${idx} (${subtitleTracks[idx]?.language})`)
-          handleSubtitleChange(idx)
-        }, 1500)
-        return () => clearTimeout(timer)
-      }
-    }
-  }, [subtitleTracks, handleSubtitleChange])
-
-  // Contrôles
-  const handleMouseMove = useCallback(() => {
-    setShowControls(true)
-    
-    if (hideControlsTimeout.current) {
-      clearTimeout(hideControlsTimeout.current)
-    }
-
-    // 🔧 FIX #3: Vérifier l'état réel de la vidéo, pas juste le state
-    const videoElement = videoRef.current
-    const actuallyPlaying = videoElement && !videoElement.paused && !videoElement.ended
-    
-    if ((actuallyPlaying || isPlaying) && !showSettingsMenu) {
-      hideControlsTimeout.current = setTimeout(() => {
-        setShowControls(false)
-      }, 3000)
-    }
-  }, [isPlaying, showSettingsMenu])
-
-  const handlePlayPause = useCallback(() => {
-    if (!videoRef.current) return
-    
-    if (isPlaying) {
-      videoRef.current.pause()
-    } else {
+  // Retry handler pour PlayerOverlays
+  const handleRetry = useCallback(() => {
+    setError(null)
+    setIsLoading(true)
+    if (videoRef.current) {
+      videoRef.current.load()
       videoRef.current.play().catch(() => {})
     }
-  }, [isPlaying])
-
-  const handleSkip = useCallback((seconds: number) => {
-    if (!videoRef.current) return
-    const actualDuration = realDurationRef.current || duration || videoRef.current.duration
-    const newTime = Math.max(0, Math.min(actualDuration, videoRef.current.currentTime + seconds))
-    videoRef.current.currentTime = newTime
-  }, [duration])
-
-  const handleVolumeToggle = useCallback(() => {
-    if (!videoRef.current) return
-    
-    if (isMuted || volume === 0) {
-      videoRef.current.muted = false
-      setIsMuted(false)
-      if (volume === 0) {
-        videoRef.current.volume = 1
-        setVolume(1)
-      }
-    } else {
-      videoRef.current.muted = true
-      setIsMuted(true)
-    }
-  }, [isMuted, volume])
-
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!videoRef.current) return
-    const newVolume = parseFloat(e.target.value)
-    videoRef.current.volume = newVolume
-    setVolume(newVolume)
-    if (newVolume > 0 && isMuted) {
-      videoRef.current.muted = false
-      setIsMuted(false)
-    }
-  }
-
-  const handleFullscreen = useCallback(() => {
-    if (isVideoFullscreen(videoRef.current || undefined)) {
-      exitFullscreen(videoRef.current || undefined)
-    } else if (containerRef.current) {
-      requestFullscreen(containerRef.current, videoRef.current || undefined)
-    }
   }, [])
-
-  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!videoRef.current || !progressRef.current || isDragging) return
-    
-    const rect = progressRef.current.getBoundingClientRect()
-    const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-    const actualDuration = realDurationRef.current || duration || videoRef.current.duration
-    const targetTime = percent * actualDuration
-    
-    // 🎯 PRÉ-TRANSCODÉ = seek illimité, pas de restriction
-    if (isPreTranscoded) {
-      setSeekWarning(null)
-      if (isFinite(actualDuration) && actualDuration > 0) {
-        videoRef.current.currentTime = targetTime
-      }
-      return
-    }
-    
-    // 🔧 FIX #2: Vérifier si le seek est dans la zone disponible (seulement pour HLS en cours de transcodage)
-    const isHLS = src.includes('/api/hls')
-    if (isHLS && targetTime > maxSeekableTime && maxSeekableTime < actualDuration * 0.95) {
-      const availableMinutes = Math.floor(maxSeekableTime / 60)
-      const availableSeconds = Math.floor(maxSeekableTime % 60)
-      
-      setSeekWarning(`Transcodage en cours... Disponible jusqu'à ${availableMinutes}:${availableSeconds.toString().padStart(2, '0')}`)
-      
-      // Effacer le warning après 3s
-      setTimeout(() => setSeekWarning(null), 3000)
-      
-      // Permettre quand même le seek jusqu'au max disponible
-      if (isFinite(maxSeekableTime) && maxSeekableTime > 0) {
-        videoRef.current.currentTime = Math.min(targetTime, maxSeekableTime - 5)
-      }
-      return
-    }
-    
-    // Seek normal
-    setSeekWarning(null)
-    if (isFinite(actualDuration) && actualDuration > 0) {
-      videoRef.current.currentTime = targetTime
-    }
-  }
-
-  const handleProgressDrag = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!videoRef.current || !progressRef.current) return
-    
-    setIsDragging(true)
-    const rect = progressRef.current.getBoundingClientRect()
-    const isHLS = src.includes('/api/hls')
-    
-    const updatePosition = (clientX: number) => {
-      const percent = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
-      const actualDuration = realDurationRef.current || duration || videoRef.current?.duration || 0
-      const targetTime = percent * actualDuration
-      
-      if (isFinite(actualDuration) && actualDuration > 0 && videoRef.current) {
-        // 🎯 PRÉ-TRANSCODÉ = seek illimité
-        if (isPreTranscoded) {
-          videoRef.current.currentTime = targetTime
-          return
-        }
-        
-        // 🔧 FIX #2: Limiter au temps disponible pendant le drag (seulement pour HLS en temps réel)
-        if (isHLS && targetTime > maxSeekableTime && maxSeekableTime < actualDuration * 0.95) {
-          const safeTime = Math.max(0, maxSeekableTime - 2)
-          videoRef.current.currentTime = safeTime
-        } else {
-          videoRef.current.currentTime = targetTime
-        }
-      }
-    }
-    
-    updatePosition(e.clientX)
-    
-    const handleMouseMove = (e: MouseEvent) => {
-      if (isDragging) updatePosition(e.clientX)
-    }
-    
-    const handleMouseUp = () => {
-      setIsDragging(false)
-      setSeekWarning(null) // Effacer le warning à la fin du drag
-      document.removeEventListener('mousemove', handleMouseMove)
-      document.removeEventListener('mouseup', handleMouseUp)
-    }
-    
-    document.addEventListener('mousemove', handleMouseMove)
-    document.addEventListener('mouseup', handleMouseUp)
-  }
-
-  // formatTime importé depuis ./utils/timeUtils
-
-  // Calculer le pourcentage de progression avec garde-fous
-  const progressPercent = (() => {
-    if (!duration || duration === 0) return 0
-    if (currentTime > duration) {
-      console.warn(`[PLAYER] currentTime (${currentTime}) > duration (${duration})`)
-      return 100
-    }
-    const percent = (currentTime / duration) * 100
-    // Limiter entre 0 et 100
-    return Math.min(100, Math.max(0, percent))
-  })()
 
   return (
     <div 
@@ -2510,11 +374,7 @@ export default function SimpleVideoPlayer({
     >
       {/* Barre de titre */}
       <div className={`${styles.titleBar} ${showControls ? styles.visible : ''}`}>
-        <button className={styles.closeButton} onClick={() => {
-          // 🔧 NE PLUS TUER FFmpeg ici, laisse FFmpegManager gérer
-          // cleanupFFmpeg() tue TOUS les FFmpeg, même ceux d'autres vidéos !
-          onClose()
-        }}>
+        <button className={styles.closeButton} onClick={onClose}>
           <svg viewBox="0 0 24 24">
             <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
           </svg>
@@ -2535,893 +395,81 @@ export default function SimpleVideoPlayer({
         onDoubleClick={handleFullscreen}
       />
 
-      {/* Loader */}
-      {(isLoading || isSeeking) && !error && (
-        <div className={styles.loader}>
-          <div className={styles.spinner}></div>
-          {isRemuxing && (
-            <div className={styles.loaderMessage}>
-              Changement de langue en cours... Cela peut prendre quelques minutes.
-            </div>
-          )}
-        </div>
-      )}
-      
-      {/* 🔧 FIX #2: Warning de seek */}
-      {seekWarning && (
-        <div className={styles.seekWarning}>
-          <span>⏳</span>
-          <span>{seekWarning}</span>
-        </div>
-      )}
-      
-      {/* 🔧 PHASE 4: Affichage du buffer status (discret en bas à droite) */}
-      {bufferStatus && isRemuxing && (
-        <div className={styles.bufferStatus}>
-          <div className={styles.bufferMetric}>
-            <span className={styles.bufferLabel}>Vitesse transcode:</span>
-            <span className={styles.bufferValue}>{bufferStatus.currentSpeed.toFixed(1)}x</span>
-          </div>
-          <div className={styles.bufferMetric}>
-            <span className={styles.bufferLabel}>Buffer:</span>
-            <span className={styles.bufferValue}>{bufferStatus.bufferLevel.toFixed(1)}s</span>
-          </div>
-          {bufferStatus.needsBuffering && (
-            <div className={styles.bufferWarning}>
-              ⏳ {bufferStatus.reason}
-            </div>
-          )}
-        </div>
-      )}
-      
-      {/* Bouton Play central */}
-      {!isPlaying && !isLoading && !error && (
-        <button 
-          className={styles.centerPlayButton}
-          onClick={handlePlayPause}
-          aria-label="Lancer la lecture"
-        >
-          <svg viewBox="0 0 24 24">
-            <path d="M8 5v14l11-7z" fill="white"/>
-          </svg>
-        </button>
-      )}
+      {/* Overlays (loader, erreur, seek warning, play central, next episode) */}
+      <PlayerOverlays
+        isLoading={isLoading}
+        isSeeking={isSeeking}
+        isRemuxing={isRemuxing}
+        isPlaying={isPlaying}
+        error={error}
+        seekWarning={seekWarning}
+        bufferStatus={bufferStatus}
+        showNextEpisodeUI={showNextEpisodeUI}
+        nextEpisode={nextEpisode}
+        nextEpisodeCountdown={nextEpisodeCountdown}
+        onNextEpisode={onNextEpisode}
+        onPlayNextNow={handlePlayNextNow}
+        onCancelNextEpisode={handleCancelNextEpisode}
+        onPlayPause={handlePlayPause}
+        onRetry={handleRetry}
+        onClose={onClose}
+      />
 
-      {/* Erreur */}
-      {error && (
-        <div className={styles.error}>
-          <p>{error}</p>
-          <div className={styles.errorButtons}>
-            <button onClick={() => {
-              setError(null)
-              setIsLoading(true)
-              if (videoRef.current) {
-                videoRef.current.load()
-                videoRef.current.play().catch(() => {})
-              }
-            }}>Réessayer</button>
-            <button onClick={onClose}>Fermer</button>
-          </div>
-        </div>
-      )}
-
-      {/* 🎬 Épisode suivant (style Netflix) */}
-      {showNextEpisodeUI && nextEpisode && onNextEpisode && (
-        <div className={styles.nextEpisodeOverlay}>
-          <div className={styles.nextEpisodeCard}>
-            {nextEpisode.thumbnail && (
-              <div className={styles.nextEpisodeThumbnail}>
-                <Image 
-                  src={nextEpisode.thumbnail} 
-                  alt={nextEpisode.title}
-                  fill
-                  sizes="200px"
-                  style={{ objectFit: 'cover' }}
-                />
-              </div>
-            )}
-            <div className={styles.nextEpisodeInfo}>
-              <span className={styles.nextEpisodeLabel}>Épisode suivant</span>
-              <span className={styles.nextEpisodeTitle}>
-                S{nextEpisode.seasonNumber}E{nextEpisode.episodeNumber} · {nextEpisode.title}
-              </span>
-            </div>
-          </div>
-          <div className={styles.nextEpisodeButtons}>
-            <button 
-              className={styles.nextEpisodePlay}
-              onClick={() => {
-                // Nettoyer le timer
-                if (nextEpisodeTimerRef.current) {
-                  clearInterval(nextEpisodeTimerRef.current)
-                  nextEpisodeTimerRef.current = null
-                }
-                // Marquer comme terminé
-                if (mediaId) {
-                  markAsFinished()
-                }
-                // Lancer avec préférences (langue + index FFprobe pour résolution robuste)
-                const currentTrack = audioTracks[selectedAudio]
-                const preferences: PlayerPreferences = {
-                  audioTrackIndex: selectedAudio,
-                  audioStreamIndex: currentTrack?.index,
-                  audioLanguage: currentTrack?.language,
-                  subtitleTrackIndex: selectedSubtitle,
-                  wasFullscreen: isFullscreen
-                }
-                onNextEpisode(preferences)
-              }}
-            >
-              <svg viewBox="0 0 24 24" width="20" height="20">
-                <path d="M8 5v14l11-7z" fill="currentColor"/>
-              </svg>
-              Lire maintenant
-            </button>
-            <button 
-              className={styles.nextEpisodeCancel}
-              onClick={() => {
-                // Nettoyer le timer
-                if (nextEpisodeTimerRef.current) {
-                  clearInterval(nextEpisodeTimerRef.current)
-                  nextEpisodeTimerRef.current = null
-                }
-                setShowNextEpisodeUI(false)
-                setIsNextEpisodeCancelled(true) // Empêche le passage auto à la fin
-              }}
-            >
-              Annuler
-            </button>
-          </div>
-          <div className={styles.nextEpisodeCountdown}>
-            Lecture dans {nextEpisodeCountdown}s
-          </div>
-        </div>
-      )}
-
-      {/* Contrôles */}
-      <div className={`${styles.controls} ${showControls ? styles.visible : ''}`}>
-        {/* Timeline */}
-        <div className={styles.timeline}>
-          <span className={styles.currentTime}>{formatTime(currentTime)}</span>
-          <div 
-            ref={progressRef}
-            className={styles.progressBar}
-            onClick={handleProgressClick}
-            onMouseDown={handleProgressDrag}
-          >
-            <div className={styles.progressBuffered} style={{ width: `${buffered}%` }} />
-            <div className={styles.progressFilled} style={{ width: `${progressPercent}%` }} />
-            <div 
-              className={styles.progressThumb} 
-              style={{ 
-                left: `${Math.min(Math.max(0, progressPercent), 100)}%`
-              }} 
-            />
-          </div>
-          <span className={styles.duration}>{formatTime(duration)}</span>
-        </div>
-        
-        {/* Contrôles du bas */}
-        <div className={styles.controlsBottom}>
-          <div className={styles.leftControls}>
-            {/* Play/Pause */}
-            <button onClick={handlePlayPause} className={`${styles.controlBtn} ${styles.playBtn}`}>
-              {isPlaying ? (
-                <svg viewBox="0 0 24 24">
-                  <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
-                </svg>
-              ) : (
-                <svg viewBox="0 0 24 24">
-                  <path d="M8 5v14l11-7z"/>
-                </svg>
-              )}
-            </button>
-            
-            {/* Skip */}
-            <button onClick={() => handleSkip(-10)} className={styles.controlBtn}>
-              <svg viewBox="0 0 24 24">
-                <path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z"/>
-              </svg>
-            </button>
-            
-            <button onClick={() => handleSkip(10)} className={styles.controlBtn}>
-              <svg viewBox="0 0 24 24">
-                <path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/>
-              </svg>
-            </button>
-            
-            {/* Volume */}
-            <div className={styles.volumeGroup}>
-              <button onClick={handleVolumeToggle} className={styles.controlBtn}>
-                {isMuted || volume === 0 ? (
-                  <svg viewBox="0 0 24 24">
-                    <path d="M16.5 12A4.5 4.5 0 0014 7.97v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.796 8.796 0 0023 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a8.99 8.99 0 003.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/>
-                  </svg>
-                ) : (
-                  <svg viewBox="0 0 24 24">
-                    <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77 0-4.28-2.99-7.86-7-8.77z"/>
-                  </svg>
-                )}
-              </button>
-              <input
-                type="range"
-                min="0"
-                max="1"
-                step="0.05"
-                value={isMuted ? 0 : volume}
-                onChange={handleVolumeChange}
-                className={styles.volumeSlider}
-                style={{ '--volume-percent': `${(isMuted ? 0 : volume) * 100}%` } as React.CSSProperties}
-              />
-            </div>
-          </div>
-          
-          <div className={styles.rightControls}>
-            {/* Boutons épisodes (séries uniquement) */}
-            {mediaType === 'episode' && onNextEpisode && nextEpisode && (
-              <button 
-                className={styles.episodeBtn}
-                onClick={() => {
-                  const currentTrack = audioTracks[selectedAudio]
-                  const preferences: PlayerPreferences = {
-                    audioTrackIndex: selectedAudio,
-                    audioStreamIndex: currentTrack?.index,
-                    audioLanguage: currentTrack?.language,
-                    subtitleTrackIndex: selectedSubtitle,
-                    wasFullscreen: isFullscreen
-                  }
-                  onNextEpisode(preferences)
-                }}
-                title={`Épisode suivant: S${nextEpisode.seasonNumber}E${nextEpisode.episodeNumber}`}
-              >
-                {/* Icône "Épisode suivant" */}
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
-                </svg>
-              </button>
-            )}
-            
-            {mediaType === 'episode' && allSeasons && allSeasons.length > 0 && (
-              <button 
-                className={styles.episodeBtn}
-                onClick={() => setShowEpisodesModal(true)}
-                title="Liste des épisodes"
-              >
-                {/* Icône "Liste des épisodes" */}
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12zM10 9h8v2h-8V9zm0 3h4v2h-4v-2zm0-6h8v2h-8V6z"/>
-                </svg>
-              </button>
-            )}
-            
-            {/* Settings */}
-            {(audioTracks.length > 0 || subtitleTracks.length > 0) && (
-              <div style={{ position: 'relative' }}>
-                <button 
-                  onClick={() => setShowSettingsMenu(!showSettingsMenu)}
-                  className={`${styles.textBtn} settingsButton`}
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-                    <path d="M19 19H5V5h14m0-2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2m-7 6c-1.65 0-3 1.35-3 3s1.35 3 3 3 3-1.35 3-3-1.35-3-3-3m-1 7H6v1h5v-1m2-3H6v1h7v-1m2-3H6v1h9v-1"/>
-                  </svg>
-                  <span>Audio et sous-titres</span>
-                </button>
-                
-                {showSettingsMenu && (
-                  <div ref={settingsMenuRef} className={menuStyles.settingsMenu}>
-                    {/* Audio */}
-                    {audioTracks.length > 0 && (
-                      <div className={menuStyles.settingsSection}>
-                        <div className={menuStyles.settingsSectionTitle}>Audio</div>
-                        {audioTracks.map((track, idx) => (
-                          <div
-                            key={`audio-${track.index}`}
-                            className={`${menuStyles.settingsOption} ${selectedAudio === idx ? menuStyles.active : ''}`}
-                            onClick={() => handleAudioChange(track, idx)}
-                          >
-                            <div className={menuStyles.settingsOptionInfo}>
-                              <span className={menuStyles.settingsOptionTitle}>
-                                {track.language || `Piste ${idx + 1}`}
-                              </span>
-                              {track.title && (
-                                <span className={menuStyles.settingsOptionSubtitle}>{track.title}</span>
-                              )}
-                            </div>
-                            {selectedAudio === idx && (
-                              <svg className={menuStyles.settingsCheckmark} viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
-                              </svg>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    
-                    {/* Sous-titres */}
-                    <div className={menuStyles.settingsSection}>
-                      <div className={menuStyles.settingsSectionTitle}>Sous-titres</div>
-                      
-                      {/* Option "Désactivés" */}
-                      <div
-                        className={`${menuStyles.settingsOption} ${selectedSubtitle === null ? menuStyles.active : ''}`}
-                        onClick={() => handleSubtitleChange(null)}
-                      >
-                        <div className={menuStyles.settingsOptionInfo}>
-                          <span className={menuStyles.settingsOptionTitle}>Désactivés</span>
-                        </div>
-                        {selectedSubtitle === null && (
-                          <svg className={menuStyles.settingsCheckmark} viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
-                          </svg>
-                        )}
-                      </div>
-                      
-                      {/* Sous-titres intégrés */}
-                      {subtitleTracks.map((track, idx) => (
-                        <div
-                          key={`sub-${track.index}`}
-                          className={`${menuStyles.settingsOption} ${selectedSubtitle === idx ? menuStyles.active : ''}`}
-                          onClick={() => handleSubtitleChange(idx)}
-                        >
-                          <div className={menuStyles.settingsOptionInfo}>
-                            <span className={menuStyles.settingsOptionTitle}>
-                              {track.language || `Sous-titre ${idx + 1}`}
-                            </span>
-                            {track.title && (
-                              <span className={menuStyles.settingsOptionSubtitle}>{track.title}</span>
-                            )}
-                          </div>
-                          {selectedSubtitle === idx && (
-                            <svg className={menuStyles.settingsCheckmark} viewBox="0 0 24 24" fill="currentColor">
-                              <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
-                            </svg>
-                          )}
-                        </div>
-                      ))}
-                      
-                      {/* Contrôle de synchronisation des sous-titres téléchargés */}
-                      {subtitleTracks.some(t => (t as any).isDownloaded) && selectedSubtitle !== null && (
-                        <div className={menuStyles.settingsSection}>
-                          <div className={menuStyles.settingsSectionTitle}>Synchronisation</div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', padding: '8px 16px' }}>
-                            {/* Contrôles fins (±0.5s) */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'center' }}>
-                              <button
-                                onClick={() => {
-                                  const newOffset = subtitleOffset - 0.5
-                                  setSubtitleOffset(newOffset)
-                                  // Recharger le track avec le nouvel offset
-                                  const currentTrack = subtitleTracks[selectedSubtitle]
-                                  if (currentTrack && (currentTrack as any).isDownloaded) {
-                                    handleSubtitleChange(selectedSubtitle)
-                                  }
-                                }}
-                                style={{
-                                  background: 'rgba(255,255,255,0.1)',
-                                  border: '1px solid rgba(255,255,255,0.2)',
-                                  color: 'white',
-                                  padding: '6px 12px',
-                                  borderRadius: '4px',
-                                  cursor: 'pointer',
-                                  fontSize: '13px'
-                                }}
-                              >
-                                -0.5s
-                              </button>
-                              <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: '14px', minWidth: '100px', textAlign: 'center', fontWeight: '500' }}>
-                                {subtitleOffset !== 0 ? `${subtitleOffset > 0 ? '+' : ''}${subtitleOffset.toFixed(1)}s` : 'Synchronisé'}
-                              </span>
-                              <button
-                                onClick={() => {
-                                  const newOffset = subtitleOffset + 0.5
-                                  setSubtitleOffset(newOffset)
-                                  // Recharger le track avec le nouvel offset
-                                  const currentTrack = subtitleTracks[selectedSubtitle]
-                                  if (currentTrack && (currentTrack as any).isDownloaded) {
-                                    handleSubtitleChange(selectedSubtitle)
-                                  }
-                                }}
-                                style={{
-                                  background: 'rgba(255,255,255,0.1)',
-                                  border: '1px solid rgba(255,255,255,0.2)',
-                                  color: 'white',
-                                  padding: '6px 12px',
-                                  borderRadius: '4px',
-                                  cursor: 'pointer',
-                                  fontSize: '13px'
-                                }}
-                              >
-                                +0.5s
-                              </button>
-                            </div>
-                            
-                            {/* Contrôles grossiers (±5s) */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px', justifyContent: 'center' }}>
-                              <button
-                                onClick={() => {
-                                  const newOffset = subtitleOffset - 5
-                                  setSubtitleOffset(newOffset)
-                                  const currentTrack = subtitleTracks[selectedSubtitle]
-                                  if (currentTrack && (currentTrack as any).isDownloaded) {
-                                    handleSubtitleChange(selectedSubtitle)
-                                  }
-                                }}
-                                style={{
-                                  background: 'rgba(255,255,255,0.05)',
-                                  border: '1px solid rgba(255,255,255,0.15)',
-                                  color: 'rgba(255,255,255,0.7)',
-                                  padding: '4px 10px',
-                                  borderRadius: '4px',
-                                  cursor: 'pointer',
-                                  fontSize: '11px'
-                                }}
-                              >
-                                -5s
-                              </button>
-                              <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: '11px', minWidth: '60px', textAlign: 'center' }}>
-                                Ajustement grossier
-                              </span>
-                              <button
-                                onClick={() => {
-                                  const newOffset = subtitleOffset + 5
-                                  setSubtitleOffset(newOffset)
-                                  const currentTrack = subtitleTracks[selectedSubtitle]
-                                  if (currentTrack && (currentTrack as any).isDownloaded) {
-                                    handleSubtitleChange(selectedSubtitle)
-                                  }
-                                }}
-                                style={{
-                                  background: 'rgba(255,255,255,0.05)',
-                                  border: '1px solid rgba(255,255,255,0.15)',
-                                  color: 'rgba(255,255,255,0.7)',
-                                  padding: '4px 10px',
-                                  borderRadius: '4px',
-                                  cursor: 'pointer',
-                                  fontSize: '11px'
-                                }}
-                              >
-                                +5s
-                              </button>
-                            </div>
-                            
-                            {/* Bouton Reset */}
-                            {subtitleOffset !== 0 && (
-                              <div style={{ display: 'flex', justifyContent: 'center', marginTop: '4px' }}>
-                                <button
-                                  onClick={() => {
-                                    setSubtitleOffset(0)
-                                    const currentTrack = subtitleTracks[selectedSubtitle]
-                                    if (currentTrack && (currentTrack as any).isDownloaded) {
-                                      handleSubtitleChange(selectedSubtitle)
-                                    }
-                                  }}
-                                  style={{
-                                    background: 'rgba(255,255,255,0.1)',
-                                    border: '1px solid rgba(255,255,255,0.2)',
-                                    color: 'white',
-                                    padding: '6px 16px',
-                                    borderRadius: '4px',
-                                    cursor: 'pointer',
-                                    fontSize: '12px'
-                                  }}
-                                >
-                                  Réinitialiser
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {/* Télécharger depuis OpenSubtitles */}
-                      <div
-                        className={`${menuStyles.settingsOption} ${isDownloadingSubtitles ? menuStyles.disabled : ''}`}
-                        onClick={async () => {
-                          if (isDownloadingSubtitles) return
-                          
-                          const filepath = getFilepath()
-                          if (!filepath) {
-                            setError('Impossible de récupérer le chemin du fichier')
-                            setTimeout(() => setError(null), 3000)
-                            return
-                          }
-                          
-                          setIsDownloadingSubtitles(true)
-                          setShowSettingsMenu(false)
-                          
-                          try {
-                            // Télécharger FR et EN
-                            const languages = ['fr', 'en']
-                            const downloadedTracks: SubtitleTrack[] = []
-                            
-                            for (const lang of languages) {
-                              try {
-                                console.log(`[PLAYER] Téléchargement sous-titre ${lang.toUpperCase()}...`)
-                                const fetchUrl = `/api/subtitles/fetch?path=${encodeURIComponent(filepath)}&lang=${lang}`
-                                
-                                const response = await fetch(fetchUrl)
-                                
-                                if (response.ok) {
-                                  // Vérifier que la réponse est bien du WebVTT et non du JSON d'erreur
-                                  const contentType = response.headers.get('content-type') || ''
-                                  const responseText = await response.text()
-                                  
-                                  // Si c'est du JSON, c'est une erreur
-                                  if (contentType.includes('application/json') || responseText.trim().startsWith('{')) {
-                                    try {
-                                      const errorData = JSON.parse(responseText)
-                                      const errorMsg = errorData.message || errorData.error || 'Erreur inconnue'
-                                      console.warn(`[PLAYER] Erreur API: ${errorMsg}`)
-                                      
-                                      // Si c'est une erreur VIP, informer l'utilisateur
-                                      if (errorData.requiresVip || errorMsg.toLowerCase().includes('vip')) {
-                                        setError('OpenSubtitles requiert un compte VIP. Cette fonctionnalité n\'est pas disponible pour le moment.')
-                                        setTimeout(() => setError(null), 8000)
-                                      }
-                                      
-                                      continue // Passer à la langue suivante
-                                    } catch {
-                                      // Pas du JSON valide, continuer
-                                    }
-                                  }
-                                  
-                                  // Vérifier que c'est bien du WebVTT
-                                  if (!responseText.trim().startsWith('WEBVTT')) {
-                                    console.warn(`[PLAYER] Réponse ne semble pas être du WebVTT valide`)
-                                    continue // Passer à la langue suivante
-                                  }
-                                  
-                                  
-                                  // ⚠️ CRITIQUE: Utiliser directement l'API /api/subtitles/fetch comme source pour le track
-                                  // Inclure l'offset si présent
-                                  const vttUrl = `/api/subtitles/fetch?path=${encodeURIComponent(filepath)}&lang=${lang}${subtitleOffset !== 0 ? `&offset=${subtitleOffset}` : ''}`
-                                  
-                                  // Ajouter le track au lecteur vidéo
-                                  if (videoRef.current) {
-                                    const trackElement = document.createElement('track')
-                                    trackElement.kind = 'subtitles'
-                                    trackElement.label = lang === 'fr' ? 'Français' : 'English'
-                                    trackElement.srclang = lang
-                                    trackElement.src = vttUrl
-                                    trackElement.default = false
-                                    
-                                    videoRef.current.appendChild(trackElement)
-                                    
-                                    // Activer le track une fois chargé
-                                    trackElement.addEventListener('load', () => {
-                                      console.log(`[PLAYER] Track ${lang.toUpperCase()} chargé`)
-                                      const textTrack = Array.from(videoRef.current!.textTracks).find(
-                                        t => t.label === (lang === 'fr' ? 'Français' : 'English')
-                                      )
-                                      if (textTrack) {
-                                        const cuesCount = textTrack.cues ? textTrack.cues.length : 0
-                                        
-                                        // Attendre que les cues soient chargés avant d'activer
-                                        const activateDownloadedTrack = () => {
-                                          const currentCuesCount = textTrack.cues ? textTrack.cues.length : 0
-                                          const activeCuesCount = textTrack.activeCues ? textTrack.activeCues.length : 0
-                                          
-                                          if (currentCuesCount > 0) {
-                                            textTrack.mode = 'showing'
-                                            console.log(`[PLAYER] Track activé (mode=showing), ${currentCuesCount} cues disponibles, ${activeCuesCount} actifs`)
-                                          } else {
-                                            console.warn(`[PLAYER] Aucun cue chargé, réessai dans 500ms...`)
-                                            // Réessayer après un court délai
-                                            setTimeout(() => {
-                                              const retryCuesCount = textTrack.cues ? textTrack.cues.length : 0
-                                              if (retryCuesCount > 0) {
-                                                textTrack.mode = 'showing'
-                                                console.log(`[PLAYER] Track activé après délai, ${retryCuesCount} cues disponibles`)
-                                              } else {
-                                                // Activer quand même, les cues peuvent arriver plus tard
-                                                textTrack.mode = 'showing'
-                                                console.warn(`[PLAYER] Track activé sans cues (ils arriveront plus tard)`)
-                                              }
-                                            }, 500)
-                                          }
-                                        }
-                                        
-                                        // Écouter l'événement cuechange pour détecter quand les cues deviennent actifs
-                                        const cueChangeHandler = () => {
-                                          const activeCuesCount = textTrack.activeCues ? textTrack.activeCues.length : 0
-                                          if (activeCuesCount > 0) {
-                                          }
-                                        }
-                                        textTrack.addEventListener('cuechange', cueChangeHandler)
-                                        
-                                        // Vérifier périodiquement si les cues deviennent actifs après le début de la lecture
-                                        let checkInterval: NodeJS.Timeout | null = null
-                                        const startChecking = () => {
-                                          if (checkInterval) return
-                                          
-                                          checkInterval = setInterval(() => {
-                                            const activeCuesCount = textTrack.activeCues ? textTrack.activeCues.length : 0
-                                            const currentTime = videoRef.current?.currentTime || 0
-                                            
-                                            if (activeCuesCount > 0) {
-                                              console.log(`[PLAYER] Cues actifs détectés: ${activeCuesCount} cues au temps ${currentTime.toFixed(1)}s`)
-                                              if (checkInterval) {
-                                                clearInterval(checkInterval)
-                                                checkInterval = null
-                                              }
-                                            } else if (currentTime > 5 && textTrack.mode === 'showing') {
-                                              // Si la vidéo joue depuis plus de 5 secondes et qu'aucun cue n'est actif, il y a peut-être un problème
-                                              console.warn(`[PLAYER] Aucun cue actif après ${currentTime.toFixed(1)}s malgré le track en mode 'showing'`)
-                                            }
-                                          }, 1000) // Vérifier toutes les secondes
-                                        }
-                                        
-                                        // Démarrer la vérification quand la vidéo commence à jouer
-                                        videoRef.current?.addEventListener('play', startChecking, { once: true })
-                                        
-                                        // Essayer d'activer immédiatement
-                                        activateDownloadedTrack()
-                                      } else {
-                                        console.error(`[PLAYER] Track "${lang === 'fr' ? 'Français' : 'English'}" non trouvé dans textTracks`)
-                                      }
-                                    })
-                                    
-                                    // Gérer les erreurs de chargement
-                                    trackElement.addEventListener('error', async (e) => {
-                                      console.error(`[PLAYER] Erreur chargement sous-titre téléchargé ${lang.toUpperCase()}:`, e)
-                                      console.error(`[PLAYER] URL track: ${trackElement.src}`)
-                                      
-                                      // Vérifier si l'API retourne une erreur
-                                      try {
-                                        const testResponse = await fetch(trackElement.src)
-                                        const testData = await testResponse.text()
-                                        console.error(`[PLAYER] Réponse API (${testResponse.status}):`, testData.substring(0, 200))
-                                      } catch (err) {
-                                        console.error(`[PLAYER] Erreur test API:`, err)
-                                      }
-                                      
-                                      // Retirer le track défaillant
-                                      trackElement.remove()
-                                    })
-                                    
-                                    // ⚠️ IMPORTANT: Forcer le chargement en définissant l'attribut src après appendChild
-                                    // Certains navigateurs nécessitent que le track soit dans le DOM avant de charger
-                                    setTimeout(() => {
-                                      if (trackElement.parentNode) {
-                                        // Relancer le chargement en modifiant l'attribut src
-                                        const currentSrc = trackElement.src
-                                        trackElement.src = ''
-                                        trackElement.src = currentSrc
-                                      }
-                                    }, 100)
-                                    
-                                    // Ajouter à la liste des tracks disponibles
-                                    // ⚠️ CRITIQUE: Les tracks téléchargés ont leur propre URL, pas un index de stream
-                                    downloadedTracks.push({
-                                      index: subtitleTracks.length + downloadedTracks.length,
-                                      language: lang === 'fr' ? 'Français' : 'English',
-                                      title: `Téléchargé depuis OpenSubtitles`,
-                                      isDownloaded: true, // Marquer comme téléchargé
-                                      sourceUrl: vttUrl // URL de l'API pour ce track
-                                    } as SubtitleTrack)
-                                  }
-                                } else {
-                                  // Échec téléchargement sous-titre
-                                }
-                              } catch (err) {
-                                console.error(`[PLAYER] Erreur téléchargement ${lang}:`, err)
-                              }
-                            }
-                            
-                            if (downloadedTracks.length > 0) {
-                              // Mettre à jour la liste des tracks
-                              setSubtitleTracks([...subtitleTracks, ...downloadedTracks])
-                              
-                              // ⚠️ CRITIQUE: Attendre que les tracks soient ajoutés au DOM avant d'essayer de les activer
-                              // Utiliser plusieurs tentatives pour s'assurer que les cues sont chargés
-                              let activationAttempts = 0
-                              const maxAttempts = 5
-                              
-                              const tryActivateTrack = () => {
-                                if (!videoRef.current) return
-                                
-                                const allTextTracks = Array.from(videoRef.current.textTracks)
-                                
-                                allTextTracks.forEach((t, i) => {
-                                  const cuesCount = t.cues ? t.cues.length : 0
-                                  const activeCuesCount = t.activeCues ? t.activeCues.length : 0
-                                })
-                                
-                                // Trouver et activer le premier track téléchargé (Français)
-                                const frenchTrack = allTextTracks.find(t => 
-                                  t.label === 'Français' || t.language === 'fr' || t.language?.toLowerCase().startsWith('fr')
-                                )
-                                
-                                if (frenchTrack) {
-                                  const cuesCount = frenchTrack.cues ? frenchTrack.cues.length : 0
-                                  
-                                  // Si les cues sont chargés, activer immédiatement
-                                  if (cuesCount > 0) {
-                                    frenchTrack.mode = 'showing'
-                                    console.log(`[PLAYER] Track français activé: mode="${frenchTrack.mode}", cues=${cuesCount}`)
-                                    setSelectedSubtitle(subtitleTracks.length) // Index du premier track téléchargé
-                                    return true // Succès
-                                  } else if (activationAttempts < maxAttempts - 1) {
-                                    // Les cues ne sont pas encore chargés, réessayer
-                                    activationAttempts++
-                                    setTimeout(tryActivateTrack, 500)
-                                    return false
-                                  } else {
-                                    // Dernière tentative, activer quand même
-                                    frenchTrack.mode = 'showing'
-                                    console.log(`[PLAYER] Track français activé sans cues (dernière tentative)`)
-                                    setSelectedSubtitle(subtitleTracks.length)
-                                    return true
-                                  }
-                                } else {
-                                  console.warn(`[PLAYER] Track français non trouvé, activation du premier track téléchargé`)
-                                  // Fallback: activer le premier track téléchargé par index
-                                  const firstDownloadedIdx = subtitleTracks.length
-                                  if (firstDownloadedIdx < allTextTracks.length) {
-                                    const track = allTextTracks[firstDownloadedIdx]
-                                    const cuesCount = track.cues ? track.cues.length : 0
-                                    
-                                    if (cuesCount > 0 || activationAttempts >= maxAttempts - 1) {
-                                      track.mode = 'showing'
-                                      console.log(`[PLAYER] Premier track activé (index ${firstDownloadedIdx}), cues=${cuesCount}`)
-                                      setSelectedSubtitle(firstDownloadedIdx)
-                                      return true
-                                    } else {
-                                      activationAttempts++
-                                      setTimeout(tryActivateTrack, 500)
-                                      return false
-                                    }
-                                  }
-                                }
-                                return false
-                              }
-                              
-                              // Première tentative après 1 seconde
-                              setTimeout(tryActivateTrack, 1000)
-                              
-                              console.log(`[PLAYER] ${downloadedTracks.length} sous-titre(s) téléchargé(s) depuis OpenSubtitles`)
-                            } else {
-                              setError('Aucun sous-titre trouvé sur OpenSubtitles')
-                              setTimeout(() => setError(null), 5000)
-                            }
-                          } catch (error) {
-                            console.error('[PLAYER] Erreur téléchargement sous-titres:', error)
-                            setError('Erreur lors du téléchargement des sous-titres')
-                            setTimeout(() => setError(null), 5000)
-                          } finally {
-                            setIsDownloadingSubtitles(false)
-                          }
-                        }}
-                        style={{ opacity: isDownloadingSubtitles ? 0.5 : 1 }}
-                      >
-                        <div className={menuStyles.settingsOptionInfo}>
-                          <span className={menuStyles.settingsOptionTitle}>
-                            {isDownloadingSubtitles ? 'Téléchargement...' : 'Télécharger depuis OpenSubtitles'}
-                          </span>
-                          <span className={menuStyles.settingsOptionSubtitle}>
-                            {isDownloadingSubtitles ? 'Recherche en cours...' : 'Français et Anglais'}
-                          </span>
-                        </div>
-                        {isDownloadingSubtitles && (
-                          <svg className={menuStyles.settingsCheckmark} viewBox="0 0 24 24" fill="currentColor" style={{ animation: 'spin 1s linear infinite' }}>
-                            <path d="M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z"/>
-                          </svg>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-            
-            {/* Fullscreen */}
-            <button onClick={handleFullscreen} className={styles.controlBtn}>
-              <svg viewBox="0 0 24 24">
-                <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
-              </svg>
-            </button>
-          </div>
-        </div>
-      </div>
+      {/* Contrôles (timeline, play/pause, volume, settings, fullscreen) */}
+      <PlayerControls
+        showControls={showControls}
+        currentTime={currentTime}
+        duration={duration}
+        buffered={buffered}
+        isPreTranscoded={isPreTranscoded}
+        maxSeekableTime={maxSeekableTime}
+        isDragging={isDragging}
+        src={src}
+        videoRef={videoRef}
+        realDurationRef={realDurationRef}
+        setIsDragging={setIsDragging}
+        setSeekWarning={setSeekWarning}
+        isPlaying={isPlaying}
+        onPlayPause={handlePlayPause}
+        onSkip={handleSkip}
+        volume={volume}
+        isMuted={isMuted}
+        onVolumeToggle={handleVolumeToggle}
+        onVolumeChange={handleVolumeChange}
+        mediaType={mediaType}
+        nextEpisode={nextEpisode}
+        onNextEpisode={onNextEpisode}
+        audioTracks={audioTracks}
+        selectedAudio={selectedAudio}
+        selectedSubtitle={selectedSubtitle}
+        isFullscreen={isFullscreen}
+        allSeasons={allSeasons}
+        onShowEpisodes={() => setShowEpisodesModal(true)}
+        subtitleTracks={subtitleTracks}
+        subtitleOffset={subtitleOffset}
+        onAudioChange={handleAudioChange}
+        onSubtitleChange={handleSubtitleChange}
+        onSubtitleOffsetChange={handleSubtitleOffsetChange}
+        onSubtitleOffsetReset={handleSubtitleOffsetReset}
+        isDownloadingSubtitles={isDownloadingSubtitles}
+        onDownloadSubtitles={handleDownloadOpenSubtitles}
+        showSettingsMenu={showSettingsMenu}
+        onToggleSettings={() => setShowSettingsMenu(!showSettingsMenu)}
+        settingsMenuRef={settingsMenuRef}
+        onFullscreen={handleFullscreen}
+      />
       
       {/* Modale des épisodes (séries uniquement) */}
       {showEpisodesModal && allSeasons && allSeasons.length > 0 && (
-        <div 
-          className={styles.episodesModalOverlay}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) {
-              setShowEpisodesModal(false)
-            }
-          }}
-        >
-          <div className={styles.episodesModal}>
-            {/* Header avec sélecteur de saison */}
-            <div className={styles.episodesModalHeader}>
-              <h3 className={styles.episodesModalTitle}>{title}</h3>
-              
-              <div className={styles.seasonSelector}>
-                <select 
-                  value={selectedSeasonNumber}
-                  onChange={(e) => setSelectedSeasonNumber(Number(e.target.value))}
-                >
-                  {allSeasons.map(season => (
-                    <option key={season.seasonNumber} value={season.seasonNumber}>
-                      Saison {season.seasonNumber}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              
-              <button 
-                className={styles.closeModalBtn}
-                onClick={() => setShowEpisodesModal(false)}
-              >
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12 19 6.41z"/>
-                </svg>
-              </button>
-            </div>
-            
-            {/* Liste des épisodes */}
-            <div className={styles.episodesList}>
-              {allSeasons
-                .find(s => s.seasonNumber === selectedSeasonNumber)
-                ?.episodes.map(episode => {
-                  const isCurrent = episode.id === currentEpisodeId
-                  return (
-                    <div 
-                      key={episode.id}
-                      className={`${styles.episodeItem} ${isCurrent ? styles.currentEpisode : ''}`}
-                      onClick={() => {
-                        if (!isCurrent && onEpisodeSelect) {
-                          const currentTrack = audioTracks[selectedAudio]
-                          const preferences: PlayerPreferences = {
-                            audioTrackIndex: selectedAudio,
-                            audioStreamIndex: currentTrack?.index,
-                            audioLanguage: currentTrack?.language,
-                            subtitleTrackIndex: selectedSubtitle,
-                            wasFullscreen: isFullscreen
-                          }
-                          onEpisodeSelect(episode.id, preferences)
-                          setShowEpisodesModal(false)
-                        }
-                      }}
-                    >
-                      <span className={styles.episodeNumber}>{episode.episodeNumber}</span>
-                      
-                      <div className={styles.episodeThumbnail}>
-                        {episode.thumbnail ? (
-                          <Image 
-                            src={episode.thumbnail} 
-                            alt={episode.title}
-                            fill
-                            sizes="150px"
-                            style={{ objectFit: 'cover' }}
-                          />
-                        ) : (
-                          <div className={styles.episodeThumbnailPlaceholder}>
-                            <svg viewBox="0 0 24 24" fill="currentColor">
-                              <path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4z"/>
-                            </svg>
-                          </div>
-                        )}
-                      </div>
-                      
-                      <div className={styles.episodeInfo}>
-                        <h4 className={styles.episodeTitle}>{episode.title}</h4>
-                        {episode.runtime && (
-                          <span className={styles.episodeRuntime}>{episode.runtime} min</span>
-                        )}
-                        {episode.overview && (
-                          <p className={styles.episodeOverview}>{episode.overview}</p>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-            </div>
-          </div>
-        </div>
+        <EpisodesModal
+          allSeasons={allSeasons}
+          selectedSeasonNumber={selectedSeasonNumber}
+          onSeasonChange={setSelectedSeasonNumber}
+          currentEpisodeId={currentEpisodeId}
+          title={title}
+          onEpisodeSelect={handleEpisodeSelect}
+          onClose={() => setShowEpisodesModal(false)}
+        />
       )}
     </div>
   )

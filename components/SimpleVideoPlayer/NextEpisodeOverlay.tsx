@@ -8,22 +8,7 @@
 import { memo } from 'react'
 import Image from 'next/image'
 import styles from './SimpleVideoPlayer.module.css'
-
-export interface NextEpisodeInfo {
-  id: string
-  title: string
-  seasonNumber: number
-  episodeNumber: number
-  thumbnail?: string
-}
-
-export interface PlayerPreferences {
-  audioTrackIndex?: number
-  audioStreamIndex?: number
-  audioLanguage?: string
-  subtitleTrackIndex?: number | null
-  wasFullscreen?: boolean
-}
+import type { NextEpisodeInfo, PlayerPreferences } from './types'
 
 interface NextEpisodeOverlayProps {
   nextEpisode: NextEpisodeInfo

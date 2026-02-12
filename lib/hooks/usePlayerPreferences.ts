@@ -5,16 +5,9 @@
  */
 
 import { useCallback, useEffect, useState, useRef } from 'react'
+import type { PlayerPreferences } from '@/components/SimpleVideoPlayer/types'
 
-export interface PlayerPreferences {
-  audioTrackIndex?: number
-  audioStreamIndex?: number
-  audioLanguage?: string
-  subtitleTrackIndex?: number | null
-  wasFullscreen?: boolean
-  volume?: number
-  lastUpdated?: number
-}
+export type { PlayerPreferences }
 
 const STORAGE_KEY_PREFIX = 'leon-player-prefs'
 const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000 // 30 jours

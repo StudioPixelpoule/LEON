@@ -5,109 +5,44 @@
  * FONCTIONNEMENT :
  * 1. Vérifie si un fichier pré-transcodé existe → Seek instantané
  * 2. Sinon, transcode en temps réel avec support du seek par redémarrage FFmpeg
+ * 
+ * Ce fichier est un contrôleur HTTP mince : la logique métier est dans lib/hls/
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
-import { spawn } from 'child_process'
-import { stat, mkdir, writeFile, readdir, readFile, rm } from 'fs/promises'
+import { stat, mkdir, readFile, rm } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
 import crypto from 'crypto'
 import ffmpegManager from '@/lib/ffmpeg-manager'
 import { ErrorHandler, createErrorResponse } from '@/lib/error-handler'
-import { detectHardwareCapabilities } from '@/lib/hardware-detection'
-import { getBufferInstance, cleanupBufferInstance } from '@/lib/adaptive-buffer'
-import { getCacheInstance } from '@/lib/segment-cache'
-import transcodingService, { TRANSCODED_DIR } from '@/lib/transcoding-service'
 import { validateMediaPath } from '@/lib/path-validator'
-
-// Répertoire temporaire pour les segments HLS
-const HLS_TEMP_DIR = '/tmp/leon-hls'
-
-/**
- * Obtenir le répertoire pré-transcodé pour un fichier
- * Vérifie à la fois le dossier racine (films) et le sous-dossier series/ (épisodes)
- */
-function getPreTranscodedDir(filepath: string): string {
-  const filename = path.basename(filepath, path.extname(filepath))
-  const safeName = filename.replace(/[^a-zA-Z0-9àâäéèêëïîôùûüç\s\-_.()[\]]/gi, '_')
-  
-  // Vérifier d'abord dans le dossier racine (films)
-  const mainDir = path.join(TRANSCODED_DIR, safeName)
-  if (existsSync(mainDir)) {
-    return mainDir
-  }
-  
-  // Sinon vérifier dans le sous-dossier series/ (épisodes)
-  const seriesDir = path.join(TRANSCODED_DIR, 'series', safeName)
-  if (existsSync(seriesDir)) {
-    return seriesDir
-  }
-  
-  // Par défaut, retourner le dossier racine
-  return mainDir
-}
-
-/**
- * Vérifier si un fichier pré-transcodé est disponible
- * Crée automatiquement .done si le transcodage est complet mais le marqueur manque
- */
-async function hasPreTranscoded(filepath: string): Promise<boolean> {
-  const preTranscodedDir = getPreTranscodedDir(filepath)
-  const donePath = path.join(preTranscodedDir, '.done')
-  const playlistPath = path.join(preTranscodedDir, 'playlist.m3u8')
-  const videoPlaylistPath = path.join(preTranscodedDir, 'video.m3u8')
-  
-  // Vérifier si le dossier et le master playlist existent
-  if (!existsSync(playlistPath)) {
-    return false
-  }
-  
-  // Si .done existe, c'est bon
-  if (existsSync(donePath)) {
-    return true
-  }
-  
-  // Sinon, vérifier si video.m3u8 contient #EXT-X-ENDLIST (transcodage terminé)
-  // et créer automatiquement .done
-  if (existsSync(videoPlaylistPath)) {
-    try {
-      const videoContent = await readFile(videoPlaylistPath, 'utf-8')
-      if (videoContent.includes('#EXT-X-ENDLIST')) {
-        // Transcodage terminé ! Créer le marqueur .done
-        await writeFile(donePath, new Date().toISOString())
-        console.log(`[HLS] 📝 .done créé automatiquement pour: ${preTranscodedDir}`)
-        return true
-      }
-    } catch (err) {
-      console.warn(`[HLS] ⚠️ Erreur vérification video.m3u8:`, err)
-    }
-  }
-  
-  return false
-}
+import { HLS_TEMP_DIR } from '@/lib/hls/types'
+import { getPreTranscodedDir, hasPreTranscoded, servePreTranscoded } from '@/lib/hls/pre-transcoded'
+import { serveSegment, waitForPlaylistReady, servePlaylist } from '@/lib/hls/streaming-service'
+import { cleanupGhostSession, startRealtimeTranscode } from '@/lib/hls/realtime-transcoder'
 
 export async function GET(request: NextRequest) {
   const startTime = Date.now()
   const searchParams = request.nextUrl.searchParams
+
+  // 1. Parser les paramètres de la requête
   const filepathRaw = searchParams.get('path')
-  const segment = searchParams.get('segment') // Ex: stream_0_segment0.ts
-  const variant = searchParams.get('variant') // Ex: stream_0.m3u8 (playlist de variante)
-  const playlist = searchParams.get('playlist') // Si on demande le master .m3u8
-  const audioTrack = searchParams.get('audio') || '0' // Index de la piste audio
-  const subtitleTrack = searchParams.get('subtitle') // Index de la piste sous-titre (optionnel)
-  const seekTo = searchParams.get('seek') // Position de seek en secondes
-  
+  const segment = searchParams.get('segment')
+  const variant = searchParams.get('variant')
+  const playlist = searchParams.get('playlist')
+  const audioTrack = searchParams.get('audio') || '0'
+  const seekTo = searchParams.get('seek')
   const timestamp = new Date().toISOString()
-  
+
   if (!filepathRaw) {
     return NextResponse.json({ error: 'Chemin manquant' }, { status: 400 })
   }
-  
-  // Validation sécurisée du chemin (protection path traversal)
+
+  // 2. Validation sécurisée du chemin (protection path traversal)
   const pathValidation = validateMediaPath(filepathRaw)
   if (!pathValidation.valid || !pathValidation.normalized) {
     console.error('[HLS] Chemin invalide:', pathValidation.error)
@@ -115,10 +50,10 @@ export async function GET(request: NextRequest) {
   }
   const filepath = pathValidation.normalized
 
-  // VÉRIFIER SI UN FICHIER PRÉ-TRANSCODÉ EXISTE
+  // 3. Vérifier la disponibilité pré-transcodée
   const usePreTranscoded = await hasPreTranscoded(filepath)
   const preTranscodedDir = getPreTranscodedDir(filepath)
-  
+
   console.log(`[${timestamp}] [HLS] Requête`, {
     file: filepath.split('/').pop(),
     segment: segment || variant || 'playlist',
@@ -126,7 +61,8 @@ export async function GET(request: NextRequest) {
     preTranscoded: usePreTranscoded,
     seekTo: seekTo || 'none'
   })
-  
+
+  // 4. Vérifier que le fichier source existe
   try {
     const stats = await stat(filepath)
     console.log(`[${timestamp}] [HLS] ✅ Fichier trouvé: ${(stats.size / (1024*1024*1024)).toFixed(2)}GB`)
@@ -136,98 +72,31 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(errorResponse.body, { status: errorResponse.status })
   }
 
-  // SI PRÉ-TRANSCODÉ : Servir directement les fichiers HLS (seek instantané!)
+  // 5. Si pré-transcodé : servir directement (seek instantané)
   if (usePreTranscoded) {
     return servePreTranscoded(filepath, preTranscodedDir, segment, variant, timestamp)
   }
 
-  // SINON : Transcodage temps réel (comportement actuel)
-  // Créer un ID unique pour ce fichier ET la piste audio
+  // 6. Sinon : transcodage temps réel
   const sessionId = ffmpegManager.generateSessionId(filepath, audioTrack)
   const fileHash = crypto.createHash('md5').update(sessionId).digest('hex')
   const sessionDir = path.join(HLS_TEMP_DIR, fileHash)
-  
-  // Mettre à jour l'accès à la session
+
   ffmpegManager.touchSession(sessionId)
 
-  // Créer le répertoire de session si nécessaire
   if (!existsSync(sessionDir)) {
     await mkdir(sessionDir, { recursive: true })
   }
 
   const playlistPath = path.join(sessionDir, 'playlist.m3u8')
 
-  // Si on demande un segment spécifique
+  // 6a. Si on demande un segment spécifique
   if (segment) {
-    const segmentPath = path.join(sessionDir, segment)
-    
-    // 🔧 PHASE 4: Vérifier d'abord le cache
-    const segmentMatch = segment.match(/segment(\d+)\.ts/)
-    if (segmentMatch) {
-      const segmentIndex = parseInt(segmentMatch[1])
-      const cache = getCacheInstance()
-      
-      // Récupérer le hardware pour construire la clé de cache
-      const hardware = await detectHardwareCapabilities()
-      
-      const cachedPath = await cache.get({
-        filepath,
-        audioTrack,
-        segmentIndex,
-        videoCodec: hardware.encoder,
-        resolution: '1080p' // Valeur par défaut, à adapter si besoin
-      })
-      
-      if (cachedPath) {
-        // Segment trouvé en cache !
-        const segmentData = await readFile(cachedPath)
-        return new NextResponse(segmentData as any, {
-          headers: {
-            'Content-Type': 'video/mp2t',
-            'Cache-Control': 'public, max-age=31536000',
-            'X-Cache': 'HIT', // Header pour débug
-          }
-        })
-      }
-    }
-    
-    // Segment pas en cache, on lit depuis sessionDir
-    try {
-      const segmentData = await readFile(segmentPath)
-      
-      // 🔧 PHASE 4: Sauvegarder en cache pour la prochaine fois
-      if (segmentMatch) {
-        const segmentIndex = parseInt(segmentMatch[1])
-        const cache = getCacheInstance()
-        const hardware = await detectHardwareCapabilities()
-        
-        // Ne pas attendre la sauvegarde (asynchrone)
-        cache.set({
-          filepath,
-          audioTrack,
-          segmentIndex,
-          videoCodec: hardware.encoder,
-          resolution: '1080p'
-        }, segmentPath).catch(err => {
-          console.error(`[${timestamp}] [CACHE] ❌ Erreur sauvegarde segment${segmentIndex}:`, err.message)
-        })
-      }
-      
-      return new NextResponse(segmentData as any, {
-        headers: {
-          'Content-Type': 'video/mp2t',
-          'Cache-Control': 'public, max-age=31536000',
-          'X-Cache': 'MISS', // Header pour débug
-        }
-      })
-    } catch {
-      return NextResponse.json({ error: 'Segment non trouvé' }, { status: 404 })
-    }
+    return serveSegment(sessionDir, segment, filepath, audioTrack, timestamp)
   }
 
-  // Si on demande le playlist ou si c'est la première requête
+  // 6b. Assurer que le transcodage est lancé et le playlist prêt
   if (playlist || !existsSync(playlistPath)) {
-    // Vérifier si le playlist existe ET contient des segments
     let playlistHasSegments = false
     if (existsSync(playlistPath)) {
       try {
@@ -237,230 +106,28 @@ export async function GET(request: NextRequest) {
         console.warn('[HLS] Erreur lecture playlist existant:', error instanceof Error ? error.message : error)
       }
     }
-    
-    // 🔧 CRITICAL: Nettoyer les sessions fantômes (processus mort mais session enregistrée)
-    if (ffmpegManager.hasActiveSession(sessionId)) {
-      const sessionPid = ffmpegManager.getSessionPid(sessionId)
-      if (sessionPid) {
-        try {
-          // Vérifier si le processus existe (signal 0 = test sans tuer)
-          process.kill(sessionPid, 0)
-        } catch {
-          // Processus n'existe pas, nettoyer la session fantôme
-          console.log(`👻 Session fantôme détectée (PID ${sessionPid} inexistant), nettoyage...`)
-          await ffmpegManager.killSession(sessionId)
-        }
-      }
-    }
-    
-    // Lancer la transcodage HLS en arrière-plan si pas déjà fait
+
+    // Nettoyer les sessions fantômes
+    await cleanupGhostSession(sessionId)
+
+    // Lancer le transcodage si pas déjà en cours
     if (!playlistHasSegments && !ffmpegManager.hasActiveSession(sessionId)) {
-      const ts = new Date().toISOString()
-      console.log(`[${ts}] [HLS] 🎬 Démarrage transcodage`, {
-        file: filepath.split('/').pop(),
-        audioTrack,
-        sessionId: sessionId.slice(0, 50) + '...'
-      })
-      
-      // Enregistrer la session avant de lancer FFmpeg
-      ffmpegManager.registerSession(sessionId, filepath, audioTrack)
-      
-      // 🔧 PHASE 2 : Détection automatique du matériel disponible
-      const hardware = await detectHardwareCapabilities()
-      const ts1_5 = new Date().toISOString()
-      console.log(`[${ts1_5}] [HLS] 🎨 GPU détecté:`, {
-        acceleration: hardware.acceleration,
-        encoder: hardware.encoder,
-        platform: hardware.platform
-      })
-      
-      // Lancer FFmpeg en arrière-plan (non-bloquant)
-      // OPTIMISATIONS MAXIMALES pour chargement rapide
-      const ffmpegArgs = [
-        // Décodage matériel si disponible
-        ...hardware.decoderArgs,
-        '-i', filepath,
-        // ✅ Ne pas utiliser -copyts/-start_at_zero pour éviter les décalages de timestamps
-        // Sélectionner la piste vidéo et audio
-        '-map', '0:v:0',              // Toujours prendre la première piste vidéo
-        ...(audioTrack && audioTrack !== '0' 
-          ? ['-map', `0:${audioTrack}`]  // Si piste audio spécifiée, utiliser l'index absolu
-          : ['-map', '0:a:0']),           // Sinon prendre la première piste audio
-        // 🎨 ENCODAGE GPU (détecté automatiquement)
-        // Conversion HDR → SDR si nécessaire
-        ...(hardware.acceleration === 'vaapi' 
-          ? [] // VAAPI gère le format dans encoderArgs
-          : ['-vf', 'format=yuv420p']),
-        ...hardware.encoderArgs,
-        // GOP et keyframes
-        '-g', '48',                 // GOP de 2s @ 24fps
-        '-keyint_min', '24',        // Keyframe minimum à 1s
-        '-sc_threshold', '0',       // Pas de détection de changement de scène
-        '-force_key_frames', 'expr:gte(t,n_forced*2)', // Keyframe EXACTEMENT toutes les 2s
-        // Audio : haute qualité
-        '-c:a', 'aac',              // AAC
-        '-b:a', '192k',             // Haute qualité audio
-        '-ac', '2',                 // Stéréo
-        '-ar', '48000',             // 48kHz (standard)
-        // HLS optimisé pour démarrage ultra-rapide
-        '-f', 'hls',
-        '-hls_time', '2',           // Segments très courts (2s) pour démarrage ultra-rapide
-        '-hls_list_size', '0',      
-        '-hls_segment_type', 'mpegts',
-        '-hls_flags', 'independent_segments+temp_file', // ✅ OPTIMISATION: temp_file pour écriture atomique
-        '-hls_segment_filename', path.join(sessionDir, 'segment%d.ts'),
-        '-hls_playlist_type', 'event', // Playlist dynamique
-        '-start_number', '0',       // 🔧 Commencer à segment0.ts
-        playlistPath
-      ]
-
-      const ts2 = new Date().toISOString()
-      console.log(`[${ts2}] [HLS] 🚀 Lancement FFmpeg`, {
-        command: 'ffmpeg ' + ffmpegArgs.slice(0, 10).join(' ') + '...'
-      })
-      
-      const ffmpeg = spawn('ffmpeg', ffmpegArgs, {
-        stdio: ['ignore', 'pipe', 'pipe'], // Capturer stdout et stderr
-      })
-      
-      let stderrBuffer = ''
-      
-      // Logger la progression FFmpeg
-      // 📊 PHASE 3 : Buffering adaptatif intelligent
-      const bufferManager = getBufferInstance(sessionId)
-      
-      ffmpeg.stderr?.on('data', (data) => {
-        const message = data.toString()
-        stderrBuffer += message
-        
-        // FFmpeg écrit la progression sur stderr
-        if (message.includes('frame=')) {
-          // Progression normale (ne pas trop logger)
-          const progressLine = message.split('\n')[0].trim()
-          if (progressLine.includes('speed=')) {
-            console.log(`[${new Date().toISOString()}] [HLS] ⏱️ ${progressLine.slice(0, 100)}`)
-            
-            // Extraire les métriques pour le buffering adaptatif
-            const frameMatch = progressLine.match(/frame=\s*(\d+)/)
-            const fpsMatch = progressLine.match(/fps=\s*([\d.]+)/)
-            const speedMatch = progressLine.match(/speed=\s*([\d.]+)x/)
-            
-            if (frameMatch && fpsMatch && speedMatch) {
-              const frame = parseInt(frameMatch[1], 10)
-              const fps = parseFloat(fpsMatch[1])
-              const speed = parseFloat(speedMatch[1])
-              
-              // Estimer le nombre de segments générés (2s par segment @ 24fps = 48 frames)
-              const segmentsGenerated = Math.floor(frame / 48)
-              
-              // TODO: Récupérer le nombre de segments consommés du player
-              // Pour l'instant, on estime à 0 (sera implémenté côté client)
-              const segmentsConsumed = 0
-              
-              bufferManager.recordMetrics({
-                speed,
-                fps,
-                segmentsGenerated,
-                segmentsConsumed,
-                timestamp: Date.now()
-              })
-              
-              // Afficher le statut du buffer toutes les 10 secondes
-              if (frame % 240 === 0) { // Environ toutes les 10s @ 24fps
-                const status = bufferManager.getStatusReport()
-                console.log(`[${new Date().toISOString()}] [BUFFER] 📊 Statut:`, status)
-              }
-            }
-          }
-        } else if (message.includes('error') || message.includes('Error')) {
-          console.error(`[${new Date().toISOString()}] [HLS] ❌ FFmpeg erreur:`, message.slice(0, 300))
-        }
-      })
-      
-      ffmpeg.on('exit', async (code, signal) => {
-        const ts3 = new Date().toISOString()
-        const duration = Date.now() - startTime
-        
-        if (code === 0) {
-          console.log(`[${ts3}] [HLS] ✅ Transcodage terminé (${(duration / 1000).toFixed(1)}s)`)
-          
-          // Créer marker .done pour indiquer fin du transcodage
-          try {
-            await writeFile(path.join(sessionDir, '.done'), '')
-          } catch (err) {
-            console.warn(`[${ts3}] [HLS] ⚠️ Erreur création marker:`, err)
-          }
-        } else {
-          console.error(`[${ts3}] [HLS] ❌ FFmpeg exit anormal`, {
-            code,
-            signal,
-            duration: `${(duration / 1000).toFixed(1)}s`,
-            lastError: stderrBuffer.slice(-500)
-          })
-        }
-      })
-      
-      ffmpeg.on('error', (err) => {
-        const ts3 = new Date().toISOString()
-        ErrorHandler.log('HLS', err, { 
-          filepath: filepath.split('/').pop(),
-          sessionId: sessionId.slice(0, 50) + '...'
-        })
-        console.error(`[${ts3}] [HLS] ❌ Erreur spawn FFmpeg:`, err.message)
-        ffmpegManager.killSession(sessionId)
-      })
-      
-      // Mettre à jour le PID dans le gestionnaire
-      if (ffmpeg.pid) {
-        const ts3 = new Date().toISOString()
-        console.log(`[${ts3}] [HLS] ✅ FFmpeg démarré (PID: ${ffmpeg.pid})`)
-        ffmpegManager.updateSessionPid(sessionId, ffmpeg.pid)
-      } else {
-        const ts3 = new Date().toISOString()
-        console.error(`[${ts3}] [HLS] ❌ FFmpeg n'a pas démarré correctement`)
-      }
+      await startRealtimeTranscode(sessionId, filepath, audioTrack, sessionDir, playlistPath, startTime)
     }
 
-    // Attendre que FFmpeg génère un playlist AVEC des segments
+    // Attendre que des segments soient générés
     if (!playlistHasSegments) {
-      const ts = new Date().toISOString()
-      console.log(`[${ts}] [HLS] ⏳ Attente génération segments...`)
-      
-      // Attendre jusqu'à 60 secondes que le playlist contienne des segments
+      console.log(`[${new Date().toISOString()}] [HLS] ⏳ Attente génération segments...`)
       const maxWaitSeconds = 60
-      const checkIntervalMs = 500
-      const maxAttempts = (maxWaitSeconds * 1000) / checkIntervalMs
-      
-      for (let attempt = 0; attempt < maxAttempts; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, checkIntervalMs))
-        
-        if (existsSync(playlistPath)) {
-          try {
-            const content = await readFile(playlistPath, 'utf-8')
-            if (content.includes('.ts')) {
-              const waitTime = ((attempt * checkIntervalMs) / 1000).toFixed(1)
-              const ts2 = new Date().toISOString()
-              console.log(`[${ts2}] [HLS] ✅ Playlist prêt après ${waitTime}s`)
-              playlistHasSegments = true
-              break
-            }
-          } catch (error) {
-            // Fichier en cours d'écriture, on réessaie
-          }
-        }
-      }
-      
-      // Si toujours pas de segments après 60s, retourner 503
+      playlistHasSegments = await waitForPlaylistReady(playlistPath, maxWaitSeconds)
+
       if (!playlistHasSegments) {
-        const ts2 = new Date().toISOString()
         const duration = Date.now() - startTime
-        console.error(`[${ts2}] [HLS] ❌ Timeout après ${(duration / 1000).toFixed(1)}s`)
-        
+        console.error(`[${new Date().toISOString()}] [HLS] ❌ Timeout après ${(duration / 1000).toFixed(1)}s`)
         const error = ErrorHandler.createError('PROCESS_TIMEOUT', {
           filepath: filepath.split('/').pop(),
           waitedSeconds: maxWaitSeconds
         })
-        
         return NextResponse.json(
           { error: error.userMessage, code: error.code },
           { status: 503, headers: { 'Retry-After': '10' } }
@@ -469,195 +136,26 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Retourner le playlist .m3u8
+  // 7. Servir le playlist M3U8
   try {
-    let playlistContent = await readFile(playlistPath, 'utf-8')
-    
-    // Remplacer les chemins locaux par des URLs
-    // 🔧 IMPORTANT : Propager le paramètre audio aux segments pour que le player utilise la bonne piste
-    const lines = playlistContent.split('\n')
-    const modifiedLines = lines.map(line => {
-      if (line.endsWith('.ts')) {
-        const segmentName = path.basename(line)
-        return `/api/hls?path=${encodeURIComponent(filepath)}&segment=${segmentName}&audio=${audioTrack}`
-      }
-      return line
-    })
-    
-    playlistContent = modifiedLines.join('\n')
-
     const duration = Date.now() - startTime
     console.log(`[${new Date().toISOString()}] [HLS] ✅ Playlist servi (${duration}ms)`)
-
-    return new NextResponse(playlistContent, {
-      headers: {
-        'Content-Type': 'application/vnd.apple.mpegurl',
-        'Cache-Control': 'no-cache',
-      }
-    })
+    return servePlaylist(playlistPath, filepath, audioTrack)
   } catch (error) {
     ErrorHandler.log('HLS', error as Error, { 
       action: 'read playlist',
       filepath: filepath.split('/').pop()
     })
-    
     const errorResponse = createErrorResponse(error as Error)
     return NextResponse.json(errorResponse.body, { status: errorResponse.status })
   }
 }
 
-/**
- * Servir les fichiers HLS pré-transcodés (seek instantané!)
- * Format: playlist.m3u8 (master) + stream_X.m3u8 (variantes) + segments
- */
-async function servePreTranscoded(
-  originalPath: string,
-  preTranscodedDir: string,
-  segment: string | null,
-  variant: string | null,
-  timestamp: string
-): Promise<NextResponse> {
-  // 1. Si on demande un SEGMENT (stream_X_segmentY.ts)
-  if (segment) {
-    const segmentPath = path.join(preTranscodedDir, segment)
-    
-    try {
-      const segmentData = await readFile(segmentPath)
-      return new NextResponse(segmentData as unknown as BodyInit, {
-        headers: {
-          'Content-Type': 'video/mp2t',
-          'Content-Length': segmentData.length.toString(),
-          'Cache-Control': 'public, max-age=31536000',
-          'X-Pre-Transcoded': 'true',
-        }
-      })
-    } catch {
-      return NextResponse.json({ error: 'Segment non trouvé' }, { status: 404 })
-    }
-  }
-  
-  // 2. Si on demande une VARIANTE (stream_X.m3u8)
-  if (variant) {
-    // Sécurité: vérifier que c'est bien un fichier .m3u8
-    if (!variant.endsWith('.m3u8') || variant.includes('..') || variant.includes('/')) {
-      return NextResponse.json({ error: 'Variante invalide' }, { status: 400 })
-    }
-    
-    const variantPath = path.join(preTranscodedDir, variant)
-    
-    if (!existsSync(variantPath)) {
-      return NextResponse.json({ error: `Variante ${variant} non trouvée` }, { status: 404 })
-    }
-    
-    try {
-      let variantContent = await readFile(variantPath, 'utf-8')
-      
-      // Réécrire les chemins des segments
-      const lines = variantContent.split('\n')
-      const modifiedLines = lines.map(line => {
-        if (line.endsWith('.ts')) {
-          const segmentName = path.basename(line)
-          return `/api/hls?path=${encodeURIComponent(originalPath)}&segment=${segmentName}`
-        }
-        return line
-      })
-      
-      variantContent = modifiedLines.join('\n')
-      console.log(`[${timestamp}] [HLS-PRE] ✅ Variante: ${variant}`)
-      
-      return new NextResponse(variantContent, {
-        headers: {
-          'Content-Type': 'application/vnd.apple.mpegurl',
-          'Cache-Control': 'public, max-age=3600',
-          'X-Pre-Transcoded': 'true',
-        }
-      })
-    } catch {
-      return NextResponse.json({ error: 'Erreur lecture variante' }, { status: 500 })
-    }
-  }
-
-  // 3. Sinon, servir le MASTER PLAYLIST (playlist.m3u8)
-  const playlistPath = path.join(preTranscodedDir, 'playlist.m3u8')
-  
-  if (!existsSync(playlistPath)) {
-    return NextResponse.json({ error: 'Playlist non trouvé' }, { status: 404 })
-  }
-  
-  // Lire les infos audio pour les logs
-  let audioCount = 0
-  const audioInfoPath = path.join(preTranscodedDir, 'audio_info.json')
-  if (existsSync(audioInfoPath)) {
-    try {
-      const audioInfo = JSON.parse(await readFile(audioInfoPath, 'utf-8'))
-      audioCount = Array.isArray(audioInfo) ? audioInfo.length : 0
-    } catch (error) {
-      console.warn('[HLS] Erreur lecture audio_info.json:', error instanceof Error ? error.message : error)
-    }
-  }
-  
-  try {
-    let playlistContent = await readFile(playlistPath, 'utf-8')
-    
-    // Vérifier si c'est un master playlist (contient EXT-X-STREAM-INF ou EXT-X-MEDIA)
-    const isMasterPlaylist = playlistContent.includes('#EXT-X-STREAM-INF') || 
-                             playlistContent.includes('#EXT-X-MEDIA')
-    
-    if (isMasterPlaylist) {
-      // MASTER PLAYLIST: Réécrire les URLs des variantes
-      const lines = playlistContent.split('\n')
-      const modifiedLines = lines.map(line => {
-        // Références aux playlists de variantes (stream_X.m3u8)
-        if (line.endsWith('.m3u8') && !line.startsWith('#')) {
-          const variantFile = path.basename(line)
-          return `/api/hls?path=${encodeURIComponent(originalPath)}&variant=${variantFile}`
-        }
-        // URI dans EXT-X-MEDIA (audio alternates)
-        if (line.includes('URI="') && line.includes('.m3u8')) {
-          return line.replace(/URI="([^"]+\.m3u8)"/, (_, file) => {
-            const variantFile = path.basename(file)
-            return `URI="/api/hls?path=${encodeURIComponent(originalPath)}&variant=${variantFile}"`
-          })
-        }
-        return line
-      })
-      
-      playlistContent = modifiedLines.join('\n')
-      console.log(`[${timestamp}] [HLS-PRE] ✅ Master playlist (${audioCount} audio, multi-audio HLS)`)
-      
-    } else {
-      // Playlist simple: réécrire les segments
-      const lines = playlistContent.split('\n')
-      const modifiedLines = lines.map(line => {
-        if (line.endsWith('.ts')) {
-          const segmentName = path.basename(line)
-          return `/api/hls?path=${encodeURIComponent(originalPath)}&segment=${segmentName}`
-        }
-        return line
-      })
-      playlistContent = modifiedLines.join('\n')
-      console.log(`[${timestamp}] [HLS-PRE] ✅ Playlist simple (${audioCount} audio)`)
-    }
-
-    return new NextResponse(playlistContent, {
-      headers: {
-        'Content-Type': 'application/vnd.apple.mpegurl',
-        'Cache-Control': 'public, max-age=3600',
-        'X-Pre-Transcoded': 'true',
-        'X-Seek-Mode': 'instant',
-      }
-    })
-  } catch (error) {
-    console.error(`[${timestamp}] [HLS-PRE] ❌ Erreur:`, error)
-    return NextResponse.json({ error: 'Erreur playlist' }, { status: 500 })
-  }
-}
-
-// Nettoyer les anciens fichiers HLS (optionnel, à appeler périodiquement)
+// Nettoyer les anciens fichiers HLS
 export async function DELETE(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const filepath = searchParams.get('path')
-  
+
   if (!filepath) {
     return NextResponse.json({ error: 'Chemin manquant' }, { status: 400 })
   }
@@ -675,4 +173,3 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: 'Erreur nettoyage' }, { status: 500 })
   }
 }
-
