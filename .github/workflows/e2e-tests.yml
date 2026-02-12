@@ -33,26 +33,27 @@ jobs:
         working-directory: e2e
 
       - name: Create .env.test
-        working-directory: e2e
         run: |
-          cat > ../.env.test <<EOF
+          cat > .env.test <<'ENVEOF'
           TEST_USER_EMAIL=${{ secrets.TEST_USER_EMAIL }}
           TEST_USER_PASSWORD=${{ secrets.TEST_USER_PASSWORD }}
           TEST_ADMIN_EMAIL=${{ secrets.TEST_ADMIN_EMAIL }}
           TEST_ADMIN_PASSWORD=${{ secrets.TEST_ADMIN_PASSWORD }}
           TEST_MEDIA_ID=${{ secrets.TEST_MEDIA_ID }}
           TEST_SERIES_ID=${{ secrets.TEST_SERIES_ID }}
-          EOF
+          ENVEOF
+          sed -i 's/^[[:space:]]*//' .env.test
 
       - name: Create .env for Next.js
         run: |
-          cat > .env <<EOF
+          cat > .env <<'ENVEOF'
           NEXT_PUBLIC_SUPABASE_URL=${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           ADMIN_EMAILS=${{ secrets.ADMIN_EMAILS }}
           NEXT_PUBLIC_APP_URL=http://localhost:3000
-          EOF
+          ENVEOF
+          sed -i 's/^[[:space:]]*//' .env
 
       - name: Run E2E tests (sans player)
         working-directory: e2e
