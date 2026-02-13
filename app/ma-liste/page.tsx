@@ -1,5 +1,6 @@
 /**
  * Page Ma Liste - Favoris et En cours de l'utilisateur
+ * Utilise le hook partagé useContinueWatching pour la section "En cours"
  */
 
 'use client'
@@ -9,89 +10,75 @@ import Image from 'next/image'
 import Header from '@/components/Header/Header'
 import MovieModal from '@/components/MovieModal/MovieModalWithTV'
 import { useAuth } from '@/contexts/AuthContext'
+import { useContinueWatching } from '@/lib/hooks/useContinueWatching'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
 import styles from './ma-liste.module.css'
-
-interface MediaWithProgress extends GroupedMedia {
-  position?: number
-  saved_duration?: number | null
-  progress_percent?: number
-  playback_updated_at?: string
-}
 
 export default function MaListePage() {
   const { user } = useAuth()
   const [favorites, setFavorites] = useState<GroupedMedia[]>([])
-  const [inProgress, setInProgress] = useState<MediaWithProgress[]>([])
-  const [loading, setLoading] = useState(true)
+  const [favLoading, setFavLoading] = useState(true)
   const [selectedMovie, setSelectedMovie] = useState<GroupedMedia | null>(null)
   const [activeTab, setActiveTab] = useState<'favorites' | 'in-progress'>('favorites')
 
+  // Hook partagé pour les médias en cours
+  const {
+    media: inProgress,
+    loading: progressLoading,
+    refresh: refreshProgress,
+    remove: removeProgress
+  } = useContinueWatching({ userId: user?.id })
+
+  // Charger les favoris
   useEffect(() => {
     if (user?.id) {
-      loadData()
+      loadFavorites()
+      refreshProgress()
     }
-  }, [user?.id])
+  }, [user?.id, refreshProgress])
 
-  async function loadData() {
-    setLoading(true)
+  async function loadFavorites() {
+    if (!user?.id) return
+    setFavLoading(true)
     try {
-      // Charger les favoris
-      const favResponse = await fetch(`/api/favorites?type=movie&userId=${encodeURIComponent(user!.id)}`)
+      const favResponse = await fetch(`/api/favorites?type=movie&userId=${encodeURIComponent(user.id)}`)
       if (favResponse.ok) {
         const favData = await favResponse.json()
         setFavorites(favData.favorites || [])
       }
-
-      // Charger les médias en cours
-      const progressResponse = await fetch(`/api/media/in-progress?userId=${encodeURIComponent(user!.id)}`)
-      if (progressResponse.ok) {
-        const progressData = await progressResponse.json()
-        setInProgress(progressData.media || [])
-      }
     } catch (error) {
-      console.error('Erreur chargement ma liste:', error)
+      console.error('Erreur chargement favoris:', error)
     } finally {
-      setLoading(false)
+      setFavLoading(false)
     }
   }
 
   async function handleRemoveFavorite(mediaId: string, e: React.MouseEvent) {
     e.stopPropagation()
-    
+
     // Optimistic update
     setFavorites(prev => prev.filter(m => m.id !== mediaId))
-    
+
     try {
       await fetch(`/api/favorites?mediaId=${mediaId}&mediaType=movie&userId=${user?.id}`, {
         method: 'DELETE'
       })
     } catch (error) {
       console.error('Erreur suppression favori:', error)
-      loadData() // Recharger si erreur
+      loadFavorites()
     }
   }
 
   async function handleRemoveProgress(mediaId: string, e: React.MouseEvent) {
     e.stopPropagation()
-    
-    // Optimistic update
-    setInProgress(prev => prev.filter(m => m.id !== mediaId))
-    
-    try {
-      await fetch(`/api/playback-position?mediaId=${mediaId}&userId=${user?.id}`, {
-        method: 'DELETE'
-      })
-    } catch (error) {
-      console.error('Erreur suppression progression:', error)
-      loadData()
-    }
+    await removeProgress(mediaId)
   }
 
+  const loading = activeTab === 'favorites' ? favLoading : progressLoading
   const currentList = activeTab === 'favorites' ? favorites : inProgress
-  const emptyMessage = activeTab === 'favorites' 
-    ? "Vous n'avez pas encore de favoris. Cliquez sur le ❤️ d'un film pour l'ajouter."
-    : "Aucun film en cours. Commencez à regarder un film pour le voir ici."
+  const emptyMessage = activeTab === 'favorites'
+    ? "Vous n'avez pas encore de favoris. Cliquez sur le coeur d'un film pour l'ajouter."
+    : "Aucun film en cours. Commencez a regarder un film pour le voir ici."
 
   if (loading) {
     return (
@@ -113,7 +100,7 @@ export default function MaListePage() {
       <main className={styles.main}>
         <div className={styles.header}>
           <h1 className={styles.title}>Ma liste</h1>
-          
+
           {/* Onglets */}
           <div className={styles.tabs}>
             <button
@@ -152,13 +139,13 @@ export default function MaListePage() {
                 {/* Bouton supprimer */}
                 <button
                   className={styles.removeBtn}
-                  onClick={(e) => activeTab === 'favorites' 
-                    ? handleRemoveFavorite(movie.id, e) 
+                  onClick={(e) => activeTab === 'favorites'
+                    ? handleRemoveFavorite(movie.id, e)
                     : handleRemoveProgress(movie.id, e)
                   }
                   title="Retirer de la liste"
                 >
-                  ×
+                  x
                 </button>
 
                 <div className={styles.posterContainer}>
@@ -170,13 +157,13 @@ export default function MaListePage() {
                     className={styles.poster}
                     unoptimized
                   />
-                  
-                  {/* Barre de progression pour les médias en cours */}
-                  {activeTab === 'in-progress' && (movie as MediaWithProgress).progress_percent && (
+
+                  {/* Barre de progression pour les medias en cours */}
+                  {activeTab === 'in-progress' && 'progress_percent' in movie && (movie as { progress_percent?: number }).progress_percent && (
                     <div className={styles.progressBar}>
-                      <div 
-                        className={styles.progressFill} 
-                        style={{ width: `${(movie as MediaWithProgress).progress_percent}%` }}
+                      <div
+                        className={styles.progressFill}
+                        style={{ width: `${(movie as { progress_percent?: number }).progress_percent}%` }}
                       />
                     </div>
                   )}
@@ -193,9 +180,9 @@ export default function MaListePage() {
                       </>
                     )}
                   </div>
-                  {activeTab === 'in-progress' && (movie as MediaWithProgress).progress_percent && (
+                  {activeTab === 'in-progress' && 'progress_percent' in movie && (movie as { progress_percent?: number }).progress_percent && (
                     <div className={styles.cardProgress}>
-                      {(movie as MediaWithProgress).progress_percent}% regardé
+                      {(movie as { progress_percent?: number }).progress_percent}% regarde
                     </div>
                   )}
                 </div>
@@ -209,7 +196,8 @@ export default function MaListePage() {
             movie={selectedMovie}
             onClose={() => {
               setSelectedMovie(null)
-              loadData() // Rafraîchir après fermeture
+              loadFavorites()
+              refreshProgress(true)
             }}
             onPlayClick={() => {}}
           />

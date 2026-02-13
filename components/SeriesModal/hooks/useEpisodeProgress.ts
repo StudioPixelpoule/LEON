@@ -1,9 +1,11 @@
 /**
  * Hook pour gérer la progression de visionnage des épisodes
- * Charge les positions en batch et calcule le prochain épisode à regarder
+ * Charge les positions en batch (avec support > 50 épisodes)
+ * Cache local pour éviter de recharger les positions déjà connues
+ * Gestion d'erreur robuste (ne crash pas silencieusement)
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import type { Episode } from './useSeriesDetails'
 
 export interface EpisodeProgress {
@@ -20,43 +22,93 @@ interface UseEpisodeProgressResult {
   getEpisodeProgressPercent: (episodeId: string) => number
   isEpisodeCompleted: (episodeId: string) => boolean
   formatTimeRemaining: (episodeId: string, runtime?: number) => string
+  /** Vider le cache (utile après un changement de saison ou de série) */
+  clearCache: () => void
+  /** Indique si le chargement a rencontré une erreur */
+  hasError: boolean
+}
+
+const BATCH_SIZE = 50 // Limite de l'API batch
+
+/**
+ * Découpe un tableau en chunks de taille donnée
+ */
+function chunkArray<T>(array: T[], size: number): T[][] {
+  const chunks: T[][] = []
+  for (let i = 0; i < array.length; i += size) {
+    chunks.push(array.slice(i, i + size))
+  }
+  return chunks
 }
 
 /**
  * Gère la progression de visionnage des épisodes d'une série.
- * Charge les positions en batch et identifie le prochain épisode.
- * 
- * @param userId - ID de l'utilisateur connecté (optionnel)
+ * Charge les positions en batch, avec support pour > 50 épisodes.
+ * Cache local pour éviter les appels API redondants.
  */
 export function useEpisodeProgress(userId?: string): UseEpisodeProgressResult {
   const [episodeProgress, setEpisodeProgress] = useState<Map<string, EpisodeProgress>>(new Map())
   const [nextToWatch, setNextToWatch] = useState<Episode | null>(null)
+  const [hasError, setHasError] = useState(false)
 
-  // Charger la progression de visionnage en batch
+  // Cache local : stocke les progressions déjà chargées pour éviter les re-fetches
+  const cacheRef = useRef<Map<string, EpisodeProgress>>(new Map())
+  // IDs déjà chargés (même ceux sans progression)
+  const loadedIdsRef = useRef<Set<string>>(new Set())
+
+  const clearCache = useCallback(() => {
+    cacheRef.current.clear()
+    loadedIdsRef.current.clear()
+  }, [])
+
   const loadProgress = useCallback(async (episodes: Episode[]) => {
+    setHasError(false)
+
     try {
-      const progressMap = new Map<string, EpisodeProgress>()
+      const allEpisodeIds = episodes.map(ep => ep.id)
 
-      const episodeIds = episodes.map(ep => ep.id)
-
-      if (episodeIds.length === 0) {
-        setEpisodeProgress(progressMap)
+      if (allEpisodeIds.length === 0) {
+        setEpisodeProgress(new Map())
+        setNextToWatch(null)
         return
       }
 
-      // Faire un seul appel batch au lieu de N appels individuels
-      try {
-        const url = userId
-          ? `/api/playback-position/batch?mediaIds=${episodeIds.join(',')}&userId=${userId}`
-          : `/api/playback-position/batch?mediaIds=${episodeIds.join(',')}`
+      // Déterminer quels IDs doivent être chargés (pas encore en cache)
+      const idsToFetch = allEpisodeIds.filter(id => !loadedIdsRef.current.has(id))
 
-        const response = await fetch(url)
-        if (response.ok) {
-          const data = await response.json()
+      // Construire la map à partir du cache existant
+      const progressMap = new Map<string, EpisodeProgress>()
+      for (const id of allEpisodeIds) {
+        const cached = cacheRef.current.get(id)
+        if (cached) {
+          progressMap.set(id, cached)
+        }
+      }
 
-          // L'API retourne { success: true, positions: { [mediaId]: { currentTime, duration, updatedAt } } }
-          if (data.success && data.positions) {
-            for (const [mediaId, pos] of Object.entries(data.positions)) {
+      // Charger les IDs manquants en chunks de 50
+      if (idsToFetch.length > 0) {
+        const chunks = chunkArray(idsToFetch, BATCH_SIZE)
+
+        // Exécuter tous les chunks en parallèle
+        const results = await Promise.allSettled(
+          chunks.map(async (chunk) => {
+            const url = userId
+              ? `/api/playback-position/batch?mediaIds=${chunk.join(',')}&userId=${userId}`
+              : `/api/playback-position/batch?mediaIds=${chunk.join(',')}`
+
+            const response = await fetch(url)
+            if (!response.ok) {
+              throw new Error(`Erreur API batch: ${response.status}`)
+            }
+            return response.json()
+          })
+        )
+
+        let anyError = false
+
+        for (const result of results) {
+          if (result.status === 'fulfilled' && result.value?.success && result.value.positions) {
+            for (const [mediaId, pos] of Object.entries(result.value.positions)) {
               const position = pos as { currentTime: number; duration: number | null; updatedAt: string }
 
               if (position.currentTime && position.currentTime > 0) {
@@ -64,46 +116,57 @@ export function useEpisodeProgress(userId?: string): UseEpisodeProgressResult {
                 const duration = position.duration || (episode?.runtime ? episode.runtime * 60 : 45 * 60)
                 const completed = duration > 0 && position.currentTime >= duration * 0.95
 
-                progressMap.set(mediaId, {
+                const progress: EpisodeProgress = {
                   episodeId: mediaId,
                   position: position.currentTime,
                   duration,
                   completed,
-                })
+                }
+
+                progressMap.set(mediaId, progress)
+                cacheRef.current.set(mediaId, progress)
               }
             }
+          } else if (result.status === 'rejected') {
+            console.error('[EPISODE_PROGRESS] Erreur batch chunk:', result.reason)
+            anyError = true
           }
         }
-      } catch (e) {
-        console.error('[SERIES_MODAL] Erreur batch positions:', e)
+
+        // Marquer tous les IDs comme chargés (même ceux sans progression)
+        for (const id of idsToFetch) {
+          loadedIdsRef.current.add(id)
+        }
+
+        if (anyError) setHasError(true)
       }
 
       setEpisodeProgress(progressMap)
 
       // Trouver le prochain épisode à regarder
-      const allEpisodes = [...episodes].sort((a, b) => {
+      const sortedEpisodes = [...episodes].sort((a, b) => {
         if (a.season_number !== b.season_number) return a.season_number - b.season_number
         return a.episode_number - b.episode_number
       })
 
-      let found = false
-      for (const ep of allEpisodes) {
+      let foundNext = false
+      for (const ep of sortedEpisodes) {
         const progress = progressMap.get(ep.id)
         if (!progress || !progress.completed) {
           setNextToWatch(ep)
-          found = true
+          foundNext = true
           break
         }
       }
-      if (!found) {
+      if (!foundNext) {
         setNextToWatch(null)
       }
     } catch (error) {
-      console.error('[SERIES_MODAL] Erreur chargement progression:', error)
+      console.error('[EPISODE_PROGRESS] Erreur chargement progression:', error)
+      setHasError(true)
     }
   }, [userId])
 
-  // Calculer le pourcentage de progression d'un épisode
   const getEpisodeProgressPercent = useCallback((episodeId: string): number => {
     const progress = episodeProgress.get(episodeId)
     if (!progress || progress.duration === 0) return 0
@@ -111,13 +174,11 @@ export function useEpisodeProgress(userId?: string): UseEpisodeProgressResult {
     return Math.min(100, (progress.position / progress.duration) * 100)
   }, [episodeProgress])
 
-  // Vérifier si un épisode est complété
   const isEpisodeCompleted = useCallback((episodeId: string): boolean => {
     const progress = episodeProgress.get(episodeId)
     return progress?.completed || false
   }, [episodeProgress])
 
-  // Formater le temps restant
   const formatTimeRemaining = useCallback((episodeId: string, runtime?: number): string => {
     const progress = episodeProgress.get(episodeId)
     if (!progress) return runtime ? `${runtime} min` : ''
@@ -138,5 +199,7 @@ export function useEpisodeProgress(userId?: string): UseEpisodeProgressResult {
     getEpisodeProgressPercent,
     isEpisodeCompleted,
     formatTimeRemaining,
+    clearCache,
+    hasError,
   }
 }

@@ -32,6 +32,11 @@ jobs:
         run: npx playwright install --with-deps chromium
         working-directory: e2e
 
+      - name: Create required directories
+        run: |
+          sudo mkdir -p /leon/transcoded /leon/media/films /leon/media/series
+          sudo chmod -R 777 /leon
+
       - name: Create .env.test
         run: |
           cat > .env.test <<'ENVEOF'
@@ -55,14 +60,15 @@ jobs:
           ENVEOF
           sed -i 's/^[[:space:]]*//' .env
 
-      - name: Run E2E tests (sans player)
+      # Les projets 'user' (catalog, navigation) et 'player' dependent de donnees
+      # media reelles sur le NAS — on ne les lance pas en CI
+      - name: Run E2E tests (auth, api, admin)
         working-directory: e2e
         run: |
           npx playwright test \
             --project=setup \
             --project=auth \
             --project=api \
-            --project=user \
             --project=admin \
             --project=auth-logout \
             --reporter=github

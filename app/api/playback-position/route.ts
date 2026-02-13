@@ -1,9 +1,9 @@
 /**
  * API Route: Gestion des positions de lecture
- * POST - Sauvegarder la position
+ * POST - Sauvegarder la position (upsert robuste)
  * GET - Récupérer la position d'un film
- * DELETE - Supprimer la position (film terminé)
- * 
+ * DELETE - Supprimer la position (film terminé) + historique optionnel
+ *
  * Supporte le tracking multi-utilisateurs via user_id
  */
 
@@ -13,39 +13,51 @@ import { requireAuth, authErrorResponse } from '@/lib/api-auth'
 export const dynamic = 'force-dynamic'
 import { createSupabaseClient } from '@/lib/supabase'
 
-/**
- * GET - Récupérer la position sauvegardée d'un film
- */
+const COMPLETION_THRESHOLD = 0.95
+
+// ─── Validation ──────────────────────────────────────────────────────────────
+
+function validateMediaId(mediaId: string | null): mediaId is string {
+  return typeof mediaId === 'string' && mediaId.length > 0
+}
+
+function validatePosition(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
+}
+
+function validateMediaType(value: unknown): value is 'movie' | 'episode' {
+  return value === 'movie' || value === 'episode'
+}
+
+// ─── GET ─────────────────────────────────────────────────────────────────────
+
 export async function GET(request: NextRequest) {
   const { user: authUser, error: authError } = await requireAuth(request)
   if (authError || !authUser) return authErrorResponse(authError || 'Non authentifié')
-  
+
   const searchParams = request.nextUrl.searchParams
   const mediaId = searchParams.get('mediaId')
   const userId = searchParams.get('userId')
 
-  if (!mediaId) {
+  if (!validateMediaId(mediaId)) {
     return NextResponse.json({ error: 'mediaId requis' }, { status: 400 })
   }
 
   try {
     const supabase = createSupabaseClient()
-    
+
     let query = supabase
       .from('playback_positions')
       .select('position, duration, updated_at, user_id')
       .eq('media_id', mediaId)
-    
-    // Filtrer par utilisateur si fourni
+
     if (userId) {
       query = query.eq('user_id', userId)
     }
-    
+
     const { data, error } = await query.maybeSingle()
 
-    if (error) {
-      throw error
-    }
+    if (error) throw error
 
     if (!data) {
       return NextResponse.json({ currentTime: null })
@@ -67,34 +79,90 @@ export async function GET(request: NextRequest) {
   }
 }
 
+// ─── POST ────────────────────────────────────────────────────────────────────
+
 /**
- * POST - Sauvegarder ou mettre à jour la position
+ * Upsert robuste : INSERT d'abord, UPDATE si conflit.
+ * Évite la race condition du SELECT+INSERT/UPDATE séparé.
  */
+async function upsertPosition(
+  mediaId: string,
+  time: number,
+  duration: number | null,
+  mediaType: string,
+  userId: string | null
+) {
+  const supabase = createSupabaseClient()
+  const now = new Date().toISOString()
+
+  const insertData: Record<string, unknown> = {
+    media_id: mediaId,
+    media_type: mediaType,
+    position: Math.floor(time),
+    duration: duration != null && duration > 0 ? Math.floor(duration) : null,
+    updated_at: now
+  }
+  if (userId) insertData.user_id = userId
+
+  // Tenter l'INSERT
+  const { error: insertError } = await supabase
+    .from('playback_positions')
+    .insert(insertData)
+
+  // Si succès, terminé
+  if (!insertError) return { success: true }
+
+  // Si conflit (23505 = unique_violation), faire un UPDATE
+  if (insertError.code === '23505') {
+    let updateQuery = supabase
+      .from('playback_positions')
+      .update({
+        position: Math.floor(time),
+        duration: duration != null && duration > 0 ? Math.floor(duration) : null,
+        media_type: mediaType,
+        updated_at: now
+      })
+      .eq('media_id', mediaId)
+
+    if (userId) {
+      updateQuery = updateQuery.eq('user_id', userId)
+    } else {
+      updateQuery = updateQuery.is('user_id', null)
+    }
+
+    const { error: updateError } = await updateQuery
+
+    if (updateError) throw updateError
+    return { success: true }
+  }
+
+  // Autre erreur
+  throw insertError
+}
+
 export async function POST(request: NextRequest) {
   const { user: authUser, error: authError } = await requireAuth(request)
   if (authError || !authUser) return authErrorResponse(authError || 'Non authentifié')
-  
+
   try {
     const body = await request.json()
     const { mediaId, currentTime, position, duration, userId, media_type } = body
-    
+
     // Accepter soit currentTime soit position
     const time = currentTime !== undefined ? currentTime : position
-    // Type de média: 'movie' ou 'episode'
-    const mediaType = media_type || 'movie'
+    const mediaType = validateMediaType(media_type) ? media_type : 'movie'
 
-    if (!mediaId || time === undefined) {
-      return NextResponse.json(
-        { error: 'mediaId et currentTime (ou position) requis' },
-        { status: 400 }
-      )
+    if (!validateMediaId(mediaId)) {
+      return NextResponse.json({ error: 'mediaId requis' }, { status: 400 })
+    }
+    if (!validatePosition(time)) {
+      return NextResponse.json({ error: 'position invalide (nombre >= 0 requis)' }, { status: 400 })
     }
 
     const supabase = createSupabaseClient()
 
-    // Si le film/épisode est terminé (> 95%), enregistrer dans l'historique et supprimer la position
-    if (duration && time >= duration * 0.95) {
-      // Enregistrer dans l'historique
+    // Film terminé (> 95%) : historique + suppression
+    if (duration && validatePosition(duration) && time >= duration * COMPLETION_THRESHOLD) {
       if (userId) {
         await supabase
           .from('watch_history')
@@ -106,114 +174,47 @@ export async function POST(request: NextRequest) {
             completed: true
           })
       }
-      
-      // Supprimer la position de lecture
+
       let deleteQuery = supabase
         .from('playback_positions')
         .delete()
         .eq('media_id', mediaId)
-      
+
       if (userId) {
         deleteQuery = deleteQuery.eq('user_id', userId)
       }
-      
+
       await deleteQuery
-      
+
       return NextResponse.json({ success: true, action: 'completed', recorded: !!userId })
     }
 
-    // Si time est 0, supprimer l'entrée
+    // Position à 0 : suppression
     if (time === 0) {
       let deleteQuery = supabase
         .from('playback_positions')
         .delete()
         .eq('media_id', mediaId)
-      
+
       if (userId) {
         deleteQuery = deleteQuery.eq('user_id', userId)
       }
-      
-      const { error: deleteError } = await deleteQuery
-      
-      if (deleteError && deleteError.code !== 'PGRST116') {
-        throw deleteError
-      }
-      
+
+      await deleteQuery
+
       return NextResponse.json({ success: true, action: 'deleted' })
     }
 
-    // Upsert: créer ou mettre à jour
-    // Note: On utilise une approche différente pour gérer le cas sans userId
-    // car la contrainte unique est sur (media_id, user_id) avec COALESCE
-    
-    const supabaseData: Record<string, unknown> = {
-      media_id: mediaId,
-      media_type: mediaType,
-      position: time,
-      duration: duration || null,
-      updated_at: new Date().toISOString()
-    }
-    
-    // Ajouter user_id si fourni
-    if (userId) {
-      supabaseData.user_id = userId
-    }
+    // Upsert robuste (INSERT puis UPDATE si conflit)
+    await upsertPosition(
+      mediaId,
+      time,
+      duration ?? null,
+      mediaType,
+      userId ?? null
+    )
 
-    // Vérifier si une entrée existe déjà
-    let existingQuery = supabase
-      .from('playback_positions')
-      .select('id')
-      .eq('media_id', mediaId)
-    
-    if (userId) {
-      existingQuery = existingQuery.eq('user_id', userId)
-    } else {
-      existingQuery = existingQuery.is('user_id', null)
-    }
-    
-    const { data: existing } = await existingQuery.maybeSingle()
-    
-    let data, error
-    
-    if (existing) {
-      // Update
-      let updateQuery = supabase
-        .from('playback_positions')
-        .update({
-          position: time,
-          duration: duration || null,
-          media_type: mediaType,
-          updated_at: new Date().toISOString()
-        })
-        .eq('media_id', mediaId)
-      
-      if (userId) {
-        updateQuery = updateQuery.eq('user_id', userId)
-      } else {
-        updateQuery = updateQuery.is('user_id', null)
-      }
-      
-      const result = await updateQuery.select()
-      data = result.data
-      error = result.error
-    } else {
-      // Insert
-      const result = await supabase
-        .from('playback_positions')
-        .insert(supabaseData)
-        .select()
-      data = result.data
-      error = result.error
-    }
-
-    if (error) {
-      throw error
-    }
-
-    return NextResponse.json({
-      success: true,
-      data
-    })
+    return NextResponse.json({ success: true })
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue'
     console.error('[API] Erreur sauvegarde position:', error)
@@ -224,42 +225,37 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/**
- * DELETE - Supprimer la position (marquer comme terminé)
- * 🔧 userId est OBLIGATOIRE pour éviter de supprimer les positions d'autres utilisateurs
- */
+// ─── DELETE ──────────────────────────────────────────────────────────────────
+
 export async function DELETE(request: NextRequest) {
   const { user: authUser, error: authError } = await requireAuth(request)
   if (authError || !authUser) return authErrorResponse(authError || 'Non authentifié')
-  
+
   const searchParams = request.nextUrl.searchParams
   const mediaId = searchParams.get('mediaId')
   const userId = searchParams.get('userId')
   const recordHistory = searchParams.get('recordHistory') === 'true'
   const mediaType = searchParams.get('mediaType') || 'movie'
 
-  if (!mediaId) {
+  if (!validateMediaId(mediaId)) {
     return NextResponse.json({ error: 'mediaId requis' }, { status: 400 })
   }
-
-  // 🔧 FIX: Exiger userId pour éviter de supprimer les positions de tous les utilisateurs
   if (!userId) {
     return NextResponse.json({ error: 'userId requis' }, { status: 400 })
   }
 
   try {
     const supabase = createSupabaseClient()
-    
+
     // Enregistrer dans l'historique si demandé
     if (recordHistory) {
-      // Récupérer la position actuelle pour la durée regardée
       const { data: posData } = await supabase
         .from('playback_positions')
         .select('position, duration, media_type')
         .eq('media_id', mediaId)
         .eq('user_id', userId)
         .maybeSingle()
-      
+
       if (posData) {
         await supabase
           .from('watch_history')
@@ -272,17 +268,14 @@ export async function DELETE(request: NextRequest) {
           })
       }
     }
-    
-    // Supprimer la position (uniquement pour cet utilisateur)
+
     const { error, count } = await supabase
       .from('playback_positions')
       .delete()
       .eq('media_id', mediaId)
       .eq('user_id', userId)
 
-    if (error) {
-      throw error
-    }
+    if (error) throw error
 
     console.log(`[API] Position supprimée: mediaId=${mediaId}, userId=${userId}, count=${count}`)
     return NextResponse.json({ success: true, deleted: count })
