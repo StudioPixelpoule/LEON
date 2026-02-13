@@ -1,172 +1,143 @@
 /**
  * API Route: Historique complet de visionnage
  * GET /api/stats/history - Historique par utilisateur avec pagination
- * Utilise playback_positions pour les données réelles
+ *
+ * Optimisations par rapport à la version précédente :
+ *  - Une seule requête playback_positions (au lieu de deux)
+ *  - Enrichissement (films, épisodes, séries, profils) en parallèle
+ *  - Validation des paramètres d'entrée
+ *  - Protection du calcul "completed" quand duration est null
+ *  - Pagination en mémoire pour éliminer la double requête
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 import { createSupabaseAdmin } from '@/lib/supabase'
+import type { HistoryEntry, UserActivityStats, HistoryData } from '@/types/admin'
 
 export const dynamic = 'force-dynamic'
-
-interface HistoryEntry {
-  id: string
-  userId: string | null
-  userName: string
-  userEmail: string | null
-  mediaId: string
-  mediaType: 'movie' | 'episode'
-  title: string
-  posterUrl: string | null
-  year: number | null
-  watchedAt: string
-  watchDuration: number
-  progress: number
-  completed: boolean
-  // Info supplémentaire pour les épisodes
-  seriesTitle?: string
-  seasonNumber?: number
-  episodeNumber?: number
-}
-
-interface UserStats {
-  userId: string
-  userName: string
-  userEmail: string | null
-  totalWatches: number
-  totalWatchTimeMinutes: number
-  completedCount: number
-  lastActivity: string
-}
 
 export async function GET(request: NextRequest) {
   const { error: authError } = await requireAdmin(request)
   if (authError) return authErrorResponse(authError, 403)
-  
+
   try {
     const supabase = createSupabaseAdmin()
     const searchParams = request.nextUrl.searchParams
-    const page = parseInt(searchParams.get('page') || '1')
-    const limit = parseInt(searchParams.get('limit') || '50')
+
+    // Validation des paramètres
+    const rawPage = parseInt(searchParams.get('page') || '1')
+    const rawLimit = parseInt(searchParams.get('limit') || '50')
+    const rawDays = parseInt(searchParams.get('days') || '30')
     const userId = searchParams.get('userId')
-    const days = parseInt(searchParams.get('days') || '30')
-    
-    const offset = (page - 1) * limit
+
+    const page = Math.max(1, isNaN(rawPage) ? 1 : rawPage)
+    const limit = Math.min(100, Math.max(1, isNaN(rawLimit) ? 50 : rawLimit))
+    const days = Math.min(365, Math.max(1, isNaN(rawDays) ? 30 : rawDays))
+
     const cutoffDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
-    
-    // Construire la requête de base
+
+    // Une seule requête — on charge TOUTES les positions de la période
+    // puis on pagine en mémoire (la table est petite : quelques centaines max)
     let positionsQuery = supabase
       .from('playback_positions')
-      .select('*', { count: 'exact' })
+      .select('*')
       .gt('updated_at', cutoffDate)
-      .gt('position', 30) // Au moins 30 secondes regardées
+      .gt('position', 30)
       .order('updated_at', { ascending: false })
-    
+
     // Filtrer par utilisateur si spécifié
     if (userId && userId !== 'all') {
       positionsQuery = positionsQuery.eq('user_id', userId)
     }
-    
-    // Pagination
-    positionsQuery = positionsQuery.range(offset, offset + limit - 1)
-    
-    const { data: positionsData, error: positionsError, count } = await positionsQuery
+
+    const { data: allPositions, error: positionsError } = await positionsQuery
 
     if (positionsError) {
-      console.error('Erreur positions:', positionsError)
+      console.error('[STATS/HISTORY] Erreur positions:', positionsError)
       return NextResponse.json({ error: 'Erreur récupération historique' }, { status: 500 })
     }
 
-    // Séparer les films et les épisodes
-    const movieIds = positionsData?.filter(p => p.media_type === 'movie').map(p => p.media_id) || []
-    const episodeIds = positionsData?.filter(p => p.media_type === 'episode').map(p => p.media_id) || []
-    const userIds = [...new Set(positionsData?.filter(p => p.user_id).map(p => p.user_id) || [])]
+    const positions = allPositions || []
+    const total = positions.length
 
-    // Récupérer les infos des films
-    let mediaMap = new Map<string, { title: string; poster_url: string | null; year: number | null; duration: number | null }>()
-    if (movieIds.length > 0) {
-      const { data: mediaData } = await supabase
-        .from('media')
-        .select('id, title, poster_url, year, duration')
-        .in('id', movieIds)
-      
-      mediaData?.forEach(m => {
-        mediaMap.set(m.id, { 
-          title: m.title, 
-          poster_url: m.poster_url, 
-          year: m.year,
-          duration: m.duration ? m.duration * 60 : null // Convertir minutes en secondes
-        })
+    // Collecter les IDs pour l'enrichissement
+    const movieIds = [...new Set(positions.filter(p => p.media_type === 'movie').map(p => p.media_id))]
+    const episodeIds = [...new Set(positions.filter(p => p.media_type === 'episode').map(p => p.media_id))]
+    const userIds = [...new Set(positions.filter(p => p.user_id).map(p => p.user_id))]
+
+    // Enrichissement en parallèle
+    const [moviesResult, episodesResult, profilesResult] = await Promise.all([
+      movieIds.length > 0
+        ? supabase.from('media').select('id, title, poster_url, year, duration').in('id', movieIds)
+        : Promise.resolve({ data: [] as Array<{ id: string; title: string; poster_url: string | null; year: number | null; duration: number | null }> }),
+      episodeIds.length > 0
+        ? supabase.from('episodes').select('id, title, still_url, season_number, episode_number, series_id').in('id', episodeIds)
+        : Promise.resolve({ data: [] as Array<{ id: string; title: string; still_url: string | null; season_number: number; episode_number: number; series_id: string }> }),
+      userIds.length > 0
+        ? supabase.from('profiles').select('id, display_name, username').in('id', userIds)
+        : Promise.resolve({ data: [] as Array<{ id: string; display_name: string | null; username: string | null }> })
+    ])
+
+    // Construire les Maps
+    const mediaMap = new Map<string, { title: string; poster_url: string | null; year: number | null; duration: number | null }>()
+    moviesResult.data?.forEach(m => {
+      mediaMap.set(m.id, {
+        title: m.title,
+        poster_url: m.poster_url,
+        year: m.year,
+        duration: m.duration ? m.duration * 60 : null // minutes → secondes
       })
-    }
+    })
 
-    // Récupérer les infos des épisodes avec leur série
-    let episodeMap = new Map<string, { 
-      title: string; 
-      poster_url: string | null; 
-      season_number: number; 
-      episode_number: number;
-      series_id: string;
-      series_title?: string;
-      series_poster?: string;
+    const userMap = new Map<string, { name: string; email: string }>()
+    profilesResult.data?.forEach(p => {
+      userMap.set(p.id, {
+        name: p.display_name || p.username?.split('@')[0] || 'Utilisateur',
+        email: p.username || ''
+      })
+    })
+
+    // Enrichir les épisodes avec leur série
+    const episodeMap = new Map<string, {
+      title: string; poster_url: string | null
+      season_number: number; episode_number: number
+      series_title?: string; series_poster?: string
     }>()
-    
-    if (episodeIds.length > 0) {
-      const { data: episodeData } = await supabase
-        .from('episodes')
-        .select('id, title, still_url, season_number, episode_number, series_id')
-        .in('id', episodeIds)
-      
-      const seriesIds = [...new Set(episodeData?.map(e => e.series_id) || [])]
-      let seriesMap = new Map<string, { title: string; poster_url: string | null }>()
-      
+
+    if (episodesResult.data && episodesResult.data.length > 0) {
+      const seriesIds = [...new Set(episodesResult.data.map(e => e.series_id))]
+      const seriesMap = new Map<string, { title: string; poster_url: string | null }>()
+
       if (seriesIds.length > 0) {
         const { data: seriesData } = await supabase
           .from('series')
           .select('id, title, poster_url')
           .in('id', seriesIds)
-        
+
         seriesData?.forEach(s => {
           seriesMap.set(s.id, { title: s.title, poster_url: s.poster_url })
         })
       }
-      
-      episodeData?.forEach(e => {
+
+      episodesResult.data.forEach(e => {
         const series = seriesMap.get(e.series_id)
         episodeMap.set(e.id, {
           title: e.title || `Épisode ${e.episode_number}`,
           poster_url: e.still_url,
           season_number: e.season_number,
           episode_number: e.episode_number,
-          series_id: e.series_id,
           series_title: series?.title ?? undefined,
           series_poster: series?.poster_url ?? undefined
         })
       })
     }
 
-    // Récupérer les infos utilisateurs
-    let userMap = new Map<string, { name: string; email: string }>()
-    if (userIds.length > 0) {
-      const { data: profilesData } = await supabase
-        .from('profiles')
-        .select('id, display_name, username')
-        .in('id', userIds)
-      
-      profilesData?.forEach(p => {
-        userMap.set(p.id, {
-          name: p.display_name || p.username?.split('@')[0] || 'Utilisateur',
-          email: p.username || ''
-        })
-      })
-    }
-
-    // Formater l'historique
-    const history: HistoryEntry[] = (positionsData || []).map(position => {
+    // Formater TOUT l'historique (pour les stats utilisateurs)
+    const fullHistory: HistoryEntry[] = positions.map(position => {
       const isMovie = position.media_type === 'movie'
       const userInfo = position.user_id ? userMap.get(position.user_id) : null
-      
+
       let title = 'Contenu inconnu'
       let posterUrl: string | null = null
       let year: number | null = null
@@ -174,7 +145,7 @@ export async function GET(request: NextRequest) {
       let seriesTitle: string | undefined
       let seasonNumber: number | undefined
       let episodeNumber: number | undefined
-      
+
       if (isMovie) {
         const media = mediaMap.get(position.media_id)
         title = media?.title || 'Film inconnu'
@@ -187,16 +158,19 @@ export async function GET(request: NextRequest) {
           seriesTitle = episode.series_title
           seasonNumber = episode.season_number
           episodeNumber = episode.episode_number
-          title = episode.series_title 
+          title = episode.series_title
             ? `${episode.series_title} - S${episode.season_number}E${episode.episode_number}`
             : `S${episode.season_number}E${episode.episode_number}`
           posterUrl = episode.series_poster || episode.poster_url
         }
       }
-      
-      const progress = mediaDuration ? Math.round((position.position / mediaDuration) * 100) : 0
-      const completed = progress >= 90 // Considéré comme terminé si >= 90%
-      
+
+      // Protection : ne considérer "completed" que si duration est connue et > 0
+      const progress = mediaDuration && mediaDuration > 0
+        ? Math.round((position.position / mediaDuration) * 100)
+        : 0
+      const completed = mediaDuration && mediaDuration > 0 ? progress >= 90 : false
+
       return {
         id: position.id,
         userId: position.user_id,
@@ -217,32 +191,7 @@ export async function GET(request: NextRequest) {
       }
     })
 
-    // Récupérer TOUS les positions pour calculer les stats utilisateurs
-    const { data: allPositionsForStats } = await supabase
-      .from('playback_positions')
-      .select('user_id, position, duration, updated_at')
-      .gt('updated_at', cutoffDate)
-      .gt('position', 30)
-
-    // Récupérer les infos utilisateurs manquants pour les stats
-    const allUserIdsForStats = [...new Set(allPositionsForStats?.filter(p => p.user_id).map(p => p.user_id) || [])]
-    const missingUserIds = allUserIdsForStats.filter(id => !userMap.has(id))
-    
-    if (missingUserIds.length > 0) {
-      const { data: additionalProfiles } = await supabase
-        .from('profiles')
-        .select('id, display_name, username')
-        .in('id', missingUserIds)
-      
-      additionalProfiles?.forEach(p => {
-        userMap.set(p.id, {
-          name: p.display_name || p.username?.split('@')[0] || 'Utilisateur',
-          email: p.username || ''
-        })
-      })
-    }
-
-    // Calculer les stats par utilisateur
+    // Calculer les stats par utilisateur (sur TOUTES les positions)
     const userStatsMap = new Map<string, {
       totalWatches: number
       totalWatchTime: number
@@ -250,30 +199,26 @@ export async function GET(request: NextRequest) {
       lastActivity: string
     }>()
 
-    allPositionsForStats?.forEach(position => {
-      const id = position.user_id || 'anonymous'
+    fullHistory.forEach(entry => {
+      const id = entry.userId || 'anonymous'
       const existing = userStatsMap.get(id) || {
         totalWatches: 0,
         totalWatchTime: 0,
         completedCount: 0,
-        lastActivity: position.updated_at
+        lastActivity: entry.watchedAt
       }
-      
+
       existing.totalWatches++
-      existing.totalWatchTime += position.position || 0
-      
-      const progress = position.duration ? (position.position / position.duration) * 100 : 0
-      if (progress >= 90) existing.completedCount++
-      
-      if (position.updated_at > existing.lastActivity) {
-        existing.lastActivity = position.updated_at
+      existing.totalWatchTime += entry.watchDuration || 0
+      if (entry.completed) existing.completedCount++
+      if (entry.watchedAt > existing.lastActivity) {
+        existing.lastActivity = entry.watchedAt
       }
-      
+
       userStatsMap.set(id, existing)
     })
 
-    // Formater les stats utilisateurs
-    const userStats: UserStats[] = Array.from(userStatsMap.entries())
+    const userStats: UserActivityStats[] = Array.from(userStatsMap.entries())
       .map(([id, stats]) => {
         const userInfo = id !== 'anonymous' ? userMap.get(id) : null
         return {
@@ -288,6 +233,10 @@ export async function GET(request: NextRequest) {
       })
       .sort((a, b) => new Date(b.lastActivity).getTime() - new Date(a.lastActivity).getTime())
 
+    // Pagination en mémoire
+    const offset = (page - 1) * limit
+    const paginatedHistory = fullHistory.slice(offset, offset + limit)
+
     // Liste des utilisateurs pour le filtre
     const users = Array.from(userMap.entries()).map(([id, info]) => ({
       id,
@@ -295,24 +244,21 @@ export async function GET(request: NextRequest) {
       email: info.email
     }))
 
-    return NextResponse.json({
-      history,
+    const response: HistoryData = {
+      history: paginatedHistory,
       userStats,
       users,
       pagination: {
         page,
         limit,
-        total: count || 0,
-        totalPages: Math.ceil((count || 0) / limit)
-      },
-      filters: {
-        days,
-        userId: userId || 'all'
+        total,
+        totalPages: Math.ceil(total / limit)
       }
-    })
+    }
 
+    return NextResponse.json(response)
   } catch (error) {
-    console.error('Erreur stats history:', error)
+    console.error('[STATS/HISTORY] Erreur:', error)
     return NextResponse.json(
       { error: 'Erreur récupération historique' },
       { status: 500 }

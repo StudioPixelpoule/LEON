@@ -1,129 +1,62 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import Image from 'next/image'
-import { 
-  Users, 
-  RefreshCw, 
-  AlertCircle, 
-  ChevronRight, 
-  Play, 
-  Film, 
-  Clock, 
-  Trash2, 
-  Check 
+import {
+  Users,
+  RefreshCw,
+  AlertCircle,
+  ChevronRight,
+  Play,
+  Film,
+  Clock,
+  Trash2,
+  Check,
+  X
 } from 'lucide-react'
-import { useToast } from '@/components/admin/Toast/Toast'
+import { useAdminToast } from '@/components/admin/Toast/Toast'
+import { useUsers } from '@/components/admin/hooks/useUsers'
+import { formatActivityDuration, formatPosition, formatUserDate } from '@/components/admin/utils/activityFormatters'
 import styles from '@/app/admin/admin.module.css'
 
-interface UserData {
-  id: string
-  email: string
-  display_name: string | null
-  created_at: string
-  last_sign_in_at: string | null
-  email_confirmed: boolean
-  in_progress_count: number
-  completed_count: number
-  total_watch_time_minutes: number
-  in_progress_items: Array<{
-    media_id: string
-    title: string
-    poster_url: string | null
-    media_type: 'movie' | 'episode'
-    position: number
-    duration: number | null
-    progress_percent: number
-    updated_at: string
-    season_number?: number
-    episode_number?: number
-    series_title?: string
-  }>
-}
+// Debounce pour le bouton refresh
+const REFRESH_DEBOUNCE_MS = 1000
 
 export function UsersView() {
-  const [users, setUsers] = useState<UserData[]>([])
-  const [loading, setLoading] = useState(true)
-  const [expandedUser, setExpandedUser] = useState<string | null>(null)
-  const [deletingItem, setDeletingItem] = useState<string | null>(null)
-  const { addToast } = useToast()
+  const {
+    users, loading, error,
+    expandedUser, setExpandedUser,
+    deletingItem, refresh, deletePosition
+  } = useUsers()
+  const { addToast } = useAdminToast()
 
-  useEffect(() => {
-    loadUsers()
-  }, [])
+  // Confirmation inline : stocke le mediaId en attente de confirmation
+  const [confirmDelete, setConfirmDelete] = useState<{ userId: string; mediaId: string; title: string } | null>(null)
+  const lastRefreshRef = useRef(0)
 
-  async function loadUsers() {
-    try {
-      setLoading(true)
-      const response = await fetch('/api/users?includeInProgress=true')
-      const data = await response.json()
-      if (data.success) {
-        setUsers(data.users)
-      }
-    } catch (error) {
-      console.error('Erreur chargement utilisateurs:', error)
-      addToast('error', 'Erreur', 'Chargement des utilisateurs échoué')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const handleRefresh = useCallback(() => {
+    const now = Date.now()
+    if (now - lastRefreshRef.current < REFRESH_DEBOUNCE_MS) return
+    lastRefreshRef.current = now
+    refresh()
+  }, [refresh])
 
   async function handleDeletePosition(userId: string, mediaId: string, title: string) {
-    if (!confirm(`Supprimer "${title}" de la liste "En cours" de cet utilisateur ?`)) return
+    // Afficher la confirmation inline
+    setConfirmDelete({ userId, mediaId, title })
+  }
 
-    setDeletingItem(mediaId)
-    try {
-      const response = await fetch(`/api/users?userId=${userId}&mediaId=${mediaId}`, {
-        method: 'DELETE'
-      })
-      
-      if (response.ok) {
-        // Mettre à jour l'état local
-        setUsers(prev => prev.map(user => {
-          if (user.id === userId) {
-            return {
-              ...user,
-              in_progress_items: user.in_progress_items.filter(item => item.media_id !== mediaId),
-              in_progress_count: user.in_progress_count - 1
-            }
-          }
-          return user
-        }))
-        addToast('success', 'Supprimé', `"${title}" retiré de la liste`)
-      } else {
-        addToast('error', 'Erreur', 'Suppression échouée')
-      }
-    } catch (error) {
-      console.error('Erreur suppression:', error)
-      addToast('error', 'Erreur', 'Suppression échouée')
-    } finally {
-      setDeletingItem(null)
+  async function confirmDeletePosition() {
+    if (!confirmDelete) return
+    const { userId, mediaId, title } = confirmDelete
+    setConfirmDelete(null)
+
+    const success = await deletePosition(userId, mediaId, title)
+    if (success) {
+      addToast('success', 'Supprimé', `"${title}" retiré de la liste`)
+    } else {
+      addToast('error', 'Erreur', 'Suppression échouée — annulée')
     }
-  }
-
-  function formatDuration(minutes: number): string {
-    if (minutes < 60) return `${minutes}min`
-    const hours = Math.floor(minutes / 60)
-    const mins = minutes % 60
-    return mins > 0 ? `${hours}h${mins}min` : `${hours}h`
-  }
-
-  function formatPosition(seconds: number): string {
-    const mins = Math.floor(seconds / 60)
-    const secs = Math.floor(seconds % 60)
-    return `${mins}:${secs.toString().padStart(2, '0')}`
-  }
-
-  function formatDate(dateStr: string): string {
-    const date = new Date(dateStr)
-    const now = new Date()
-    const diff = now.getTime() - date.getTime()
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-    
-    if (days === 0) return "Aujourd'hui"
-    if (days === 1) return "Hier"
-    if (days < 7) return `Il y a ${days} jours`
-    return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
   }
 
   if (loading) {
@@ -146,12 +79,75 @@ export function UsersView() {
       <div className={styles.sectionHeader}>
         <div className={styles.sectionIcon}><Users size={20} /></div>
         <h2 className={styles.sectionTitle}>Utilisateurs ({users.length})</h2>
-        <button onClick={loadUsers} className={styles.refreshBtn}>
+        <button onClick={handleRefresh} className={styles.refreshBtn}>
           <RefreshCw size={16} />
         </button>
       </div>
 
-      {users.length === 0 ? (
+      {/* Message d'erreur */}
+      {error && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '12px 16px', marginBottom: 16,
+          background: 'rgba(239, 68, 68, 0.1)',
+          border: '1px solid rgba(239, 68, 68, 0.3)',
+          borderRadius: 8, color: '#ef4444', fontSize: 14
+        }}>
+          <AlertCircle size={16} />
+          <span>Erreur : {error}</span>
+          <button
+            onClick={handleRefresh}
+            style={{
+              marginLeft: 'auto', background: 'none', border: 'none',
+              color: '#ef4444', cursor: 'pointer', textDecoration: 'underline'
+            }}
+          >
+            Réessayer
+          </button>
+        </div>
+      )}
+
+      {/* Confirmation inline */}
+      {confirmDelete && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12,
+          padding: '12px 16px', marginBottom: 16,
+          background: 'rgba(245, 158, 11, 0.1)',
+          border: '1px solid rgba(245, 158, 11, 0.3)',
+          borderRadius: 8, fontSize: 14
+        }}>
+          <AlertCircle size={16} style={{ color: '#f59e0b', flexShrink: 0 }} />
+          <span style={{ color: 'rgba(255,255,255,0.9)' }}>
+            Supprimer &quot;{confirmDelete.title}&quot; de la liste &quot;En cours&quot; ?
+          </span>
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+            <button
+              onClick={confirmDeletePosition}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                padding: '6px 12px', background: 'rgba(239, 68, 68, 0.2)',
+                border: '1px solid rgba(239, 68, 68, 0.4)', borderRadius: 6,
+                color: '#ef4444', cursor: 'pointer', fontSize: 13
+              }}
+            >
+              <Trash2 size={14} /> Supprimer
+            </button>
+            <button
+              onClick={() => setConfirmDelete(null)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 4,
+                padding: '6px 12px', background: 'rgba(255,255,255,0.05)',
+                border: '1px solid rgba(255,255,255,0.1)', borderRadius: 6,
+                color: 'rgba(255,255,255,0.7)', cursor: 'pointer', fontSize: 13
+              }}
+            >
+              <X size={14} /> Annuler
+            </button>
+          </div>
+        </div>
+      )}
+
+      {users.length === 0 && !error ? (
         <div className={styles.emptyState}>
           <Users size={48} />
           <p>Aucun utilisateur inscrit</p>
@@ -161,7 +157,7 @@ export function UsersView() {
           {users.map(user => (
             <div key={user.id} className={styles.userCard}>
               {/* Header utilisateur */}
-              <div 
+              <div
                 className={styles.userHeader}
                 onClick={() => setExpandedUser(expandedUser === user.id ? null : user.id)}
               >
@@ -189,7 +185,7 @@ export function UsersView() {
                     {user.total_watch_time_minutes > 0 && (
                       <>
                         <span>•</span>
-                        <span>{formatDuration(user.total_watch_time_minutes)} regardé</span>
+                        <span>{formatActivityDuration(user.total_watch_time_minutes)} regardé</span>
                       </>
                     )}
                   </div>
@@ -197,11 +193,11 @@ export function UsersView() {
                 <div className={styles.userLastActivity}>
                   {user.last_sign_in_at && (
                     <span className={styles.lastActivityBadge}>
-                      Dernière connexion: {formatDate(user.last_sign_in_at)}
+                      Dernière connexion: {formatUserDate(user.last_sign_in_at)}
                     </span>
                   )}
-                  <ChevronRight 
-                    size={20} 
+                  <ChevronRight
+                    size={20}
                     className={`${styles.chevron} ${expandedUser === user.id ? styles.expanded : ''}`}
                   />
                 </div>
@@ -219,10 +215,10 @@ export function UsersView() {
                       <div key={item.media_id} className={styles.inProgressItem}>
                         <div className={styles.inProgressPoster}>
                           {item.poster_url ? (
-                            <Image 
-                              src={item.poster_url} 
-                              alt={item.title} 
-                              width={60} 
+                            <Image
+                              src={item.poster_url}
+                              alt={item.title}
+                              width={60}
                               height={90}
                               style={{ objectFit: 'cover', borderRadius: 4 }}
                               unoptimized
@@ -232,15 +228,15 @@ export function UsersView() {
                               <Film size={20} />
                             </div>
                           )}
-                          <div 
+                          <div
                             className={styles.progressOverlay}
                             style={{ height: `${100 - item.progress_percent}%` }}
                           />
                         </div>
                         <div className={styles.inProgressInfo}>
                           <div className={styles.inProgressTitle2}>
-                            {item.media_type === 'episode' && item.series_title 
-                              ? item.series_title 
+                            {item.media_type === 'episode' && item.series_title
+                              ? item.series_title
                               : item.title}
                           </div>
                           {item.media_type === 'episode' && (
@@ -250,7 +246,7 @@ export function UsersView() {
                           )}
                           <div className={styles.progressInfo}>
                             <div className={styles.progressBar2}>
-                              <div 
+                              <div
                                 className={styles.progressFill2}
                                 style={{ width: `${item.progress_percent}%` }}
                               />
@@ -262,7 +258,7 @@ export function UsersView() {
                           </div>
                           <div className={styles.lastWatched}>
                             <Clock size={12} />
-                            {formatDate(item.updated_at)}
+                            {formatUserDate(item.updated_at)}
                           </div>
                         </div>
                         <button

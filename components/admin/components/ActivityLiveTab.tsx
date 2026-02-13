@@ -2,7 +2,7 @@ import Image from 'next/image'
 import { Activity, Users, Eye, Clock, Film } from 'lucide-react'
 import styles from '@/app/admin/admin.module.css'
 import { formatRelativeTime } from '@/components/admin/utils/activityFormatters'
-import type { ActiveSession } from '@/components/admin/hooks/useActivityLive'
+import type { ActiveSession, ActivityStats } from '@/types/admin'
 
 // ============================================
 // TYPES
@@ -11,7 +11,7 @@ import type { ActiveSession } from '@/components/admin/hooks/useActivityLive'
 interface ActivityLiveTabProps {
   activeSessions: ActiveSession[]
   recentSessions: ActiveSession[]
-  stats: { totalWatches: number; uniqueViewers: number; totalWatchTimeMinutes: number } | undefined
+  stats: ActivityStats | undefined
 }
 
 // ============================================

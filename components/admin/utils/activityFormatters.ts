@@ -49,3 +49,37 @@ export function formatWatchDate(iso: string): { date: string; time: string } {
   const time = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
   return { date, time }
 }
+
+/**
+ * Formate une position en secondes vers un format mm:ss.
+ * @param seconds - Position en secondes
+ * @returns Position formatée (ex: "12:45", "1:03:22")
+ */
+export function formatPosition(seconds: number): string {
+  const totalSecs = Math.floor(seconds)
+  const hours = Math.floor(totalSecs / 3600)
+  const mins = Math.floor((totalSecs % 3600) / 60)
+  const secs = totalSecs % 60
+
+  if (hours > 0) {
+    return `${hours}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+  }
+  return `${mins}:${secs.toString().padStart(2, '0')}`
+}
+
+/**
+ * Formate une date ISO en texte relatif pour l'interface utilisateurs.
+ * @param dateStr - Date au format ISO 8601
+ * @returns Texte relatif (ex: "Aujourd'hui", "Hier", "Il y a 3 jours", "12 janv.")
+ */
+export function formatUserDate(dateStr: string): string {
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diff = now.getTime() - date.getTime()
+  const days = Math.floor(diff / (1000 * 60 * 60 * 24))
+
+  if (days === 0) return "Aujourd'hui"
+  if (days === 1) return 'Hier'
+  if (days < 7) return `Il y a ${days} jours`
+  return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
+}

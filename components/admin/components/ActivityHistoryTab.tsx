@@ -3,7 +3,7 @@ import Image from 'next/image'
 import { RefreshCw, Clock, Film, Filter } from 'lucide-react'
 import styles from '@/app/admin/admin.module.css'
 import { formatActivityDuration, formatWatchDate } from '@/components/admin/utils/activityFormatters'
-import type { HistoryData } from '@/components/admin/hooks/useActivityHistory'
+import type { HistoryData } from '@/types/admin'
 
 // ============================================
 // TYPES

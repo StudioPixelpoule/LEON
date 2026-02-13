@@ -1,40 +1,21 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import type { ActiveSession, ActivityLiveData } from '@/types/admin'
 
 // ============================================
 // TYPES
 // ============================================
-
-export interface ActiveSession {
-  id: string
-  userId: string | null
-  userName: string
-  userEmail: string | null
-  title: string
-  posterUrl: string | null
-  year: number | null
-  progress: number
-  updatedAt: string
-  isActive: boolean
-}
-
-interface ActivityStats {
-  totalWatches: number
-  uniqueViewers: number
-  totalWatchTimeMinutes: number
-}
-
-export interface ActivityLiveData {
-  activeSessions: ActiveSession[]
-  stats: ActivityStats
-}
 
 interface UseActivityLiveReturn {
   liveData: ActivityLiveData | null
   activeSessions: ActiveSession[]
   recentSessions: ActiveSession[]
   loading: boolean
+  error: string | null
   refresh: () => Promise<void>
 }
+
+// Intervalle de polling en millisecondes
+const POLL_INTERVAL_MS = 10_000
 
 // ============================================
 // HOOK
@@ -42,32 +23,83 @@ interface UseActivityLiveReturn {
 
 /**
  * Hook pour les données d'activité en temps réel.
- * Charge les sessions actives et rafraîchit toutes les 10 secondes.
+ * - Visibility-aware : ne poll pas quand l'onglet est caché
+ * - Protection concurrence : empêche les requêtes simultanées
+ * - Vérification response.ok
+ * - État error exposé
  */
 export function useActivityLive(): UseActivityLiveReturn {
   const [liveData, setLiveData] = useState<ActivityLiveData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const fetchingRef = useRef(false)
 
   const loadLiveData = useCallback(async () => {
+    // Protection concurrence : si un fetch est déjà en cours, on skip
+    if (fetchingRef.current) return
+    fetchingRef.current = true
+
     try {
       const response = await fetch('/api/stats/watching')
-      const result = await response.json()
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`)
+      }
+      const result: ActivityLiveData = await response.json()
       setLiveData(result)
-    } catch (error) {
-      console.error('[ACTIVITY] Erreur chargement live:', error)
+      setError(null)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erreur inconnue'
+      console.error('[ACTIVITY] Erreur chargement live:', message)
+      setError(message)
+    } finally {
+      fetchingRef.current = false
     }
   }, [])
 
   useEffect(() => {
+    // Chargement initial
     loadLiveData().finally(() => setLoading(false))
 
-    // Rafraîchir les données live toutes les 10 secondes
-    const interval = setInterval(loadLiveData, 10000)
-    return () => clearInterval(interval)
+    // Visibility-aware polling
+    let timer: ReturnType<typeof setTimeout> | null = null
+
+    const schedule = () => {
+      timer = setTimeout(() => {
+        if (document.visibilityState === 'visible') {
+          loadLiveData()
+        }
+        schedule()
+      }, POLL_INTERVAL_MS)
+    }
+
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        // Rafraîchir immédiatement au retour sur l'onglet
+        loadLiveData()
+        // Relancer le timer
+        if (timer) clearTimeout(timer)
+        schedule()
+      } else {
+        // Arrêter le timer quand l'onglet est caché
+        if (timer) {
+          clearTimeout(timer)
+          timer = null
+        }
+      }
+    }
+
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    schedule()
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      if (timer) clearTimeout(timer)
+    }
   }, [loadLiveData])
 
-  const activeSessions = liveData?.activeSessions.filter(s => s.isActive) || []
-  const recentSessions = liveData?.activeSessions.filter(s => !s.isActive) || []
+  // Les sessions actives et récentes sont déjà séparées par l'API
+  const activeSessions = liveData?.activeSessions || []
+  const recentSessions = liveData?.recentHistory || []
 
-  return { liveData, activeSessions, recentSessions, loading, refresh: loadLiveData }
+  return { liveData, activeSessions, recentSessions, loading, error, refresh: loadLiveData }
 }

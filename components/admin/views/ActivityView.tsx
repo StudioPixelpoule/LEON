@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
-import { 
-  RefreshCw, 
-  Activity, 
-  Users, 
-  Clock, 
-  Eye 
+import { useState, useRef, useCallback } from 'react'
+import {
+  RefreshCw,
+  Activity,
+  Users,
+  Clock,
+  Eye,
+  AlertCircle
 } from 'lucide-react'
 import styles from '@/app/admin/admin.module.css'
 import { useActivityLive } from '@/components/admin/hooks/useActivityLive'
@@ -21,34 +22,41 @@ import { formatRelativeTime, formatActivityDuration } from '@/components/admin/u
 
 type ActivityTab = 'live' | 'users' | 'history'
 
+// Debounce pour le bouton refresh (éviter double-clic)
+const REFRESH_DEBOUNCE_MS = 1000
+
 // ============================================
 // COMPONENT
 // ============================================
 
 export function ActivityView() {
   const [activeTab, setActiveTab] = useState<ActivityTab>('live')
+  const lastRefreshRef = useRef(0)
 
   const {
     liveData, activeSessions, recentSessions,
-    loading: liveLoading, refresh: refreshLive
+    loading: liveLoading, error: liveError, refresh: refreshLive
   } = useActivityLive()
 
   const {
     historyData, loading: historyInitialLoading, historyLoading,
+    error: historyError,
     selectedUser, setSelectedUser, selectedDays, setSelectedDays,
     currentPage, setCurrentPage, refresh: refreshHistory
   } = useActivityHistory()
 
-  if (liveLoading || historyInitialLoading) {
-    return (
-      <div className={styles.section}>
-        <div className={styles.loading}>
-          <RefreshCw size={32} className={styles.spin} />
-          <p className={styles.loadingText}>Chargement...</p>
-        </div>
-      </div>
-    )
-  }
+  // Refresh avec debounce
+  const handleRefresh = useCallback(() => {
+    const now = Date.now()
+    if (now - lastRefreshRef.current < REFRESH_DEBOUNCE_MS) return
+    lastRefreshRef.current = now
+
+    refreshLive()
+    if (activeTab !== 'live') refreshHistory()
+  }, [refreshLive, refreshHistory, activeTab])
+
+  // Erreur globale (combinaison des erreurs des deux hooks)
+  const globalError = liveError || historyError
 
   return (
     <div className={styles.section}>
@@ -57,14 +65,37 @@ export function ActivityView() {
           <h1 className={styles.sectionTitle}>Activité</h1>
           <p className={styles.sectionDesc}>Suivi en temps réel et historique des visionnages</p>
         </div>
-        <button className={styles.btnIcon} onClick={() => { refreshLive(); if (activeTab !== 'live') refreshHistory() }}>
+        <button className={styles.btnIcon} onClick={handleRefresh}>
           <RefreshCw size={18} />
         </button>
       </div>
 
+      {/* Message d'erreur global */}
+      {globalError && (
+        <div className={styles.errorBanner} style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          padding: '12px 16px', marginBottom: 16,
+          background: 'rgba(239, 68, 68, 0.1)',
+          border: '1px solid rgba(239, 68, 68, 0.3)',
+          borderRadius: 8, color: '#ef4444', fontSize: 14
+        }}>
+          <AlertCircle size={16} />
+          <span>Erreur de chargement : {globalError}</span>
+          <button
+            onClick={handleRefresh}
+            style={{
+              marginLeft: 'auto', background: 'none', border: 'none',
+              color: '#ef4444', cursor: 'pointer', textDecoration: 'underline'
+            }}
+          >
+            Réessayer
+          </button>
+        </div>
+      )}
+
       {/* Onglets */}
       <div className={styles.tabs}>
-        <button 
+        <button
           onClick={() => setActiveTab('live')}
           className={`${styles.tab} ${activeTab === 'live' ? styles.tabActive : ''}`}
         >
@@ -74,14 +105,14 @@ export function ActivityView() {
             <span className={styles.tabBadge}>{activeSessions.length}</span>
           )}
         </button>
-        <button 
+        <button
           onClick={() => setActiveTab('users')}
           className={`${styles.tab} ${activeTab === 'users' ? styles.tabActiveBlue : ''}`}
         >
           <Users size={16} />
           Utilisateurs
         </button>
-        <button 
+        <button
           onClick={() => setActiveTab('history')}
           className={`${styles.tab} ${activeTab === 'history' ? styles.tabActivePurple : ''}`}
         >
@@ -90,19 +121,33 @@ export function ActivityView() {
         </button>
       </div>
 
-      {/* Onglet En direct */}
+      {/* Onglet En direct — chargement indépendant */}
       {activeTab === 'live' && (
-        <ActivityLiveTab
-          activeSessions={activeSessions}
-          recentSessions={recentSessions}
-          stats={liveData?.stats}
-        />
+        <>
+          {liveLoading ? (
+            <div className={styles.loading} style={{ padding: 60 }}>
+              <RefreshCw size={24} className={styles.spin} />
+              <p className={styles.loadingText}>Chargement en direct...</p>
+            </div>
+          ) : (
+            <ActivityLiveTab
+              activeSessions={activeSessions}
+              recentSessions={recentSessions}
+              stats={liveData?.stats}
+            />
+          )}
+        </>
       )}
 
-      {/* Onglet Utilisateurs */}
+      {/* Onglet Utilisateurs — chargement indépendant */}
       {activeTab === 'users' && (
         <>
-          {historyLoading ? (
+          {historyInitialLoading ? (
+            <div className={styles.loading} style={{ padding: 60 }}>
+              <RefreshCw size={24} className={styles.spin} />
+              <p className={styles.loadingText}>Chargement des statistiques...</p>
+            </div>
+          ) : historyLoading ? (
             <div className={styles.loading} style={{ padding: 60 }}>
               <RefreshCw size={24} className={styles.spin} />
               <p className={styles.loadingText}>Chargement des statistiques...</p>
@@ -148,7 +193,7 @@ export function ActivityView() {
                   <div className={styles.list}>
                     {historyData.userStats.map((user, index) => (
                       <div key={user.userId} className={styles.userCard}>
-                        <div 
+                        <div
                           className={styles.userAvatar}
                           style={{ background: `hsl(${(index * 60) % 360}, 70%, 50%)` }}
                         >
