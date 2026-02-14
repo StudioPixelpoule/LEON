@@ -73,7 +73,7 @@ export async function GET(request: Request) {
           const s = ep.season_number
           if (!seasonMap[s]) seasonMap[s] = { transcoded: 0, total: 0 }
           seasonMap[s].total++
-          if (ep.is_transcoded === true || ep.is_transcoded === null) {
+          if (ep.is_transcoded === true) {
             seasonMap[s].transcoded++
           }
         })

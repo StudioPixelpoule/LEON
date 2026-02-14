@@ -6,7 +6,7 @@
  */
 
 import path from 'path'
-import { TMDB_API_KEY, TMDB_BASE_URL } from './types'
+import { TMDB_API_KEY, TMDB_BASE_URL, SERIES_DIR } from './types'
 import { cleanEpisodeTitle } from './filename-parser'
 import type { TmdbEpisodeMetadata } from './types'
 
@@ -65,22 +65,21 @@ export async function importSeriesEpisode(
     const seasonNumber = parseInt(episodeMatch[1])
     const episodeNumber = parseInt(episodeMatch[2])
 
-    // Trouver le dossier de la série (parent ou grand-parent)
-    // Structure possible: /series/NomSerie/Season X/fichier.mkv
-    // ou: /series/NomSerie/fichier.mkv
+    // Trouver le dossier racine de la série.
+    // Approche structurelle : remonter jusqu'au premier enfant de SERIES_DIR.
+    // Fonctionne quelle que soit la structure de dossiers :
+    //   /series/NomSerie/Season 1/fichier.mkv → NomSerie
+    //   /series/NomSerie/NomSerie - Season 1/fichier.mkv → NomSerie
+    //   /series/NomSerie/fichier.mkv → NomSerie
+    const normalizedSeriesDir = path.resolve(SERIES_DIR)
     let seriesPath = path.dirname(filepath)
     let seriesName = path.basename(seriesPath)
 
-    // Si on est dans un dossier de saison, remonter d'un niveau
-    const seasonPatterns = [
-      /^Season\s*\d+$/i,
-      /^Saison\s*\d+$/i,
-      /^S\d{1,2}$/i,
-      /\sS\d{1,2}$/i,
-      /^Specials?$/i,
-    ]
-
-    if (seasonPatterns.some(pattern => pattern.test(seriesName))) {
+    // Remonter tant qu'on n'est pas un enfant direct de SERIES_DIR
+    while (
+      path.resolve(path.dirname(seriesPath)) !== normalizedSeriesDir &&
+      path.resolve(seriesPath) !== normalizedSeriesDir
+    ) {
       seriesPath = path.dirname(seriesPath)
       seriesName = path.basename(seriesPath)
     }

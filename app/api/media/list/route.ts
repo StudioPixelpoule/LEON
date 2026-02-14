@@ -33,7 +33,7 @@ export async function GET(request: Request) {
     
     // Par défaut, ne montrer que les médias transcodés (sauf si includeAll pour l'admin)
     if (!includeAll && filter !== 'pending') {
-      query = query.or('is_transcoded.eq.true,is_transcoded.is.null')
+      query = query.eq('is_transcoded', true)
     }
     
     const { data, error } = await query

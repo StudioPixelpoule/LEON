@@ -56,6 +56,116 @@ export async function checkSeriesNeedingEnrichment(): Promise<void> {
 }
 
 /**
+ * Nettoyer les séries fantômes (doublons créés par erreur de parsing).
+ * Une série fantôme a un `local_folder_path` qui n'est pas un enfant direct de SERIES_DIR.
+ * Pour chaque fantôme : transfert des épisodes vers la série parente, puis suppression.
+ */
+export async function cleanupDuplicateSeries(): Promise<void> {
+  try {
+    const { supabase } = await import('../supabase')
+
+    // Récupérer toutes les séries avec leur chemin local
+    const { data: allSeries, error } = await supabase
+      .from('series')
+      .select('id, title, local_folder_path')
+
+    if (error || !allSeries) {
+      console.error('[WATCHER] Erreur récupération séries pour nettoyage:', error?.message)
+      return
+    }
+
+    // Identifier les séries fantômes : celles dont le parent du local_folder_path n'est PAS SERIES_DIR
+    const normalizedSeriesDir = path.resolve(SERIES_DIR)
+    const ghostSeries = allSeries.filter(s => {
+      if (!s.local_folder_path) return false
+      const parentDir = path.resolve(path.dirname(s.local_folder_path))
+      return parentDir !== normalizedSeriesDir
+    })
+
+    if (ghostSeries.length === 0) {
+      return
+    }
+
+    console.log(`[WATCHER] Nettoyage: ${ghostSeries.length} série(s) fantôme(s) détectée(s)`)
+
+    let cleaned = 0
+    for (const ghost of ghostSeries) {
+      try {
+        // Trouver la série parente (premier enfant de SERIES_DIR dans l'arborescence)
+        let parentPath = path.resolve(ghost.local_folder_path)
+        while (
+          path.resolve(path.dirname(parentPath)) !== normalizedSeriesDir &&
+          path.resolve(parentPath) !== normalizedSeriesDir
+        ) {
+          parentPath = path.dirname(parentPath)
+        }
+
+        // Chercher la série parente en BDD
+        const { data: parentSeries } = await supabase
+          .from('series')
+          .select('id, title')
+          .eq('local_folder_path', parentPath)
+          .single()
+
+        if (parentSeries) {
+          // Transférer les épisodes de la série fantôme vers la série parente
+          const { data: ghostEpisodes } = await supabase
+            .from('episodes')
+            .select('id, season_number, episode_number')
+            .eq('series_id', ghost.id)
+
+          if (ghostEpisodes && ghostEpisodes.length > 0) {
+            // Vérifier les doublons avant de transférer
+            for (const ep of ghostEpisodes) {
+              const { data: existing } = await supabase
+                .from('episodes')
+                .select('id')
+                .eq('series_id', parentSeries.id)
+                .eq('season_number', ep.season_number)
+                .eq('episode_number', ep.episode_number)
+                .single()
+
+              if (existing) {
+                // L'épisode existe déjà chez le parent — supprimer le doublon fantôme
+                await supabase.from('episodes').delete().eq('id', ep.id)
+              } else {
+                // Transférer vers la série parente
+                await supabase
+                  .from('episodes')
+                  .update({ series_id: parentSeries.id })
+                  .eq('id', ep.id)
+              }
+            }
+            console.log(`[WATCHER] Nettoyage: ${ghostEpisodes.length} épisode(s) transféré(s) de "${ghost.title}" → "${parentSeries.title}"`)
+          }
+        }
+
+        // Supprimer la série fantôme (ses épisodes ont été transférés ou n'existent plus)
+        const { error: deleteError } = await supabase
+          .from('series')
+          .delete()
+          .eq('id', ghost.id)
+
+        if (deleteError) {
+          console.error(`[WATCHER] Erreur suppression série fantôme "${ghost.title}":`, deleteError.message)
+        } else {
+          console.log(`[WATCHER] Nettoyage: série fantôme supprimée "${ghost.title}" (path: ${ghost.local_folder_path})`)
+          cleaned++
+        }
+      } catch (ghostError) {
+        console.error(`[WATCHER] Erreur nettoyage série "${ghost.title}":`, ghostError)
+      }
+    }
+
+    if (cleaned > 0) {
+      console.log(`[WATCHER] Nettoyage terminé: ${cleaned}/${ghostSeries.length} série(s) fantôme(s) supprimée(s)`)
+    }
+  } catch (error) {
+    console.error('[WATCHER] Erreur cleanupDuplicateSeries:', error)
+  }
+}
+
+/**
  * Vérifier si des fichiers connus manquent en base de données
  * et les ajouter automatiquement (version optimisée).
  * 

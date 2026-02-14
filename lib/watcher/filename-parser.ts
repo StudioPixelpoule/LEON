@@ -4,6 +4,7 @@
  */
 
 import path from 'path'
+import { SERIES_DIR } from './types'
 
 /**
  * Extraire le titre d'un film depuis le nom de fichier.
@@ -77,11 +78,13 @@ export function extractEpisodeInfo(filepath: string): { seriesName: string; seas
 
   if (!episode) return null
 
-  // Extraire le nom de la série depuis le dossier parent
+  // Extraire le nom de la série depuis le dossier parent.
+  // Approche structurelle : remonter jusqu'au premier enfant de SERIES_DIR.
+  const normalizedSeriesDir = path.resolve(SERIES_DIR)
   let seriesPath = path.dirname(filepath)
   let folderName = path.basename(seriesPath)
 
-  // Si dans un dossier de saison, extraire le numéro ET remonter
+  // Si dans un dossier de saison, extraire le numéro de saison avant de remonter
   const seasonPatterns = [
     /^Season\s*(\d+)$/i,
     /^Saison\s*(\d+)$/i,
@@ -91,17 +94,23 @@ export function extractEpisodeInfo(filepath: string): { seriesName: string; seas
     /^Specials?$/i        // Saison 0 pour les spéciaux
   ]
 
-  for (const pattern of seasonPatterns) {
-    const match = folderName.match(pattern)
-    if (match) {
-      // Si on n'a pas encore de saison, la prendre du dossier
-      if (season === null) {
-        season = /Specials?/i.test(folderName) ? 0 : parseInt(match[1])
+  // Extraire la saison depuis les dossiers intermédiaires en remontant
+  while (
+    path.resolve(path.dirname(seriesPath)) !== normalizedSeriesDir &&
+    path.resolve(seriesPath) !== normalizedSeriesDir
+  ) {
+    // Tenter d'extraire un numéro de saison du dossier courant
+    if (season === null) {
+      for (const pattern of seasonPatterns) {
+        const match = folderName.match(pattern)
+        if (match) {
+          season = /Specials?/i.test(folderName) ? 0 : parseInt(match[1])
+          break
+        }
       }
-      seriesPath = path.dirname(seriesPath)
-      folderName = path.basename(seriesPath)
-      break
     }
+    seriesPath = path.dirname(seriesPath)
+    folderName = path.basename(seriesPath)
   }
 
   // Default saison 1 si toujours pas trouvé

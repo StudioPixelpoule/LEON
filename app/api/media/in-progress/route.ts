@@ -89,7 +89,7 @@ export async function GET(request: NextRequest) {
           .from('media')
           .select('*')
           .in('id', movieIds)
-          .or('is_transcoded.eq.true,is_transcoded.is.null')
+          .eq('is_transcoded', true)
 
         if (!mediaError && movies) {
           for (const m of movies) {
@@ -130,7 +130,7 @@ export async function GET(request: NextRequest) {
             )
           `)
           .in('id', episodeIds)
-          .or('is_transcoded.eq.true,is_transcoded.is.null')
+          .eq('is_transcoded', true)
 
         if (!epError && episodes) {
           for (const ep of episodes) {

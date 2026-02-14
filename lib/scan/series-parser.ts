@@ -9,11 +9,13 @@ import type { Episode } from './types'
 import { VIDEO_EXTENSIONS } from './types'
 
 /**
- * Extraire le numéro de saison d'un nom de dossier
- * Supporte : "Season 1", "Saison 1", "S01", "Livre 3", "Specials"
+ * Extraire le numéro de saison d'un nom de dossier.
+ * Supporte les formats exacts ("Season 1") et les formats composés
+ * ("Rick and Morty - Season 1", "Show Name Saison 3").
  */
 export function extractSeasonFromFolder(folderName: string): number | null {
-  const patterns = [
+  // Patterns stricts (nom de dossier = uniquement la saison)
+  const strictPatterns = [
     /^Season\s*(\d+)$/i,
     /^Saison\s*(\d+)$/i,
     /^S(\d{1,2})$/i,
@@ -21,12 +23,24 @@ export function extractSeasonFromFolder(folderName: string): number | null {
     /^Livre\s*(\d+)/i,  // Pour Kaamelott
   ]
 
-  for (const pattern of patterns) {
+  for (const pattern of strictPatterns) {
     const match = folderName.match(pattern)
     if (match) return parseInt(match[1])
   }
 
   if (/^Specials?$/i.test(folderName)) return 0
+
+  // Patterns souples (nom de dossier contient "Season X" ou "Saison X")
+  // Ex: "Rick and Morty - Season 1", "Show Name Saison 3"
+  const loosePatterns = [
+    /Season\s*(\d+)/i,
+    /Saison\s*(\d+)/i,
+  ]
+
+  for (const pattern of loosePatterns) {
+    const match = folderName.match(pattern)
+    if (match) return parseInt(match[1])
+  }
 
   return null
 }

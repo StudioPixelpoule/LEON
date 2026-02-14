@@ -24,7 +24,7 @@ import { loadKnownFiles, saveKnownFiles } from './watcher-state'
 import { scanDirectory, watchDirectoryRecursive, isValidFileEvent, findNewFiles } from './file-monitor'
 import { importMovieToDatabase, forceMarkAsTranscoded } from './movie-importer'
 import { importSeriesEpisode } from './episode-importer'
-import { checkMissingInDatabase, checkSeriesNeedingEnrichment, triggerEnrichmentScan } from './db-consistency'
+import { checkMissingInDatabase, checkSeriesNeedingEnrichment, cleanupDuplicateSeries, triggerEnrichmentScan } from './db-consistency'
 
 export class FileWatcher {
   private watchers: FSWatcher[] = []
@@ -77,6 +77,13 @@ export class FileWatcher {
 
       this.isWatching = true
       console.log(`[WATCHER] Démarré: ${this.watchedDirs.size} dossiers surveillés, ${this.knownFiles.size} fichiers connus`)
+
+      // Nettoyage des séries fantômes au démarrage (10s après stabilisation)
+      setTimeout(() => {
+        cleanupDuplicateSeries().catch(err => {
+          console.error('[WATCHER] Erreur nettoyage séries fantômes:', err)
+        })
+      }, 10000)
 
       // Polling de secours pour montages NAS
       this.startPolling()

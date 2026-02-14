@@ -54,7 +54,7 @@ export async function GET(
         seasonGrouped[s] = { episodes: [], allTranscoded: true }
       }
       seasonGrouped[s].episodes.push(ep)
-      if (ep.is_transcoded === false) {
+      if (ep.is_transcoded !== true) {
         seasonGrouped[s].allTranscoded = false
       }
     }
@@ -73,7 +73,7 @@ export async function GET(
       .filter(([, data]) => !data.allTranscoded)
       .map(([season, data]) => ({
         season: parseInt(season),
-        ready: data.episodes.filter((ep: any) => ep.is_transcoded === true || ep.is_transcoded === null).length,
+        ready: data.episodes.filter((ep: any) => ep.is_transcoded === true).length,
         total: data.episodes.length
       }))
 
