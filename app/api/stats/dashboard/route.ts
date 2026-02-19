@@ -1,10 +1,13 @@
 /**
  * API Route: Dashboard Statistiques Complet
  * GET /api/stats/dashboard - Retourne toutes les stats de la bibliothèque
+ * 
+ * ⚠️ Route admin - Authentification requise
  */
 
-import { NextResponse } from 'next/server'
-import { supabase } from '@/lib/supabase'
+import { NextRequest, NextResponse } from 'next/server'
+import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
+import { createSupabaseAdmin } from '@/lib/supabase'
 import { readdir, stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
@@ -147,12 +150,19 @@ async function getTranscodedStats(): Promise<{ completed: number; folders: strin
   return { completed, folders }
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const { user, error: authError } = await requireAdmin(request)
+  if (authError || !user) {
+    return authErrorResponse(authError || 'Accès refusé', 403)
+  }
+
   try {
     // Utiliser le cache si disponible et valide
     if (dashboardCache && Date.now() - dashboardCache.timestamp < CACHE_TTL) {
       return NextResponse.json(dashboardCache.data)
     }
+
+    const supabase = createSupabaseAdmin()
 
     // Requêtes Supabase en parallèle
     const [
@@ -164,7 +174,7 @@ export async function GET() {
       supabase
         .from('media')
         .select('id, title, poster_url, tmdb_id, year, duration, genres, created_at, media_type')
-        .or('media_type.eq.movie,media_type.is.null'), // Films = movie ou pas de type défini
+        .or('media_type.eq.movie,media_type.is.null'),
       supabase
         .from('series')
         .select('id, title, poster_url, created_at'),
@@ -339,7 +349,7 @@ export async function GET() {
     return NextResponse.json(stats)
 
   } catch (error) {
-    console.error('Erreur stats dashboard:', error)
+    console.error('[DASHBOARD] Erreur:', error instanceof Error ? error.message : error)
     return NextResponse.json(
       { error: 'Erreur récupération statistiques' },
       { status: 500 }

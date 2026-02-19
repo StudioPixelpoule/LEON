@@ -54,6 +54,9 @@ export async function PATCH(request: NextRequest) {
     const supabase = createSupabaseAdmin()
     const table = type === 'series' ? 'series' : 'media'
 
+    // Données enrichies TMDB spécifiques aux séries
+    let seriesFirstAirDate: string | null = null
+
     // Si refreshFromTmdb est true et qu'on a un tmdb_id, récupérer les infos TMDB
     if (refreshFromTmdb && updates.tmdb_id) {
       console.log(`[UPDATE-MEDIA-INFO] 🔄 Récupération des infos TMDB pour ID: ${updates.tmdb_id}`)
@@ -63,7 +66,7 @@ export async function PATCH(request: NextRequest) {
           const tmdbData = await getTVShowDetails(updates.tmdb_id)
           if (tmdbData) {
             updates.title = tmdbData.name
-            updates.year = tmdbData.first_air_date ? parseInt(tmdbData.first_air_date.substring(0, 4), 10) : null
+            seriesFirstAirDate = tmdbData.first_air_date || null
             updates.poster_url = tmdbData.poster_path ? getTMDBImageUrl(tmdbData.poster_path, 'w500') : null
             updates.overview = tmdbData.overview || null
           }
@@ -78,18 +81,23 @@ export async function PATCH(request: NextRequest) {
         }
       } catch (tmdbError) {
         console.error('[UPDATE-MEDIA-INFO] ⚠️ Erreur TMDB:', tmdbError)
-        // Continue avec les autres mises à jour
       }
     }
 
-    // Préparer les données à mettre à jour
-    const updateData: Record<string, any> = {}
+    // Préparer les données selon le type de table
+    const updateData: Record<string, string | number | null> = {}
     
     if (updates.title !== undefined) updateData.title = updates.title
-    if (updates.year !== undefined) updateData.year = updates.year
     if (updates.poster_url !== undefined) updateData.poster_url = updates.poster_url
     if (updates.tmdb_id !== undefined) updateData.tmdb_id = updates.tmdb_id
     if (updates.overview !== undefined) updateData.overview = updates.overview
+
+    if (type === 'series') {
+      // La table series utilise first_air_date au lieu de year
+      if (seriesFirstAirDate) updateData.first_air_date = seriesFirstAirDate
+    } else {
+      if (updates.year !== undefined) updateData.year = updates.year
+    }
 
     if (Object.keys(updateData).length === 0) {
       return NextResponse.json({ 
