@@ -10,6 +10,7 @@ export interface MediaItem {
   title: string
   year?: number
   poster_url?: string
+  backdrop_url?: string
   filepath?: string
   type: 'movie' | 'series'
   episode_count?: number

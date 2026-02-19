@@ -25,10 +25,11 @@ interface UpdatePayload {
   title?: string
   year?: number | null
   poster_url?: string | null
+  backdrop_url?: string | null
   trailer_url?: string | null
   tmdb_id?: number | null
   overview?: string | null
-  refreshFromTmdb?: boolean // Si true, récupère les infos depuis TMDB avec le tmdb_id
+  refreshFromTmdb?: boolean
 }
 
 export async function PATCH(request: NextRequest) {
@@ -69,6 +70,7 @@ export async function PATCH(request: NextRequest) {
             updates.title = tmdbData.name
             seriesFirstAirDate = tmdbData.first_air_date || null
             updates.poster_url = tmdbData.poster_path ? getTMDBImageUrl(tmdbData.poster_path, 'w500') : null
+            updates.backdrop_url = tmdbData.backdrop_path ? getTMDBImageUrl(tmdbData.backdrop_path, 'original') : null
             updates.overview = tmdbData.overview || null
           }
         } else {
@@ -77,6 +79,7 @@ export async function PATCH(request: NextRequest) {
             updates.title = tmdbData.title
             updates.year = tmdbData.release_date ? parseInt(tmdbData.release_date.substring(0, 4), 10) : null
             updates.poster_url = tmdbData.poster_path ? getTMDBImageUrl(tmdbData.poster_path, 'w500') : null
+            updates.backdrop_url = tmdbData.backdrop_path ? getTMDBImageUrl(tmdbData.backdrop_path, 'original') : null
             updates.overview = tmdbData.overview || null
           }
         }
@@ -90,6 +93,7 @@ export async function PATCH(request: NextRequest) {
     
     if (updates.title !== undefined) updateData.title = updates.title
     if (updates.poster_url !== undefined) updateData.poster_url = updates.poster_url
+    if (updates.backdrop_url !== undefined) updateData.backdrop_url = updates.backdrop_url
     if (updates.trailer_url !== undefined) updateData.trailer_url = updates.trailer_url
     if (updates.tmdb_id !== undefined) updateData.tmdb_id = updates.tmdb_id
     if (updates.overview !== undefined) updateData.overview = updates.overview

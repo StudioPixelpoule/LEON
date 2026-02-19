@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import Image from 'next/image'
 import {
   Tv,
@@ -11,9 +12,11 @@ import {
   Trash2,
   RefreshCw,
   RotateCcw,
-  Check
+  Check,
+  ImageIcon
 } from 'lucide-react'
 import styles from '@/app/admin/admin.module.css'
+import { BackdropEditModal } from './BackdropEditModal'
 import type { MediaItem } from '../hooks/useLibrarySearch'
 import type { DeletePreview } from '../hooks/useMediaDelete'
 import type { ModalMode } from '../hooks/useMediaEdit'
@@ -33,6 +36,8 @@ interface MediaDetailModalProps {
   setEditTmdbId: (value: string) => void
   editPosterUrl: string
   setEditPosterUrl: (value: string) => void
+  editBackdropUrl: string
+  setEditBackdropUrl: (value: string) => void
   editTrailerUrl: string
   setEditTrailerUrl: (value: string) => void
   saving: boolean
@@ -60,6 +65,8 @@ export function MediaDetailModal({
   setEditTmdbId,
   editPosterUrl,
   setEditPosterUrl,
+  editBackdropUrl,
+  setEditBackdropUrl,
   editTrailerUrl,
   setEditTrailerUrl,
   saving,
@@ -116,6 +123,7 @@ export function MediaDetailModal({
           />
         ) : (
           <EditMode
+            selectedMedia={selectedMedia}
             editTitle={editTitle}
             setEditTitle={setEditTitle}
             editYear={editYear}
@@ -124,6 +132,8 @@ export function MediaDetailModal({
             setEditTmdbId={setEditTmdbId}
             editPosterUrl={editPosterUrl}
             setEditPosterUrl={setEditPosterUrl}
+            editBackdropUrl={editBackdropUrl}
+            setEditBackdropUrl={setEditBackdropUrl}
             editTrailerUrl={editTrailerUrl}
             setEditTrailerUrl={setEditTrailerUrl}
             saving={saving}
@@ -252,6 +262,7 @@ function ViewMode({
 // ─── Mode Édition ────────────────────────────────────────────────────────────
 
 interface EditModeProps {
+  selectedMedia: MediaItem
   editTitle: string
   setEditTitle: (value: string) => void
   editYear: string
@@ -260,6 +271,8 @@ interface EditModeProps {
   setEditTmdbId: (value: string) => void
   editPosterUrl: string
   setEditPosterUrl: (value: string) => void
+  editBackdropUrl: string
+  setEditBackdropUrl: (value: string) => void
   editTrailerUrl: string
   setEditTrailerUrl: (value: string) => void
   saving: boolean
@@ -269,6 +282,7 @@ interface EditModeProps {
 }
 
 function EditMode({
+  selectedMedia,
   editTitle,
   setEditTitle,
   editYear,
@@ -277,6 +291,8 @@ function EditMode({
   setEditTmdbId,
   editPosterUrl,
   setEditPosterUrl,
+  editBackdropUrl,
+  setEditBackdropUrl,
   editTrailerUrl,
   setEditTrailerUrl,
   saving,
@@ -284,6 +300,8 @@ function EditMode({
   handleSaveEdit,
   handleRefreshFromTmdb
 }: EditModeProps) {
+  const [showBackdropPicker, setShowBackdropPicker] = useState(false)
+
   return (
     <>
       <h3 style={{ margin: '0 0 20px' }}>Modifier les métadonnées</h3>
@@ -354,6 +372,59 @@ function EditMode({
           </div>
         )}
 
+        {/* Backdrop */}
+        <div>
+          <label style={{ display: 'block', marginBottom: 6, fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>
+            Image de fond (backdrop)
+          </label>
+          {editBackdropUrl ? (
+            <div style={{ borderRadius: 8, overflow: 'hidden', background: 'rgba(0,0,0,0.3)', position: 'relative' }}>
+              <Image
+                src={editBackdropUrl}
+                alt="Backdrop"
+                width={480}
+                height={270}
+                unoptimized
+                style={{ width: '100%', height: 'auto', display: 'block' }}
+              />
+              <div style={{
+                position: 'absolute', bottom: 0, left: 0, right: 0,
+                padding: '8px 12px',
+                background: 'linear-gradient(transparent, rgba(0,0,0,0.8))',
+                display: 'flex', justifyContent: 'flex-end',
+              }}>
+                {editTmdbId && (
+                  <button
+                    onClick={() => setShowBackdropPicker(true)}
+                    className={styles.btnSecondary}
+                    style={{ fontSize: 12, padding: '4px 10px' }}
+                  >
+                    <ImageIcon size={12} style={{ marginRight: 4, verticalAlign: -1 }} />
+                    Changer
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div style={{
+              borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px dashed rgba(255,255,255,0.15)',
+              padding: '20px 16px', textAlign: 'center',
+            }}>
+              <ImageIcon size={24} style={{ color: 'rgba(255,255,255,0.2)', marginBottom: 8 }} />
+              <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.35)' }}>Aucun backdrop</p>
+              {editTmdbId && (
+                <button
+                  onClick={() => setShowBackdropPicker(true)}
+                  className={styles.btnSecondary}
+                  style={{ fontSize: 12, padding: '4px 10px', marginTop: 8 }}
+                >
+                  Choisir sur TMDB
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
         <div>
           <label style={{ display: 'block', marginBottom: 6, fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>
             Bande-annonce YouTube
@@ -377,6 +448,21 @@ function EditMode({
           {saving ? <><RefreshCw size={16} className={styles.spin} /> Enregistrement...</> : <><Check size={16} /> Enregistrer</>}
         </button>
       </div>
+
+      {/* Modal sélection backdrop */}
+      {showBackdropPicker && editTmdbId && (
+        <BackdropEditModal
+          tmdbId={parseInt(editTmdbId, 10)}
+          type={selectedMedia.type}
+          title={editTitle || selectedMedia.title}
+          currentBackdropUrl={editBackdropUrl}
+          onSelect={(url) => {
+            setEditBackdropUrl(url)
+            setShowBackdropPicker(false)
+          }}
+          onClose={() => setShowBackdropPicker(false)}
+        />
+      )}
     </>
   )
 }

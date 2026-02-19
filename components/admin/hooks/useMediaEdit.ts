@@ -26,9 +26,11 @@ export interface UseMediaEditReturn {
   setEditTmdbId: (value: string) => void
   editPosterUrl: string
   setEditPosterUrl: (value: string) => void
+  editBackdropUrl: string
+  setEditBackdropUrl: (value: string) => void
   editTrailerUrl: string
   setEditTrailerUrl: (value: string) => void
-  initEditFields: (media: { title?: string; year?: number; tmdb_id?: number; poster_url?: string; trailer_url?: string }) => void
+  initEditFields: (media: { title?: string; year?: number; tmdb_id?: number; poster_url?: string; backdrop_url?: string; trailer_url?: string }) => void
   handleSaveEdit: () => Promise<void>
   handleRefreshFromTmdb: () => Promise<void>
 }
@@ -42,15 +44,17 @@ export function useMediaEdit({ selectedMedia, setSelectedMedia, setResults }: Us
   const [editYear, setEditYear] = useState('')
   const [editTmdbId, setEditTmdbId] = useState('')
   const [editPosterUrl, setEditPosterUrl] = useState('')
+  const [editBackdropUrl, setEditBackdropUrl] = useState('')
   const [editTrailerUrl, setEditTrailerUrl] = useState('')
 
   const { addToast } = useAdminToast()
 
-  function initEditFields(media: { title?: string; year?: number; tmdb_id?: number; poster_url?: string; trailer_url?: string }) {
+  function initEditFields(media: { title?: string; year?: number; tmdb_id?: number; poster_url?: string; backdrop_url?: string; trailer_url?: string }) {
     setEditTitle(media.title || '')
     setEditYear(media.year?.toString() || '')
     setEditTmdbId(media.tmdb_id?.toString() || '')
     setEditPosterUrl(media.poster_url || '')
+    setEditBackdropUrl(media.backdrop_url || '')
     setEditTrailerUrl(media.trailer_url || '')
   }
 
@@ -73,6 +77,9 @@ export function useMediaEdit({ selectedMedia, setSelectedMedia, setResults }: Us
       }
       if (editPosterUrl !== (selectedMedia.poster_url || '')) {
         payload.poster_url = editPosterUrl || null
+      }
+      if (editBackdropUrl !== (selectedMedia.backdrop_url || '')) {
+        payload.backdrop_url = editBackdropUrl || null
       }
       if (editTrailerUrl !== (selectedMedia.trailer_url || '')) {
         payload.trailer_url = editTrailerUrl || null
@@ -130,6 +137,7 @@ export function useMediaEdit({ selectedMedia, setSelectedMedia, setResults }: Us
         setEditTitle(data.media.title || '')
         setEditYear(data.media.year?.toString() || '')
         setEditPosterUrl(data.media.poster_url || '')
+        setEditBackdropUrl(data.media.backdrop_url || '')
         setResults(prev => prev.map(r => r.id === selectedMedia.id ? updatedMedia : r))
       } else {
         addToast('error', 'Erreur', data.error || 'Import TMDB échoué')
@@ -154,6 +162,8 @@ export function useMediaEdit({ selectedMedia, setSelectedMedia, setResults }: Us
     setEditTmdbId,
     editPosterUrl,
     setEditPosterUrl,
+    editBackdropUrl,
+    setEditBackdropUrl,
     editTrailerUrl,
     setEditTrailerUrl,
     initEditFields,

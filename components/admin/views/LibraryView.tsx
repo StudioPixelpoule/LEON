@@ -59,7 +59,8 @@ export function LibraryView() {
         setSelectedMedia(prev => prev ? {
           ...prev,
           tmdb_id: infoData.media.tmdb_id,
-          overview: infoData.media.overview
+          overview: infoData.media.overview,
+          backdrop_url: infoData.media.backdrop_url,
         } : null)
 
         edit.initEditFields(infoData.media)
@@ -208,6 +209,8 @@ export function LibraryView() {
           setEditTmdbId={edit.setEditTmdbId}
           editPosterUrl={edit.editPosterUrl}
           setEditPosterUrl={edit.setEditPosterUrl}
+          editBackdropUrl={edit.editBackdropUrl}
+          setEditBackdropUrl={edit.setEditBackdropUrl}
           editTrailerUrl={edit.editTrailerUrl}
           setEditTrailerUrl={edit.setEditTrailerUrl}
           saving={edit.saving}

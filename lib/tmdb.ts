@@ -272,6 +272,69 @@ export function getYouTubeUrl(videoKey: string): string {
   return `https://www.youtube.com/watch?v=${videoKey}`
 }
 
+/**
+ * Récupère toutes les images (backdrops, posters) d'un film via /movie/{id}/images
+ * Retourne les images sans filtre de langue pour avoir le maximum de résultats
+ */
+export async function getMovieImages(tmdbId: number): Promise<{ backdrops: TMDBImage[], posters: TMDBImage[] }> {
+  try {
+    if (!TMDB_KEY) throw new Error('TMDB_API_KEY manquante')
+
+    const params = new URLSearchParams({
+      api_key: TMDB_KEY,
+      include_image_language: 'fr,en,null'
+    })
+
+    const response = await fetch(`${TMDB_BASE}/movie/${tmdbId}/images?${params}`)
+    if (!response.ok) throw new Error(`TMDB API error: ${response.status}`)
+
+    const data = await response.json()
+    return {
+      backdrops: data.backdrops || [],
+      posters: data.posters || []
+    }
+  } catch (error) {
+    console.error('[TMDB] Erreur récupération images:', error)
+    return { backdrops: [], posters: [] }
+  }
+}
+
+/**
+ * Récupère toutes les images d'une série TV via /tv/{id}/images
+ */
+export async function getTVShowImages(tvId: number): Promise<{ backdrops: TMDBImage[], posters: TMDBImage[] }> {
+  try {
+    if (!TMDB_KEY) throw new Error('TMDB_API_KEY manquante')
+
+    const params = new URLSearchParams({
+      api_key: TMDB_KEY,
+      include_image_language: 'fr,en,null'
+    })
+
+    const response = await fetch(`${TMDB_BASE}/tv/${tvId}/images?${params}`)
+    if (!response.ok) throw new Error(`TMDB API error: ${response.status}`)
+
+    const data = await response.json()
+    return {
+      backdrops: data.backdrops || [],
+      posters: data.posters || []
+    }
+  } catch (error) {
+    console.error('[TMDB] Erreur récupération images TV:', error)
+    return { backdrops: [], posters: [] }
+  }
+}
+
+export interface TMDBImage {
+  file_path: string
+  width: number
+  height: number
+  aspect_ratio: number
+  vote_average: number
+  vote_count: number
+  iso_639_1: string | null
+}
+
 // ============================================
 // API SÉRIES TV
 // ============================================
