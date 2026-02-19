@@ -1,7 +1,7 @@
 # LEON — Configuration Cursor
 
-**Version** : 1.0.0  
-**Date** : 29 janvier 2026  
+**Version** : 1.1.0  
+**Date** : 19 février 2026  
 **Projet** : LEON — Plateforme de streaming personnelle
 
 ---
@@ -11,7 +11,7 @@
 Configuration Cursor professionnelle pour le projet LEON avec :
 
 - **7 Rules** : Standards de code automatiques
-- **6 Agents** : Assistants IA spécialisés
+- **7 Agents** : Assistants IA spécialisés
 - **3 Commands** : Workflows automatisés
 
 ---
@@ -56,7 +56,7 @@ LEON/
 ├── supabase/                     # Migrations SQL
 └── .cursor/                      # Configuration Cursor
     ├── rules/                    # 7 fichiers .mdc
-    ├── agents/                   # 6 fichiers .md
+    ├── agents/                   # 7 fichiers .md
     └── commands/                 # 3 fichiers .md
 ```
 
@@ -76,7 +76,7 @@ LEON/
 
 ---
 
-## Agents (6)
+## Agents (7)
 
 ### Développement
 
@@ -91,6 +91,12 @@ LEON/
 | Agent | Usage | Invocation |
 |-------|-------|------------|
 | **@streaming-specialist** | FFmpeg, HLS.js, performance | `@streaming-specialist` |
+
+### Documentation
+
+| Agent | Usage | Invocation |
+|-------|-------|------------|
+| **@docs** | Synchroniser Hub Notion, Journal, Suivi des tâches | `@docs` |
 
 ### Qualité
 
@@ -120,6 +126,7 @@ LEON/
 2. @developer        → Implémenter le code
 3. @qa-tester        → Valider et tester
 4. /review           → Revue avant PR
+5. @docs             → Mettre à jour Hub Notion + Journal + Tâches
 ```
 
 ### Problème de Streaming
@@ -129,6 +136,7 @@ LEON/
 2. @streaming-specialist → Analyse approfondie
 3. @debugger         → Correction ciblée
 4. @qa-tester        → Test de non-régression
+5. @docs             → Mettre à jour Roadmap & Suivi
 ```
 
 ### Avant Déploiement
@@ -137,6 +145,15 @@ LEON/
 1. /audit            → Audit qualité complet
 2. @security-auditor → Vérification sécurité
 3. /review           → Revue finale
+4. @docs             → Vérifier cohérence Hub ↔ code
+```
+
+### Suivi Projet
+
+```
+1. @docs             → Créer/mettre à jour tâches dans "Suivi des tâches"
+2. @docs             → Ajouter entrée Journal de Développement
+3. @docs             → Synchroniser Roadmap avec l'état actuel
 ```
 
 ---
