@@ -123,6 +123,13 @@ notion-update-page:
     Status: "En cours" | "Terminé"
 ```
 
+**Règles de statut** :
+- **Terminé** : Le code est implémenté, commité et pushé. C'est le statut par défaut quand @docs est invoqué après un développement.
+- **En cours** : Le développement est en cours dans la session active (pas encore commité).
+- **À faire** : Tâche future identifiée mais pas encore codée (planification, idée, TODO dans le code).
+- Ne JAMAIS créer une tâche "Terminé" reformulée en "à tester" avec statut "À faire". Si c'est fait, c'est fait.
+- Une tâche = une action de dev. Pas de tâches de suivi, de validation ou de test séparées, sauf demande explicite.
+
 **Règles de priorité** :
 - **P0** : Bloquant, bug critique en production
 - **P1** : Important, à traiter cette semaine
