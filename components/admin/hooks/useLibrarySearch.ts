@@ -15,6 +15,7 @@ export interface MediaItem {
   episode_count?: number
   tmdb_id?: number
   overview?: string
+  trailer_url?: string
 }
 
 export interface UseLibrarySearchReturn {

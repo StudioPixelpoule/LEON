@@ -26,7 +26,9 @@ export interface UseMediaEditReturn {
   setEditTmdbId: (value: string) => void
   editPosterUrl: string
   setEditPosterUrl: (value: string) => void
-  initEditFields: (media: { title?: string; year?: number; tmdb_id?: number; poster_url?: string }) => void
+  editTrailerUrl: string
+  setEditTrailerUrl: (value: string) => void
+  initEditFields: (media: { title?: string; year?: number; tmdb_id?: number; poster_url?: string; trailer_url?: string }) => void
   handleSaveEdit: () => Promise<void>
   handleRefreshFromTmdb: () => Promise<void>
 }
@@ -40,14 +42,16 @@ export function useMediaEdit({ selectedMedia, setSelectedMedia, setResults }: Us
   const [editYear, setEditYear] = useState('')
   const [editTmdbId, setEditTmdbId] = useState('')
   const [editPosterUrl, setEditPosterUrl] = useState('')
+  const [editTrailerUrl, setEditTrailerUrl] = useState('')
 
   const { addToast } = useAdminToast()
 
-  function initEditFields(media: { title?: string; year?: number; tmdb_id?: number; poster_url?: string }) {
+  function initEditFields(media: { title?: string; year?: number; tmdb_id?: number; poster_url?: string; trailer_url?: string }) {
     setEditTitle(media.title || '')
     setEditYear(media.year?.toString() || '')
     setEditTmdbId(media.tmdb_id?.toString() || '')
     setEditPosterUrl(media.poster_url || '')
+    setEditTrailerUrl(media.trailer_url || '')
   }
 
   async function handleSaveEdit() {
@@ -69,6 +73,9 @@ export function useMediaEdit({ selectedMedia, setSelectedMedia, setResults }: Us
       }
       if (editPosterUrl !== (selectedMedia.poster_url || '')) {
         payload.poster_url = editPosterUrl || null
+      }
+      if (editTrailerUrl !== (selectedMedia.trailer_url || '')) {
+        payload.trailer_url = editTrailerUrl || null
       }
 
       const response = await fetch('/api/admin/update-media-info', {
@@ -147,6 +154,8 @@ export function useMediaEdit({ selectedMedia, setSelectedMedia, setResults }: Us
     setEditTmdbId,
     editPosterUrl,
     setEditPosterUrl,
+    editTrailerUrl,
+    setEditTrailerUrl,
     initEditFields,
     handleSaveEdit,
     handleRefreshFromTmdb

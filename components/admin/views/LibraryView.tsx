@@ -208,6 +208,8 @@ export function LibraryView() {
           setEditTmdbId={edit.setEditTmdbId}
           editPosterUrl={edit.editPosterUrl}
           setEditPosterUrl={edit.setEditPosterUrl}
+          editTrailerUrl={edit.editTrailerUrl}
+          setEditTrailerUrl={edit.setEditTrailerUrl}
           saving={edit.saving}
           deleting={mediaDelete.deleting}
           deleteSourceFiles={mediaDelete.deleteSourceFiles}

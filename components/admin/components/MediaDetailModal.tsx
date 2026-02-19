@@ -33,6 +33,8 @@ interface MediaDetailModalProps {
   setEditTmdbId: (value: string) => void
   editPosterUrl: string
   setEditPosterUrl: (value: string) => void
+  editTrailerUrl: string
+  setEditTrailerUrl: (value: string) => void
   saving: boolean
   deleting: boolean
   deleteSourceFiles: boolean
@@ -58,6 +60,8 @@ export function MediaDetailModal({
   setEditTmdbId,
   editPosterUrl,
   setEditPosterUrl,
+  editTrailerUrl,
+  setEditTrailerUrl,
   saving,
   deleting,
   deleteSourceFiles,
@@ -120,6 +124,8 @@ export function MediaDetailModal({
             setEditTmdbId={setEditTmdbId}
             editPosterUrl={editPosterUrl}
             setEditPosterUrl={setEditPosterUrl}
+            editTrailerUrl={editTrailerUrl}
+            setEditTrailerUrl={setEditTrailerUrl}
             saving={saving}
             setModalMode={setModalMode}
             handleSaveEdit={handleSaveEdit}
@@ -179,6 +185,14 @@ function ViewMode({
           )}
           {selectedMedia.tmdb_id && (
             <p style={{ margin: '0 0 6px', color: 'rgba(255,255,255,0.7)' }}><strong>TMDB ID :</strong> {selectedMedia.tmdb_id}</p>
+          )}
+          {selectedMedia.trailer_url && (
+            <p style={{ margin: '0 0 6px', color: 'rgba(255,255,255,0.7)', wordBreak: 'break-all' }}>
+              <strong>Bande-annonce :</strong>{' '}
+              <a href={selectedMedia.trailer_url} target="_blank" rel="noopener noreferrer" style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>
+                {selectedMedia.trailer_url}
+              </a>
+            </p>
           )}
           {selectedMedia.type === 'series' && deletePreview?.episodes !== undefined && (
             <p style={{ margin: '0 0 6px', color: 'rgba(255,255,255,0.7)' }}><strong>Épisodes :</strong> {deletePreview.episodes}</p>
@@ -246,6 +260,8 @@ interface EditModeProps {
   setEditTmdbId: (value: string) => void
   editPosterUrl: string
   setEditPosterUrl: (value: string) => void
+  editTrailerUrl: string
+  setEditTrailerUrl: (value: string) => void
   saving: boolean
   setModalMode: (mode: ModalMode) => void
   handleSaveEdit: () => Promise<void>
@@ -261,6 +277,8 @@ function EditMode({
   setEditTmdbId,
   editPosterUrl,
   setEditPosterUrl,
+  editTrailerUrl,
+  setEditTrailerUrl,
   saving,
   setModalMode,
   handleSaveEdit,
@@ -335,6 +353,22 @@ function EditMode({
             </div>
           </div>
         )}
+
+        <div>
+          <label style={{ display: 'block', marginBottom: 6, fontSize: 13, color: 'rgba(255,255,255,0.6)' }}>
+            Bande-annonce YouTube
+          </label>
+          <input
+            type="url"
+            value={editTrailerUrl}
+            onChange={(e) => setEditTrailerUrl(e.target.value)}
+            className={styles.input}
+            placeholder="https://www.youtube.com/watch?v=..."
+          />
+          <p style={{ margin: '6px 0 0', fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>
+            Vide = bande-annonce automatique depuis TMDB
+          </p>
+        </div>
       </div>
 
       <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 24 }}>

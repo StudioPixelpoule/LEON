@@ -25,6 +25,7 @@ interface UpdatePayload {
   title?: string
   year?: number | null
   poster_url?: string | null
+  trailer_url?: string | null
   tmdb_id?: number | null
   overview?: string | null
   refreshFromTmdb?: boolean // Si true, récupère les infos depuis TMDB avec le tmdb_id
@@ -89,6 +90,7 @@ export async function PATCH(request: NextRequest) {
     
     if (updates.title !== undefined) updateData.title = updates.title
     if (updates.poster_url !== undefined) updateData.poster_url = updates.poster_url
+    if (updates.trailer_url !== undefined) updateData.trailer_url = updates.trailer_url
     if (updates.tmdb_id !== undefined) updateData.tmdb_id = updates.tmdb_id
     if (updates.overview !== undefined) updateData.overview = updates.overview
 
