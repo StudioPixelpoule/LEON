@@ -52,6 +52,27 @@ async function fetchTmdbEpisode(
 /**
  * Rechercher une série sur TMDB et récupérer les détails complets
  */
+/**
+ * Wrapper fetch avec retry automatique sur rate limit TMDB (429)
+ * Attend le délai indiqué dans le header Retry-After avant de réessayer
+ */
+async function fetchWithRetry(url: string, maxRetries = 3): Promise<Response> {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    const response = await fetch(url)
+
+    if (response.status === 429) {
+      const retryAfter = parseInt(response.headers.get('Retry-After') || '10', 10)
+      console.warn(`[SCAN] TMDB rate limit (429) — attente ${retryAfter}s avant retry ${attempt}/${maxRetries}`)
+      await new Promise(r => setTimeout(r, retryAfter * 1000))
+      continue
+    }
+
+    return response
+  }
+
+  throw new Error(`TMDB rate limit dépassé après ${maxRetries} tentatives`)
+}
+
 async function searchSeriesOnTMDB(seriesName: string): Promise<TmdbSeriesDetails | null> {
   if (!TMDB_API_KEY) return null
 
@@ -63,7 +84,13 @@ async function searchSeriesOnTMDB(seriesName: string): Promise<TmdbSeriesDetails
 
     // 1. Rechercher la série
     const searchUrl = `${TMDB_BASE_URL}/search/tv?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(cleanName)}&language=fr-FR`
-    const response = await fetch(searchUrl)
+    const response = await fetchWithRetry(searchUrl)
+
+    if (!response.ok) {
+      console.error(`[SCAN] TMDB search HTTP ${response.status} pour "${cleanName}"`)
+      return null
+    }
+
     const data = await response.json()
 
     if (data.results && data.results.length > 0) {
@@ -71,7 +98,13 @@ async function searchSeriesOnTMDB(seriesName: string): Promise<TmdbSeriesDetails
 
       // 2. Récupérer les détails complets (avec genres, vidéos pour les trailers)
       const detailsUrl = `${TMDB_BASE_URL}/tv/${seriesId}?api_key=${TMDB_API_KEY}&language=fr-FR&append_to_response=videos`
-      const detailsResponse = await fetch(detailsUrl)
+      const detailsResponse = await fetchWithRetry(detailsUrl)
+
+      if (!detailsResponse.ok) {
+        console.error(`[SCAN] TMDB details HTTP ${detailsResponse.status} pour ID ${seriesId}`)
+        return data.results[0]
+      }
+
       const detailsData: TmdbSeriesDetails = await detailsResponse.json()
 
       if (detailsData && detailsData.id) {
@@ -86,7 +119,7 @@ async function searchSeriesOnTMDB(seriesName: string): Promise<TmdbSeriesDetails
         if (!trailer) {
           try {
             const enVideosUrl = `${TMDB_BASE_URL}/tv/${seriesId}/videos?api_key=${TMDB_API_KEY}&language=en-US`
-            const enVideosResponse = await fetch(enVideosUrl)
+            const enVideosResponse = await fetchWithRetry(enVideosUrl)
             const enVideosData = await enVideosResponse.json()
             trailer = enVideosData.results?.find((v: { type: string; site: string }) =>
               v.type === 'Trailer' && v.site === 'YouTube'
@@ -95,7 +128,7 @@ async function searchSeriesOnTMDB(seriesName: string): Promise<TmdbSeriesDetails
               console.log(`[SCAN] Bande-annonce: trouvée (EN)`)
             }
           } catch {
-            // Ignore l'erreur du fallback
+            // Ignore l'erreur du fallback trailer EN
           }
         } else {
           console.log(`[SCAN] Bande-annonce: trouvée`)
