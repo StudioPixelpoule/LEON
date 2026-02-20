@@ -49,10 +49,11 @@ export async function GET(request: Request) {
     const limit = parseInt(searchParams.get('limit') || '0', 10)
     const noCache = searchParams.get('nocache') === 'true'
     
+    const allMedia = searchParams.get('all') === 'true'
     const now = Date.now()
     
-    // Utiliser le cache si valide
-    if (!noCache && cachedMovies && (now - cacheTimestamp) < CACHE_DURATION) {
+    // Utiliser le cache si valide (pas de cache en mode all=true)
+    if (!noCache && !allMedia && cachedMovies && (now - cacheTimestamp) < CACHE_DURATION) {
       let results = [...cachedMovies]
       
       // Trier si nécessaire
@@ -79,11 +80,14 @@ export async function GET(request: Request) {
     }
     
     // Requête optimisée : seulement les colonnes nécessaires pour l'affichage
-    // Filtre is_transcoded : n'affiche que les médias transcodés ou ceux ajoutés avant la migration
+    // Filtre is_transcoded : n'affiche que les médias transcodés (sauf si all=true pour l'admin)
     const query = supabase
       .from('media')
       .select('id, title, original_title, year, poster_url, backdrop_url, overview, rating, tmdb_id, release_date, genres, pcloud_fileid, duration, formatted_runtime, movie_cast, director, subtitles, quality, created_at')
-      .eq('is_transcoded', true)
+
+    if (!allMedia) {
+      query.eq('is_transcoded', true)
+    }
     
     if (sortBy === 'recent') {
       query.order('created_at', { ascending: false })

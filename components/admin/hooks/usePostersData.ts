@@ -72,8 +72,8 @@ export function usePostersData(): UsePostersDataReturn {
     try {
       // Ajouter nocache=true pour forcer le rafraîchissement après mise à jour
       const url = forceRefresh
-        ? '/api/media/grouped?type=movie&nocache=true'
-        : '/api/media/grouped?type=movie'
+        ? '/api/media/grouped?type=movie&all=true&nocache=true'
+        : '/api/media/grouped?type=movie&all=true'
       const response = await fetch(url)
       const data = await response.json()
       if (data.success) {
