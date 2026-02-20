@@ -15,7 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 import { createSupabaseAdmin } from '@/lib/supabase'
-import { getMovieDetails, getTVShowDetails, getTMDBImageUrl } from '@/lib/tmdb'
+import { getMovieDetails, getTVShowDetails, getTMDBImageUrl, formatRuntime } from '@/lib/tmdb'
 
 export const dynamic = 'force-dynamic'
 
@@ -56,22 +56,28 @@ export async function PATCH(request: NextRequest) {
     const supabase = createSupabaseAdmin()
     const table = type === 'series' ? 'series' : 'media'
 
-    // Données enrichies TMDB spécifiques aux séries
-    let seriesFirstAirDate: string | null = null
+    // Données enrichies TMDB (objets complexes : cast, director, genres)
+    let tmdbEnrichedData: Record<string, unknown> = {}
 
-    // Si refreshFromTmdb est true et qu'on a un tmdb_id, récupérer les infos TMDB
+    // Si refreshFromTmdb est true et qu'on a un tmdb_id, récupérer TOUTES les infos TMDB
     if (refreshFromTmdb && updates.tmdb_id) {
-      console.log(`[UPDATE-MEDIA-INFO] 🔄 Récupération des infos TMDB pour ID: ${updates.tmdb_id}`)
+      console.log(`[UPDATE-MEDIA-INFO] 🔄 Récupération complète TMDB pour ID: ${updates.tmdb_id}`)
       
       try {
         if (type === 'series') {
           const tmdbData = await getTVShowDetails(updates.tmdb_id)
           if (tmdbData) {
             updates.title = tmdbData.name
-            seriesFirstAirDate = tmdbData.first_air_date || null
             updates.poster_url = tmdbData.poster_path ? getTMDBImageUrl(tmdbData.poster_path, 'w500') : null
             updates.backdrop_url = tmdbData.backdrop_path ? getTMDBImageUrl(tmdbData.backdrop_path, 'original') : null
             updates.overview = tmdbData.overview || null
+            tmdbEnrichedData = {
+              first_air_date: tmdbData.first_air_date || null,
+              genres: tmdbData.genres?.map((g: { name: string }) => g.name) || null,
+              rating: tmdbData.vote_average || null,
+              vote_count: tmdbData.vote_count || null,
+              tagline: tmdbData.tagline || null,
+            }
           }
         } else {
           const tmdbData = await getMovieDetails(updates.tmdb_id)
@@ -81,6 +87,25 @@ export async function PATCH(request: NextRequest) {
             updates.poster_url = tmdbData.poster_path ? getTMDBImageUrl(tmdbData.poster_path, 'w500') : null
             updates.backdrop_url = tmdbData.backdrop_path ? getTMDBImageUrl(tmdbData.backdrop_path, 'original') : null
             updates.overview = tmdbData.overview || null
+            tmdbEnrichedData = {
+              original_title: tmdbData.original_title || null,
+              release_date: tmdbData.release_date || null,
+              genres: tmdbData.genres?.map((g: { name: string }) => g.name) || null,
+              duration: tmdbData.runtime || null,
+              formatted_runtime: formatRuntime(tmdbData.runtime),
+              rating: tmdbData.vote_average || null,
+              vote_count: tmdbData.vote_count || null,
+              tagline: tmdbData.tagline || null,
+              movie_cast: tmdbData.credits?.cast?.slice(0, 10).map((c: { name: string; character: string; profile_path: string | null }) => ({
+                name: c.name,
+                character: c.character,
+                profile_path: c.profile_path,
+              })) || null,
+              director: tmdbData.credits?.crew?.find((c: { job: string }) => c.job === 'Director') || null,
+              trailer_url: tmdbData.videos?.results?.find((v: { type: string; site: string }) => v.type === 'Trailer' && v.site === 'YouTube')?.key
+                ? `https://youtube.com/watch?v=${tmdbData.videos.results.find((v: { type: string; site: string }) => v.type === 'Trailer' && v.site === 'YouTube')!.key}`
+                : undefined,
+            }
           }
         }
       } catch (tmdbError) {
@@ -88,8 +113,8 @@ export async function PATCH(request: NextRequest) {
       }
     }
 
-    // Préparer les données selon le type de table
-    const updateData: Record<string, string | number | null> = {}
+    // Préparer les données
+    const updateData: Record<string, unknown> = {}
     
     if (updates.title !== undefined) updateData.title = updates.title
     if (updates.poster_url !== undefined) updateData.poster_url = updates.poster_url
@@ -99,10 +124,15 @@ export async function PATCH(request: NextRequest) {
     if (updates.overview !== undefined) updateData.overview = updates.overview
 
     if (type === 'series') {
-      // La table series utilise first_air_date au lieu de year
-      if (seriesFirstAirDate) updateData.first_air_date = seriesFirstAirDate
+      if (tmdbEnrichedData.first_air_date) updateData.first_air_date = tmdbEnrichedData.first_air_date
     } else {
       if (updates.year !== undefined) updateData.year = updates.year
+    }
+
+    // Ajouter les données enrichies TMDB (cast, director, genres, etc.)
+    for (const [key, value] of Object.entries(tmdbEnrichedData)) {
+      if (key === 'first_air_date') continue
+      if (value !== undefined) updateData[key] = value
     }
 
     if (Object.keys(updateData).length === 0) {
