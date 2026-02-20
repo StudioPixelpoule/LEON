@@ -75,8 +75,6 @@ export async function PATCH(request: NextRequest) {
               first_air_date: tmdbData.first_air_date || null,
               genres: tmdbData.genres?.map((g: { name: string }) => g.name) || null,
               rating: tmdbData.vote_average || null,
-              vote_count: tmdbData.vote_count || null,
-              tagline: tmdbData.tagline || null,
             }
           }
         } else {

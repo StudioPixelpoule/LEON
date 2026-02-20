@@ -132,23 +132,26 @@ async function saveSeriesWithoutTmdb(
   stats: { newSeries: number }
 ): Promise<string | null> {
   // Chercher d'abord par chemin local (plus fiable)
+  // .limit(1) + maybeSingle() évite l'erreur si plusieurs lignes existent
   const { data: seriesByPath } = await supabase
     .from('series')
     .select('id')
     .eq('local_folder_path', seriesPath)
-    .single()
+    .limit(1)
+    .maybeSingle()
 
   if (seriesByPath) {
     console.log(`[SCAN] Série trouvée par chemin local (ID: ${seriesByPath.id})`)
     return seriesByPath.id
   }
 
-  // Sinon chercher par titre
+  // Sinon chercher par titre (prend la première occurrence pour éviter les doublons)
   const { data: seriesByTitle } = await supabase
     .from('series')
     .select('id')
     .eq('title', seriesName)
-    .single()
+    .limit(1)
+    .maybeSingle()
 
   if (seriesByTitle) {
     console.log(`[SCAN] Série trouvée par titre (ID: ${seriesByTitle.id})`)
@@ -233,21 +236,24 @@ async function saveSeriesWithTmdb(
   stats: { newSeries: number; updatedSeries: number }
 ): Promise<string | null> {
   // Chercher d'abord par chemin local (plus fiable pour les rescans)
+  // .limit(1) + maybeSingle() résiste aux doublons éventuels en base
   const { data: seriesByPath } = await supabase
     .from('series')
     .select('id')
     .eq('local_folder_path', seriesPath)
-    .single()
+    .limit(1)
+    .maybeSingle()
 
   let existingSeries: { id: string } | null = seriesByPath || null
 
   if (!existingSeries) {
-    // Sinon chercher par tmdb_id
+    // Sinon chercher par tmdb_id (prend la première occurrence)
     const { data: seriesByTmdb } = await supabase
       .from('series')
       .select('id')
       .eq('tmdb_id', tmdbData.id)
-      .single()
+      .limit(1)
+      .maybeSingle()
 
     if (seriesByTmdb) {
       existingSeries = seriesByTmdb
