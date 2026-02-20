@@ -60,11 +60,11 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Recherche dans les séries
+    // Recherche dans les séries — episodes comptés via JOIN pour éviter les N+1
     if (type === 'all' || type === 'series') {
       const { data: series, error: seriesError } = await supabase
         .from('series')
-        .select('id, title, first_air_date, poster_url')
+        .select('id, title, first_air_date, poster_url, episodes(count)')
         .ilike('title', searchPattern)
         .order('title')
         .limit(limit)
@@ -72,21 +72,13 @@ export async function GET(request: NextRequest) {
       if (seriesError) {
         console.error('[LIBRARY-SEARCH] Erreur séries:', seriesError)
       } else {
-        // Compter les épisodes pour chaque série
-        const seriesWithCount = await Promise.all(
-          (series || []).map(async (s) => {
-            const { count } = await supabase
-              .from('episodes')
-              .select('*', { count: 'exact', head: true })
-              .eq('series_id', s.id)
-            
-            return {
-              ...s,
-              episode_count: count || 0
-            }
-          })
-        )
-        results.series = seriesWithCount
+        results.series = (series || []).map((s) => {
+          const { episodes, ...rest } = s as typeof s & { episodes: { count: number }[] }
+          return {
+            ...rest,
+            episode_count: episodes?.[0]?.count ?? 0
+          }
+        })
       }
     }
 
