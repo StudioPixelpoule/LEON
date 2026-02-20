@@ -174,7 +174,8 @@ export async function GET(request: NextRequest) {
       supabase
         .from('media')
         .select('id, title, poster_url, tmdb_id, year, duration, genres, created_at, media_type')
-        .or('media_type.eq.movie,media_type.is.null'),
+        .or('media_type.eq.movie,media_type.is.null')
+        .eq('is_transcoded', true),
       supabase
         .from('series')
         .select('id, title, poster_url, created_at'),
