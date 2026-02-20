@@ -44,12 +44,12 @@ export async function GET(request: NextRequest) {
       series: []
     }
 
-    // Recherche dans les films
+    // Recherche dans les films (titre localisé OU titre original)
     if (type === 'all' || type === 'movie') {
       const { data: movies, error: moviesError } = await supabase
         .from('media')
         .select('id, title, year, poster_url, pcloud_fileid')
-        .ilike('title', searchPattern)
+        .or(`title.ilike.${searchPattern},original_title.ilike.${searchPattern}`)
         .order('title')
         .limit(limit)
 
@@ -60,12 +60,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Recherche dans les séries — episodes comptés via JOIN pour éviter les N+1
+    // Recherche dans les séries — titre localisé OU titre original, episodes via JOIN
     if (type === 'all' || type === 'series') {
       const { data: series, error: seriesError } = await supabase
         .from('series')
         .select('id, title, first_air_date, poster_url, episodes(count)')
-        .ilike('title', searchPattern)
+        .or(`title.ilike.${searchPattern},original_title.ilike.${searchPattern}`)
         .order('title')
         .limit(limit)
 
