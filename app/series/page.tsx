@@ -26,7 +26,8 @@ interface SeriesData {
   overview: string
   episodeCount?: number
   created_at?: string
-  tmdb_id?: number | null // 🎬 Pour récupérer les trailers
+  tmdb_id?: number | null
+  trailer_url?: string | null
 }
 
 export default function SeriesPage() {
@@ -72,26 +73,39 @@ export default function SeriesPage() {
     loadSeries()
   }, [])
 
-  // 🎬 Charger le trailer de la série hero
   useEffect(() => {
     async function loadTrailer() {
-      if (!heroSeries?.tmdb_id) {
+      if (!heroSeries) {
         setHeroTrailerKey(null)
         return
       }
-      
+
+      // Priorité au trailer stocké en BDD (modifiable par l'admin)
+      if (heroSeries.trailer_url) {
+        const match = heroSeries.trailer_url.match(/[?&]v=([^&]+)/)
+        if (match?.[1]) {
+          setHeroTrailerKey(match[1])
+          return
+        }
+      }
+
+      // Fallback: TMDB
+      if (!heroSeries.tmdb_id) {
+        setHeroTrailerKey(null)
+        return
+      }
+
       try {
         const response = await fetch(`/api/trailer?tmdb_id=${heroSeries.tmdb_id}&type=tv`)
         const result = await response.json()
         
         if (result.success && result.trailer?.key) {
-          console.log(`🎬 Trailer trouvé pour ${heroSeries.title}: ${result.trailer.key}`)
           setHeroTrailerKey(result.trailer.key)
         } else {
           setHeroTrailerKey(null)
         }
       } catch (error) {
-        console.error('❌ Erreur chargement trailer:', error)
+        console.error('[HERO] Erreur chargement trailer:', error)
         setHeroTrailerKey(null)
       }
     }

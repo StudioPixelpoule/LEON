@@ -71,30 +71,42 @@ export default function FilmsPage() {
     loadMovies()
   }, []) // Charger une seule fois au montage
 
-  // 🎬 Charger le trailer du film hero (différé de 2s pour ne pas ralentir le chargement initial)
   useEffect(() => {
-    if (!heroMovie?.tmdb_id) {
+    if (!heroMovie) {
       setHeroTrailerKey(null)
       return
     }
     
-    // 🔧 OPTIMISATION: Différer le chargement du trailer pour améliorer le temps de chargement initial
     const timeoutId = setTimeout(async () => {
+      // Priorité au trailer stocké en BDD (modifiable par l'admin)
+      if (heroMovie.trailer_url) {
+        const match = heroMovie.trailer_url.match(/[?&]v=([^&]+)/)
+        if (match?.[1]) {
+          setHeroTrailerKey(match[1])
+          return
+        }
+      }
+
+      // Fallback: TMDB
+      if (!heroMovie.tmdb_id) {
+        setHeroTrailerKey(null)
+        return
+      }
+
       try {
         const response = await fetch(`/api/trailer?tmdb_id=${heroMovie.tmdb_id}&type=movie`)
         const result = await response.json()
         
         if (result.success && result.trailer?.key) {
-          console.log(`🎬 Trailer trouvé pour ${heroMovie.title}: ${result.trailer.key}`)
           setHeroTrailerKey(result.trailer.key)
         } else {
           setHeroTrailerKey(null)
         }
       } catch (error) {
-        console.error('❌ Erreur chargement trailer:', error)
+        console.error('[HERO] Erreur chargement trailer:', error)
         setHeroTrailerKey(null)
       }
-    }, 2000) // Délai de 2s
+    }, 2000)
     
     return () => clearTimeout(timeoutId)
   }, [heroMovie])
