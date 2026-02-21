@@ -87,12 +87,23 @@ export async function importSeriesEpisode(
     // Import dynamique pour éviter les dépendances circulaires
     const { supabase } = await import('../supabase')
 
-    // Chercher la série existante par chemin local
-    const { data: existingSeries } = await supabase
+    // Chercher la série existante par chemin local OU par titre
+    const { data: seriesByPath } = await supabase
       .from('series')
       .select('id, title, tmdb_id')
       .eq('local_folder_path', seriesPath)
-      .single()
+      .limit(1)
+      .maybeSingle()
+
+    const existingSeries = seriesByPath || await (async () => {
+      const { data: seriesByTitle } = await supabase
+        .from('series')
+        .select('id, title, tmdb_id')
+        .eq('title', seriesName)
+        .limit(1)
+        .maybeSingle()
+      return seriesByTitle
+    })()
 
     if (existingSeries) {
       await addEpisodeToExistingSeries(
@@ -204,8 +215,12 @@ async function addEpisodeToExistingSeries(
   onEnrichmentNeeded()
 }
 
+// Lock en mémoire pour éviter la création simultanée de séries
+const seriesCreationLocks = new Map<string, Promise<string | null>>()
+
 /**
  * Créer une nouvelle série en BDD et ajouter le premier épisode.
+ * Utilise un lock en mémoire pour éviter les doublons en cas d'appels concurrents.
  */
 async function createSeriesAndAddEpisode(
   seriesName: string,
@@ -219,6 +234,46 @@ async function createSeriesAndAddEpisode(
   try {
     const { supabase } = await import('../supabase')
 
+    // Attendre si une création est déjà en cours pour cette série
+    const existingLock = seriesCreationLocks.get(seriesPath)
+    if (existingLock) {
+      const existingId = await existingLock
+      if (existingId) {
+        // La série a été créée par un autre appel concurrent → l'utiliser
+        const { data: series } = await supabase
+          .from('series')
+          .select('id, title, tmdb_id')
+          .eq('id', existingId)
+          .limit(1)
+          .maybeSingle()
+
+        if (series) {
+          await addEpisodeToExistingSeries(series, filepath, filename, seriesName, seasonNumber, episodeNumber, onEnrichmentNeeded)
+          return
+        }
+      }
+    }
+
+    // Créer un lock pour cette série
+    let resolveLock: (id: string | null) => void
+    const lockPromise = new Promise<string | null>(resolve => { resolveLock = resolve })
+    seriesCreationLocks.set(seriesPath, lockPromise)
+
+    // Dernière vérification avant création (la série a pu être créée entre-temps)
+    const { data: raceCheck } = await supabase
+      .from('series')
+      .select('id, title, tmdb_id')
+      .or(`local_folder_path.eq.${seriesPath},title.eq.${seriesName}`)
+      .limit(1)
+      .maybeSingle()
+
+    if (raceCheck) {
+      resolveLock!(raceCheck.id)
+      seriesCreationLocks.delete(seriesPath)
+      await addEpisodeToExistingSeries(raceCheck, filepath, filename, seriesName, seasonNumber, episodeNumber, onEnrichmentNeeded)
+      return
+    }
+
     const { data: newSeries, error: insertError } = await supabase
       .from('series')
       .insert({
@@ -230,8 +285,14 @@ async function createSeriesAndAddEpisode(
 
     if (insertError || !newSeries) {
       console.error(`[WATCHER] Erreur création série:`, insertError?.message)
+      resolveLock!(null)
+      seriesCreationLocks.delete(seriesPath)
       return
     }
+
+    resolveLock!(newSeries.id)
+    // Nettoyer le lock après 30s (les rafales sont passées)
+    setTimeout(() => seriesCreationLocks.delete(seriesPath), 30000)
 
     // Vérifier si déjà transcodé sur disque
     const cleanTitle = cleanEpisodeTitle(filename, seriesName)

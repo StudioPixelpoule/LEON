@@ -105,7 +105,8 @@ export async function cleanupDuplicateSeries(): Promise<void> {
           .from('series')
           .select('id, title')
           .eq('local_folder_path', parentPath)
-          .single()
+          .limit(1)
+          .maybeSingle()
 
         if (parentSeries) {
           // Transférer les épisodes de la série fantôme vers la série parente
