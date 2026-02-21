@@ -180,6 +180,7 @@ export async function GET(request: NextRequest) {
       }
     })
   } catch (error) {
+    console.error('[ENRICH-SERIES] Erreur:', error instanceof Error ? error.message : error)
     return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 })
   }
 }

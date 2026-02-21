@@ -9,10 +9,40 @@ import { NextRequest, NextResponse } from 'next/server'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
-import { stat, access } from 'fs/promises'
+import { stat, access, readdir, unlink } from 'fs/promises'
 import { spawn } from 'child_process'
 import path from 'path'
 import fs from 'fs'
+
+// Nettoyage des fichiers audio temporaires > 24h (exécuté au premier appel puis toutes les heures)
+const TEMP_DIR = '/tmp/leon-audio-remux'
+const CLEANUP_INTERVAL = 60 * 60 * 1000
+const MAX_AGE_MS = 24 * 60 * 60 * 1000
+let lastCleanup = 0
+
+async function cleanupTempFiles(): Promise<void> {
+  const now = Date.now()
+  if (now - lastCleanup < CLEANUP_INTERVAL) return
+  lastCleanup = now
+
+  try {
+    const entries = await readdir(TEMP_DIR).catch(() => [] as string[])
+    let cleaned = 0
+    for (const entry of entries) {
+      const fullPath = path.join(TEMP_DIR, entry)
+      const stats = await stat(fullPath).catch(() => null)
+      if (stats && now - stats.mtimeMs > MAX_AGE_MS) {
+        await unlink(fullPath).catch(() => {})
+        cleaned++
+      }
+    }
+    if (cleaned > 0) {
+      console.log(`[AUDIO] Nettoyage: ${cleaned} fichier(s) temporaire(s) supprimé(s)`)
+    }
+  } catch {
+    // Le dossier n'existe peut-être pas encore
+  }
+}
 import crypto from 'crypto'
 import { validateMediaPath } from '@/lib/path-validator'
 
@@ -65,12 +95,12 @@ export async function GET(request: NextRequest) {
       )
     }
     
+    // Nettoyage automatique des vieux fichiers temporaires
+    await cleanupTempFiles()
+
     // Créer un nom de fichier temporaire basé sur le hash MD5 du chemin complet + audioTrack
-    // ⚠️ CRITIQUE: Utiliser MD5 pour garantir l'unicité et éviter les collisions entre fichiers différents
     const fileHash = crypto.createHash('md5').update(filepath).digest('hex')
-    // TODO: Ajouter un service de nettoyage périodique pour /tmp/leon-audio-remux
-    // Les fichiers temporaires de remux audio s'accumulent sans être nettoyés
-    const tempDir = '/tmp/leon-audio-remux'
+    const tempDir = TEMP_DIR
     const tempFilename = `${fileHash}-audio${audioTrackIndex}.mp4`
     const tempPath = path.join(tempDir, tempFilename)
     

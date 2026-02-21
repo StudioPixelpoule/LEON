@@ -78,18 +78,22 @@ export class FileWatcher {
       this.isWatching = true
       console.log(`[WATCHER] Démarré: ${this.watchedDirs.size} dossiers surveillés, ${this.knownFiles.size} fichiers connus`)
 
-      // Nettoyage des séries fantômes au démarrage (10s après stabilisation)
+      // Étaler les opérations lourdes pour ne pas surcharger le NAS au démarrage
+      // Chaque opération attend que la précédente soit terminée ou que son délai soit écoulé
+
+      // 1. Polling de secours pour montages NAS (léger, immédiat)
+      this.startPolling()
+
+      // 2. Nettoyage des séries fantômes (30s après stabilisation)
       setTimeout(() => {
         cleanupDuplicateSeries().catch(err => {
           console.error('[WATCHER] Erreur nettoyage séries fantômes:', err)
         })
-      }, 10000)
+      }, 30000)
 
-      // Polling de secours pour montages NAS
-      this.startPolling()
-
-      // Vérification de cohérence asynchrone (ne bloque pas le démarrage)
+      // 3. Vérification de cohérence BDD (2 min après boot, laisse le NAS respirer)
       setTimeout(() => {
+        console.log('[WATCHER] Démarrage vérification cohérence BDD...')
         checkMissingInDatabase(
           this.knownFiles,
           (filepath) => this.processNewFile(filepath),
@@ -98,14 +102,14 @@ export class FileWatcher {
         ).catch(err => {
           console.error('[WATCHER] Erreur vérification cohérence:', err)
         })
-      }, 15000) // Attendre 15s que l'app soit stable
+      }, 120000)
 
-      // Vérification des séries sans métadonnées (poster) après 30s
+      // 4. Vérification des séries sans métadonnées (3 min après boot)
       setTimeout(() => {
         checkSeriesNeedingEnrichment().catch(err => {
           console.error('[WATCHER] Erreur vérification enrichissement:', err)
         })
-      }, 30000)
+      }, 180000)
 
     } catch (error) {
       console.error('[WATCHER] Erreur démarrage watcher:', error)
