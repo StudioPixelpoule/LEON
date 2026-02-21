@@ -201,7 +201,7 @@ export async function POST(request: NextRequest) {
       .eq('media_type', mediaType)
       .eq('user_id', userId)
     
-    const { data: existing } = await existingQuery.single()
+    const { data: existing } = await existingQuery.limit(1).maybeSingle()
     
     if (existing) {
       return NextResponse.json({

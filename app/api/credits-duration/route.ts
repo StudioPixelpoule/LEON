@@ -36,7 +36,8 @@ export async function GET(request: NextRequest) {
         .select('credits_duration, timing_source')
         .eq('show_name', showName)
         .eq('season_number', seasonNumber)
-        .single()
+        .limit(1)
+        .maybeSingle()
       
       if (seasonSetting) {
         return NextResponse.json({
@@ -54,7 +55,8 @@ export async function GET(request: NextRequest) {
       .select('credits_duration, timing_source')
       .eq('show_name', showName)
       .is('season_number', null)
-      .single()
+      .limit(1)
+      .maybeSingle()
     
     if (defaultSetting) {
       return NextResponse.json({

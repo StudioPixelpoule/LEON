@@ -230,7 +230,8 @@ async function saveEpisodesWithoutTmdb(
       .eq('series_id', seriesId)
       .eq('season_number', ep.season)
       .eq('episode_number', ep.episode)
-      .single()
+      .limit(1)
+      .maybeSingle()
 
     if (!existingEp) {
       const cleanTitle = cleanEpisodeTitle(ep.filename, seriesName)
@@ -367,7 +368,8 @@ async function saveEpisodesWithTmdb(
       .eq('series_id', seriesId)
       .eq('season_number', ep.season)
       .eq('episode_number', ep.episode)
-      .single()
+      .limit(1)
+      .maybeSingle()
 
     if (!existingEp) {
       // Récupérer les métadonnées TMDB de l'épisode

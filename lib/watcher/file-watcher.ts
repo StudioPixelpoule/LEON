@@ -199,7 +199,7 @@ export class FileWatcher {
   /**
    * Gérer un événement fichier avec debounce
    */
-  private handleFileEvent(_eventType: string, filepath: string): void {
+  private handleFileEvent(_eventType: string, filepath: string, retryCount = 0): void {
     if (!isValidFileEvent(filepath, this.knownFiles)) return
 
     // Debounce : attendre que le fichier soit stable
@@ -210,7 +210,7 @@ export class FileWatcher {
     const timeout = setTimeout(async () => {
       this.pendingFiles.delete(filepath)
       try {
-        await this.processNewFile(filepath)
+        await this.processNewFile(filepath, retryCount)
       } catch (error) {
         // processNewFile gère déjà ses erreurs — sécurité supplémentaire
         this.knownFiles.add(filepath)
@@ -225,12 +225,18 @@ export class FileWatcher {
    * Traiter un nouveau fichier détecté.
    * Garantit que le fichier est TOUJOURS ajouté à knownFiles, même en cas d'erreur.
    */
-  private async processNewFile(filepath: string): Promise<void> {
+  private static readonly MAX_WRITE_RETRIES = 10
+
+  private async processNewFile(filepath: string, retryCount = 0): Promise<void> {
     const filename = path.basename(filepath)
 
     try {
       // Vérifier que le fichier existe et est complet
-      const stats = await stat(filepath)
+      const stats = await stat(filepath).catch(() => null)
+      if (!stats) {
+        this.knownFiles.add(filepath)
+        return
+      }
 
       // Ignorer les fichiers trop petits (probablement incomplets)
       if (stats.size < MIN_FILE_SIZE) {
@@ -240,12 +246,20 @@ export class FileWatcher {
 
       // Attendre un peu et vérifier que la taille n'a pas changé (copie en cours)
       await new Promise(resolve => setTimeout(resolve, 5000))
-      const stats2 = await stat(filepath)
+      const stats2 = await stat(filepath).catch(() => null)
+      if (!stats2) {
+        this.knownFiles.add(filepath)
+        return
+      }
 
       if (stats2.size !== stats.size) {
-        // Fichier encore en cours d'écriture — re-programmer sans marquer comme connu
-        console.log(`[WATCHER] Fichier en cours d'écriture: ${filename} (${(stats.size / (1024*1024*1024)).toFixed(1)} Go → ${(stats2.size / (1024*1024*1024)).toFixed(1)} Go)`)
-        this.handleFileEvent('change', filepath)
+        if (retryCount >= FileWatcher.MAX_WRITE_RETRIES) {
+          console.warn(`[WATCHER] Fichier instable après ${FileWatcher.MAX_WRITE_RETRIES} tentatives, abandon: ${filename}`)
+          this.knownFiles.add(filepath)
+          return
+        }
+        console.log(`[WATCHER] Fichier en cours d'écriture: ${filename} (retry ${retryCount + 1}/${FileWatcher.MAX_WRITE_RETRIES})`)
+        this.handleFileEvent('change', filepath, retryCount + 1)
         return
       }
 

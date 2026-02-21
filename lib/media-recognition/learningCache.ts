@@ -24,7 +24,8 @@ export async function getManualMatch(filename: string): Promise<ManualMatch | nu
       .from('manual_matches')
       .select('*')
       .eq('filename', filename)
-      .single();
+      .limit(1)
+      .maybeSingle();
     
     if (error || !data) return null;
     

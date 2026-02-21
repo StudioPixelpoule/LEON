@@ -124,7 +124,8 @@ export async function cleanupDuplicateSeries(): Promise<void> {
                 .eq('series_id', parentSeries.id)
                 .eq('season_number', ep.season_number)
                 .eq('episode_number', ep.episode_number)
-                .single()
+                .limit(1)
+                .maybeSingle()
 
               if (existing) {
                 // L'épisode existe déjà chez le parent — supprimer le doublon fantôme

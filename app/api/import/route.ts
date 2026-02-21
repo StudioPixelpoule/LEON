@@ -110,7 +110,8 @@ async function importByFilepath(filepath: string) {
       .from('media')
       .select('id, title')
       .eq('pcloud_fileid', fullPath)
-      .single()
+      .limit(1)
+      .maybeSingle()
 
     if (existing) {
       return NextResponse.json({

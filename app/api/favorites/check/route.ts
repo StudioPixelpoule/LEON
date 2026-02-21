@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
       .eq('media_type', mediaType)
       .eq('user_id', authUser.id)
     
-    const { data, error } = await query.single()
+    const { data, error } = await query.limit(1).maybeSingle()
     
     if (error && error.code !== 'PGRST116') {
       // PGRST116 = not found, ce n'est pas une erreur

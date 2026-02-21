@@ -152,7 +152,8 @@ async function addEpisodeToExistingSeries(
     .eq('series_id', existingSeries.id)
     .eq('season_number', seasonNumber)
     .eq('episode_number', episodeNumber)
-    .single()
+    .limit(1)
+    .maybeSingle()
 
   if (existingEp) {
     return

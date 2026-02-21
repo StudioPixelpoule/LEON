@@ -25,7 +25,8 @@ export async function importMovieToDatabase(filepath: string, fileSize: number):
       .from('media')
       .select('id')
       .eq('pcloud_fileid', filepath)
-      .single()
+      .limit(1)
+      .maybeSingle()
 
     if (existing) {
       return
