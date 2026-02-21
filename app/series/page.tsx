@@ -13,6 +13,7 @@ import SeriesModal from '@/components/SeriesModal/SeriesModal'
 import ContinueWatchingRow from '@/components/ContinueWatchingRow/ContinueWatchingRow'
 import SearchResultsGrid from '@/components/SearchResultsGrid/SearchResultsGrid'
 import { normalizeString, similarity } from '@/components/SmartSearch/searchUtils'
+import { extractYoutubeId } from '@/lib/youtube'
 import styles from './series.module.css'
 
 interface SeriesData {
@@ -80,11 +81,10 @@ export default function SeriesPage() {
         return
       }
 
-      // Priorité au trailer stocké en BDD (modifiable par l'admin)
       if (heroSeries.trailer_url) {
-        const match = heroSeries.trailer_url.match(/[?&]v=([^&]+)/)
-        if (match?.[1]) {
-          setHeroTrailerKey(match[1])
+        const key = extractYoutubeId(heroSeries.trailer_url)
+        if (key) {
+          setHeroTrailerKey(key)
           return
         }
       }

@@ -10,6 +10,7 @@
 import { useEffect, useState, useRef } from 'react'
 import Image from 'next/image'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
+import { extractYoutubeId } from '@/lib/youtube'
 import styles from './MovieModal.module.css'
 import SimpleVideoPlayer from '@/components/SimpleVideoPlayer/SimpleVideoPlayer'
 import FavoriteButton from '@/components/FavoriteButton/FavoriteButton'
@@ -57,10 +58,9 @@ export default function MovieModal({ movie, onClose, onPlayClick, autoPlay = fal
     async function loadTrailer() {
       // 1. Utiliser le trailer stocké en BDD (modifiable par l'admin)
       if (movie.trailer_url) {
-        const match = movie.trailer_url.match(/[?&]v=([^&]+)/)
-        if (match?.[1]) {
-          console.log(`[MOVIE_MODAL] 🎬 Trailer BDD pour ${movie.title}: ${match[1]}`)
-          setTrailerKey(match[1])
+        const key = extractYoutubeId(movie.trailer_url)
+        if (key) {
+          setTrailerKey(key)
           return
         }
       }

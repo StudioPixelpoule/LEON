@@ -15,6 +15,7 @@ import FavoritesRow from '@/components/FavoritesRow/FavoritesRow'
 import RandomMoviesRow from '@/components/RandomMoviesRow/RandomMoviesRow'
 import SearchResultsGrid from '@/components/SearchResultsGrid/SearchResultsGrid'
 import type { GroupedMedia } from '@/app/api/media/grouped/route'
+import { extractYoutubeId } from '@/lib/youtube'
 import { groupMoviesByCategories, selectTopCategories } from '@/lib/genreClassification'
 import { normalizeString, similarity } from '@/components/SmartSearch/searchUtils'
 import styles from './films.module.css'
@@ -78,11 +79,10 @@ export default function FilmsPage() {
     }
     
     const timeoutId = setTimeout(async () => {
-      // Priorité au trailer stocké en BDD (modifiable par l'admin)
       if (heroMovie.trailer_url) {
-        const match = heroMovie.trailer_url.match(/[?&]v=([^&]+)/)
-        if (match?.[1]) {
-          setHeroTrailerKey(match[1])
+        const key = extractYoutubeId(heroMovie.trailer_url)
+        if (key) {
+          setHeroTrailerKey(key)
           return
         }
       }

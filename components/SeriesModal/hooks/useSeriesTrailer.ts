@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import type { TrailerPlayerRef } from '@/components/TrailerPlayer/TrailerPlayer'
+import { extractYoutubeId } from '@/lib/youtube'
 
 interface SeriesTrailerInput {
   id: string
@@ -36,12 +37,10 @@ export function useSeriesTrailer(series: SeriesTrailerInput): UseSeriesTrailerRe
 
   useEffect(() => {
     async function loadTrailer() {
-      // 1. Utiliser d'abord le trailer stocké en BDD (plus rapide)
       if (series.trailer_url) {
-        const match = series.trailer_url.match(/[?&]v=([^&]+)/)
-        if (match && match[1]) {
-          console.log(`[SERIES_MODAL] 🎬 Trailer stocké pour ${series.title}: ${match[1]}`)
-          setTrailerKey(match[1])
+        const key = extractYoutubeId(series.trailer_url)
+        if (key) {
+          setTrailerKey(key)
           return
         }
       }
