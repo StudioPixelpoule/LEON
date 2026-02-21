@@ -46,6 +46,9 @@ export async function GET(
       )
     }
 
+    // LOG: diagnostic épisodes reçus de Supabase
+    console.log(`[SERIES-DETAIL] ${serie.title}: ${allEpisodes?.length || 0} épisodes reçus de Supabase`)
+
     // Grouper par saison et déterminer le statut de chaque saison
     const seasonGrouped: Record<number, { episodes: any[]; allTranscoded: boolean }> = {}
     for (const ep of (allEpisodes || [])) {
@@ -56,6 +59,16 @@ export async function GET(
       seasonGrouped[s].episodes.push(ep)
       if (ep.is_transcoded !== true) {
         seasonGrouped[s].allTranscoded = false
+      }
+    }
+
+    // LOG: diagnostic saisons
+    for (const [season, data] of Object.entries(seasonGrouped)) {
+      const transcoded = data.episodes.filter((ep: any) => ep.is_transcoded === true).length
+      const notTranscoded = data.episodes.filter((ep: any) => ep.is_transcoded !== true)
+      if (notTranscoded.length > 0) {
+        console.log(`[SERIES-DETAIL] S${season}: ${transcoded}/${data.episodes.length} — ${notTranscoded.length} non-transcodé(s):`, 
+          notTranscoded.map((ep: any) => `E${ep.episode_number}(is_transcoded=${ep.is_transcoded})`).join(', '))
       }
     }
 
