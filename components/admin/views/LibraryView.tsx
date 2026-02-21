@@ -61,6 +61,7 @@ export function LibraryView() {
           tmdb_id: infoData.media.tmdb_id,
           overview: infoData.media.overview,
           backdrop_url: infoData.media.backdrop_url,
+          trailer_url: infoData.media.trailer_url,
         } : null)
 
         edit.initEditFields(infoData.media)
