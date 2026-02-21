@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 import { createSupabaseAdmin } from '@/lib/supabase'
+import { invalidateMediaCaches } from '@/lib/cache-invalidation'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
@@ -83,6 +84,7 @@ export async function POST(request: NextRequest) {
     }
 
     console.log(`[ADMIN] Série "${tmdbData.name}" mise à jour avec succès`)
+    invalidateMediaCaches()
 
     return NextResponse.json({
       success: true,

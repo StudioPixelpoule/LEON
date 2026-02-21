@@ -8,6 +8,7 @@ import { NextResponse } from 'next/server'
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
 import { supabase } from '@/lib/supabase'
+import { getLastInvalidation } from '@/lib/cache-invalidation'
 
 export interface GroupedMedia {
   id: string
@@ -29,6 +30,7 @@ export interface GroupedMedia {
   subtitles: any | null
   quality: string | null
   created_at: string | null
+  trailer_url: string | null
   // Champs optionnels pour la compatibilité avec les séries
   type?: 'movie' | 'tv'
   series_name?: string | null
@@ -52,8 +54,11 @@ export async function GET(request: Request) {
     const allMedia = searchParams.get('all') === 'true'
     const now = Date.now()
     
-    // Utiliser le cache si valide (pas de cache en mode all=true)
-    if (!noCache && !allMedia && cachedMovies && (now - cacheTimestamp) < CACHE_DURATION) {
+    // Utiliser le cache si valide (invalidé par actions admin)
+    const cacheValid = !noCache && !allMedia && cachedMovies 
+      && (now - cacheTimestamp) < CACHE_DURATION
+      && cacheTimestamp > getLastInvalidation()
+    if (cacheValid) {
       let results = [...cachedMovies]
       
       // Trier si nécessaire
@@ -83,7 +88,7 @@ export async function GET(request: Request) {
     // Filtre is_transcoded : n'affiche que les médias transcodés (sauf si all=true pour l'admin)
     const query = supabase
       .from('media')
-      .select('id, title, original_title, year, poster_url, backdrop_url, overview, rating, tmdb_id, release_date, genres, pcloud_fileid, duration, formatted_runtime, movie_cast, director, subtitles, quality, created_at')
+      .select('id, title, original_title, year, poster_url, backdrop_url, overview, rating, tmdb_id, release_date, genres, pcloud_fileid, duration, formatted_runtime, movie_cast, director, subtitles, quality, created_at, trailer_url')
 
     if (!allMedia) {
       query.eq('is_transcoded', true)
@@ -131,6 +136,7 @@ export async function GET(request: Request) {
       subtitles: movie.subtitles,
       quality: movie.quality,
       created_at: movie.created_at,
+      trailer_url: movie.trailer_url,
     })) || []
     
     // Mettre à jour le cache (trié par date récente par défaut)

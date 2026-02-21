@@ -17,6 +17,7 @@ import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 export const dynamic = 'force-dynamic'
 import { createSupabaseAdmin } from '@/lib/supabase'
 import { getMovieDetails, getTMDBImageUrl } from '@/lib/tmdb'
+import { invalidateMediaCaches } from '@/lib/cache-invalidation'
 
 const OMDB_API_KEY = process.env.OMDB_API_KEY || 'b9a5c8f8'
 
@@ -200,6 +201,7 @@ export async function POST(request: NextRequest) {
     }
     
     console.log(`[ADMIN] Correction appliquée pour "${existingMedia.title}" (${source})`)
+    invalidateMediaCaches()
     
     return NextResponse.json({
       success: true,

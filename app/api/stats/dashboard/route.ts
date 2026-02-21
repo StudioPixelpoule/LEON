@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 import { createSupabaseAdmin } from '@/lib/supabase'
+import { getLastInvalidation } from '@/lib/cache-invalidation'
 import { readdir, stat } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
@@ -157,9 +158,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    // Utiliser le cache si disponible et valide
-    if (dashboardCache && Date.now() - dashboardCache.timestamp < CACHE_TTL) {
-      return NextResponse.json(dashboardCache.data)
+    const cacheValid = dashboardCache 
+      && Date.now() - dashboardCache.timestamp < CACHE_TTL
+      && dashboardCache.timestamp > getLastInvalidation()
+    if (cacheValid) {
+      return NextResponse.json(dashboardCache!.data)
     }
 
     const supabase = createSupabaseAdmin()

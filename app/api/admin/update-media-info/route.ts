@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 import { createSupabaseAdmin } from '@/lib/supabase'
 import { getMovieDetails, getTVShowDetails, getTMDBImageUrl, formatRuntime } from '@/lib/tmdb'
+import { invalidateMediaCaches } from '@/lib/cache-invalidation'
 
 export const dynamic = 'force-dynamic'
 
@@ -157,6 +158,7 @@ export async function PATCH(request: NextRequest) {
     }
 
     console.log(`[UPDATE-MEDIA-INFO] ✅ Mis à jour:`, updateData)
+    invalidateMediaCaches()
 
     return NextResponse.json({
       success: true,

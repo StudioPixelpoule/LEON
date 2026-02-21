@@ -17,6 +17,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 import { createSupabaseAdmin } from '@/lib/supabase'
+import { invalidateMediaCaches } from '@/lib/cache-invalidation'
 import { rm, unlink } from 'fs/promises'
 import { existsSync } from 'fs'
 import path from 'path'
@@ -212,6 +213,7 @@ export async function DELETE(request: NextRequest) {
     }
 
     result.success = result.deleted.media && result.errors.length === 0
+    if (result.success) invalidateMediaCaches()
 
     console.log(`[DELETE-MEDIA] ${result.success ? '✅' : '⚠️'} Résultat:`, result)
 

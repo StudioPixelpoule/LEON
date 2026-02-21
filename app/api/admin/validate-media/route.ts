@@ -16,6 +16,7 @@ import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 export const dynamic = 'force-dynamic'
 import { createSupabaseAdmin } from '@/lib/supabase'
 import { getMovieDetails, getTMDBImageUrl, getYearFromDate } from '@/lib/tmdb'
+import { invalidateMediaCaches } from '@/lib/cache-invalidation'
 
 export async function POST(request: NextRequest) {
   // Vérification admin OBLIGATOIRE
@@ -129,6 +130,7 @@ export async function POST(request: NextRequest) {
     }
     
     console.log(`[ADMIN] Média validé: ${mediaId}`)
+    invalidateMediaCaches()
     
     return NextResponse.json({
       success: true,

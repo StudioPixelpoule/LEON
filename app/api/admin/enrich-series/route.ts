@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 import { createSupabaseAdmin } from '@/lib/supabase'
+import { invalidateMediaCaches } from '@/lib/cache-invalidation'
 
 export const dynamic = 'force-dynamic'
 
@@ -134,6 +135,8 @@ export async function POST(request: NextRequest) {
       await new Promise(resolve => setTimeout(resolve, 100))
     }
     
+    if (results.enriched > 0) invalidateMediaCaches()
+
     return NextResponse.json({
       success: true,
       message: `${results.enriched} séries enrichies, ${results.skipped} ignorées, ${results.errors} erreurs`,

@@ -312,10 +312,26 @@ async function saveSeriesWithTmdb(
   }
 
   if (existingSeries) {
-    // Mettre à jour
+    // Récupérer les valeurs actuelles pour ne pas écraser les modifications admin
+    const { data: currentData } = await supabase
+      .from('series')
+      .select('poster_url, backdrop_url, trailer_url')
+      .eq('id', existingSeries.id)
+      .limit(1)
+      .maybeSingle()
+
+    // Préserver les valeurs déjà définies (possiblement modifiées par l'admin)
+    const safePayload = {
+      ...seriesPayload,
+      poster_url: currentData?.poster_url || seriesPayload.poster_url,
+      backdrop_url: currentData?.backdrop_url || seriesPayload.backdrop_url,
+      trailer_url: currentData?.trailer_url || seriesPayload.trailer_url,
+      updated_at: new Date().toISOString()
+    }
+
     const { error: updateError } = await supabase
       .from('series')
-      .update({ ...seriesPayload, updated_at: new Date().toISOString() })
+      .update(safePayload)
       .eq('id', existingSeries.id)
 
     if (updateError) {

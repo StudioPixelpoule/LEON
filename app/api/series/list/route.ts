@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server'
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
 import { supabase } from '@/lib/supabase'
+import { getLastInvalidation } from '@/lib/cache-invalidation'
 
 // Cache en mémoire côté serveur (5 minutes)
 interface CachedSeries {
@@ -24,8 +25,11 @@ export async function GET(request: Request) {
     const noCache = searchParams.get('nocache') === 'true'
     const now = Date.now()
     
-    // Utiliser le cache si valide
-    if (!noCache && seriesCache && (now - seriesCache.timestamp) < CACHE_DURATION) {
+    // Utiliser le cache si valide (invalidé par actions admin)
+    const cacheValid = !noCache && seriesCache 
+      && (now - seriesCache.timestamp) < CACHE_DURATION
+      && seriesCache.timestamp > getLastInvalidation()
+    if (cacheValid) {
       return NextResponse.json({
         success: true,
         count: seriesCache.data.length,

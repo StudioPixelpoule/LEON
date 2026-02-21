@@ -52,9 +52,20 @@ export default function MovieModal({ movie, onClose, onPlayClick, autoPlay = fal
   
   const isTVShow = movie.type === 'tv'
   
-  // 🎬 Charger le trailer
+  // 🎬 Charger le trailer (priorité: BDD > TMDB)
   useEffect(() => {
     async function loadTrailer() {
+      // 1. Utiliser le trailer stocké en BDD (modifiable par l'admin)
+      if (movie.trailer_url) {
+        const match = movie.trailer_url.match(/[?&]v=([^&]+)/)
+        if (match?.[1]) {
+          console.log(`[MOVIE_MODAL] 🎬 Trailer BDD pour ${movie.title}: ${match[1]}`)
+          setTrailerKey(match[1])
+          return
+        }
+      }
+
+      // 2. Fallback: TMDB
       if (!movie.tmdb_id) {
         setTrailerKey(null)
         return
@@ -66,20 +77,20 @@ export default function MovieModal({ movie, onClose, onPlayClick, autoPlay = fal
         const result = await response.json()
         
         if (result.success && result.trailer?.key) {
-          console.log(`[MOVIE_MODAL] 🎬 Trailer trouvé pour ${movie.title}: ${result.trailer.key}`)
+          console.log(`[MOVIE_MODAL] 🎬 Trailer TMDB pour ${movie.title}: ${result.trailer.key}`)
           setTrailerKey(result.trailer.key)
         } else {
           setTrailerKey(null)
         }
       } catch (error) {
-        console.error('❌ Erreur chargement trailer:', error)
+        console.error('[MOVIE_MODAL] Erreur chargement trailer:', error)
         setTrailerKey(null)
       }
     }
     
     loadTrailer()
-    setTrailerEnded(false) // Reset quand le film change
-  }, [movie.tmdb_id, movie.title, isTVShow])
+    setTrailerEnded(false)
+  }, [movie.tmdb_id, movie.title, isTVShow, movie.trailer_url])
   
   // Charger les épisodes pour les séries
   useEffect(() => {
