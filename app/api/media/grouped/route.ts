@@ -59,7 +59,7 @@ export async function GET(request: Request) {
       && (now - cacheTimestamp) < CACHE_DURATION
       && cacheTimestamp > getLastInvalidation()
     if (cacheValid) {
-      let results = [...cachedMovies]
+      let results = [...(cachedMovies || [])]
       
       // Trier si nécessaire
       if (sortBy === 'rating') {

@@ -32,8 +32,8 @@ export async function GET(request: Request) {
     if (cacheValid) {
       return NextResponse.json({
         success: true,
-        count: seriesCache.data.length,
-        series: seriesCache.data,
+        count: seriesCache?.data.length ?? 0,
+        series: seriesCache?.data ?? [],
         cached: true
       }, {
         headers: {
