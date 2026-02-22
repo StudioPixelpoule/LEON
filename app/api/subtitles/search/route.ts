@@ -1,124 +1,146 @@
+/**
+ * API: Rechercher des sous-titres sur OpenSubtitles REST API
+ * GET /api/subtitles/search?path=/chemin/vers/video.mp4&lang=fr
+ * Retourne la liste des sous-titres disponibles
+ * 
+ * Remplace l'ancienne dépendance subliminal (Python) par l'API REST OpenSubtitles.
+ */
+
 import { NextRequest, NextResponse } from 'next/server'
-import { spawn } from 'child_process'
 import path from 'path'
 import { validateMediaPath } from '@/lib/path-validator'
 
-// Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
 
-// Chemin vers subliminal (configurable via variable d'environnement)
-const SUBLIMINAL_PATH = process.env.SUBLIMINAL_PATH || 'subliminal'
+const OPENSUBTITLES_API_KEY = process.env.OPENSUBTITLES_API_KEY
+const OPENSUBTITLES_BASE = 'https://api.opensubtitles.com/api/v1'
 
-// Langues autorisées pour éviter l'injection
 const VALID_LANGS: Record<string, string> = {
-  'fr': 'fra', 'en': 'eng', 'es': 'spa', 'de': 'deu',
-  'it': 'ita', 'pt': 'por', 'nl': 'nld', 'ja': 'jpn',
-  'ko': 'kor', 'zh': 'zho', 'fra': 'fra', 'eng': 'eng',
-  'spa': 'spa', 'deu': 'deu', 'ita': 'ita', 'por': 'por',
+  'fr': 'fr', 'en': 'en', 'es': 'es', 'de': 'de',
+  'it': 'it', 'pt': 'pt-BR', 'nl': 'nl', 'ja': 'ja',
+  'ko': 'ko', 'zh': 'zh-CN',
+  'fra': 'fr', 'eng': 'en', 'spa': 'es', 'deu': 'de',
+  'ita': 'it', 'por': 'pt-BR',
 }
 
-/**
- * Exécute subliminal de manière sécurisée via spawn (pas de string interpolation)
- */
-function runSubliminal(args: string[], cwd: string, timeoutMs = 30000): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(SUBLIMINAL_PATH, args, { cwd, timeout: timeoutMs })
-    let stdout = ''
-    let stderr = ''
-    proc.stdout.on('data', (data) => { stdout += data.toString() })
-    proc.stderr.on('data', (data) => { stderr += data.toString() })
-    proc.on('close', () => resolve({ stdout, stderr }))
-    proc.on('error', (err) => reject(err))
-  })
+function extractTitleFromFilename(filename: string): string {
+  const basename = path.basename(filename, path.extname(filename))
+  return basename
+    .replace(/\./g, ' ')
+    .replace(/_/g, ' ')
+    .replace(/\(\d{4}\)/, '')
+    .replace(/\[\w+\]/g, '')
+    .replace(/\b(1080p|720p|2160p|4k|BluRay|BDRip|WEBRip|WEB-DL|HDRip|x264|x265|HEVC|AAC|DTS|REMUX)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
-/**
- * API pour chercher et télécharger des sous-titres depuis OpenSubtitles
- * Utilise subliminal (Python) pour la recherche et le téléchargement
- */
 export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams
   const filepathRaw = searchParams.get('path')
-  const lang = searchParams.get('lang') || 'fra'
+  const lang = searchParams.get('lang') || 'fr'
 
   if (!filepathRaw) {
     return NextResponse.json({ error: 'Paramètre path manquant' }, { status: 400 })
   }
-  
-  // Valider le chemin contre le path traversal
+
   const validation = validateMediaPath(filepathRaw)
   if (!validation.valid) {
-    console.error('[API] Chemin non autorisé:', validation.error)
     return NextResponse.json({ error: 'Chemin non autorisé' }, { status: 403 })
   }
-  
-  // Valider la langue contre une whitelist
-  const validLang = VALID_LANGS[lang]
-  if (!validLang) {
+
+  const osLang = VALID_LANGS[lang]
+  if (!osLang) {
     return NextResponse.json({ error: `Langue non supportée: ${lang}` }, { status: 400 })
   }
-  
-  // Normaliser pour gérer les caractères Unicode
-  const filepath = validation.normalized || filepathRaw.normalize('NFD')
-  const videoDir = path.dirname(filepath)
-  const videoFilename = path.basename(filepath)
-  
-  console.log(`[API] Recherche sous-titres: ${videoFilename} (langue: ${validLang})`)
-  
+
+  if (!OPENSUBTITLES_API_KEY) {
+    return NextResponse.json({
+      error: 'Clé API OpenSubtitles non configurée',
+      suggestion: 'Ajoutez OPENSUBTITLES_API_KEY dans votre .env (gratuit sur opensubtitles.com/consumers)'
+    }, { status: 500 })
+  }
+
+  const filepath = validation.normalized || filepathRaw.normalize('NFC')
+  const title = extractTitleFromFilename(filepath)
+
+  console.log(`[SUBTITLES] Recherche: "${title}" (${osLang})`)
+
   try {
-    // Télécharger les sous-titres avec subliminal (via spawn, pas d'interpolation shell)
-    const { stdout, stderr } = await runSubliminal(
-      ['download', '-l', validLang, videoFilename],
-      videoDir
-    )
-    
-    console.log('[SUBTITLES] Sortie subliminal:', stdout)
-    
-    if (stderr && !stderr.includes('Downloaded')) {
-      console.warn('⚠️ Avertissement:', stderr)
+    const searchUrl = new URL(`${OPENSUBTITLES_BASE}/subtitles`)
+    searchUrl.searchParams.set('query', title)
+    searchUrl.searchParams.set('languages', osLang)
+
+    const response = await fetch(searchUrl.toString(), {
+      headers: {
+        'Api-Key': OPENSUBTITLES_API_KEY,
+        'Content-Type': 'application/json',
+        'User-Agent': 'LEON v1.0',
+      }
+    })
+
+    if (!response.ok) {
+      const errorBody = await response.text()
+      console.error(`[SUBTITLES] Erreur recherche (${response.status}):`, errorBody.slice(0, 300))
+      return NextResponse.json({
+        error: `Erreur OpenSubtitles (${response.status})`,
+        details: errorBody.slice(0, 200)
+      }, { status: 502 })
     }
-    
-    // Vérifier si le téléchargement a réussi
-    if (stdout.includes('Downloaded') || stdout.includes('1 video collected')) {
-      console.log('[SUBTITLES] Sous-titres téléchargés avec succès')
-      
-      // Le fichier .srt devrait maintenant exister
-      // Rediriger vers l'API externe qui va le charger
-      const externalUrl = `/api/subtitles/external?path=${encodeURIComponent(filepath)}&lang=fr`
-      
-      return NextResponse.json({ 
-        success: true,
-        message: 'Sous-titres téléchargés',
-        redirectTo: externalUrl
-      }, { status: 200 })
-    } else if (stdout.includes('No subtitles found') || stdout.includes('0 video collected')) {
-      console.warn('⚠️ Aucun sous-titre trouvé')
-      return NextResponse.json({ 
+
+    const data = await response.json()
+
+    if (!data.data || data.data.length === 0) {
+      return NextResponse.json({
         error: 'Aucun sous-titre disponible pour ce film',
-        suggestion: 'Essayez de chercher manuellement sur OpenSubtitles.org'
+        suggestion: 'Essayez de chercher manuellement sur opensubtitles.com'
       }, { status: 404 })
-    } else {
-      console.warn('⚠️ Résultat inattendu:', stdout)
-      return NextResponse.json({ 
-        error: 'Téléchargement incertain',
-        details: stdout
-      }, { status: 500 })
     }
+
+    interface OpenSubtitlesResult {
+      id: string
+      attributes: {
+        release?: string
+        language?: string
+        download_count?: number
+        hearing_impaired?: boolean
+        foreign_parts_only?: boolean
+        files?: Array<{ file_id: number; file_name?: string }>
+        feature_details?: {
+          title?: string
+          year?: number
+        }
+      }
+    }
+
+    const results = data.data.map((item: OpenSubtitlesResult) => ({
+      id: item.id,
+      release: item.attributes?.release,
+      language: item.attributes?.language,
+      downloadCount: item.attributes?.download_count,
+      hearingImpaired: item.attributes?.hearing_impaired,
+      foreignPartsOnly: item.attributes?.foreign_parts_only,
+      fileId: item.attributes?.files?.[0]?.file_id,
+      fileName: item.attributes?.files?.[0]?.file_name,
+      movieTitle: item.attributes?.feature_details?.title,
+      year: item.attributes?.feature_details?.year,
+    }))
+
+    console.log(`[SUBTITLES] ${results.length} résultats trouvés pour "${title}"`)
+
+    return NextResponse.json({
+      success: true,
+      query: title,
+      language: osLang,
+      count: results.length,
+      results
+    })
+
   } catch (error) {
-    console.error('❌ Erreur téléchargement sous-titres:', error)
-    
-    // Vérifier si c'est un timeout
-    if (error instanceof Error && error.message.includes('timeout')) {
-      return NextResponse.json({ 
-        error: 'Délai d\'attente dépassé',
-        details: 'Le téléchargement a pris trop de temps (> 30s)'
-      }, { status: 504 })
-    }
-    
-    return NextResponse.json({ 
+    console.error('❌ Erreur recherche sous-titres:', error)
+    return NextResponse.json({
       error: 'Erreur serveur',
       details: error instanceof Error ? error.message : 'Erreur inconnue'
     }, { status: 500 })
   }
 }
-

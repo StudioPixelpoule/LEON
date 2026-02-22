@@ -424,7 +424,7 @@ export function useSubtitleManager({
     }
   }, [selectedSubtitle, subtitleTracks, handleSubtitleChange])
 
-  // Télécharger des sous-titres depuis OpenSubtitles (FR + EN)
+  // Télécharger des sous-titres depuis OpenSubtitles (FR + Forced FR + EN)
   const handleDownloadOpenSubtitles = useCallback(async () => {
     if (isDownloadingSubtitles) return
 
@@ -439,13 +439,18 @@ export function useSubtitleManager({
     onCloseSettings?.()
 
     try {
-      const languages = ['fr', 'en']
+      const requests: Array<{ lang: string; forced: boolean; label: string }> = [
+        { lang: 'fr', forced: false, label: 'Français' },
+        { lang: 'fr', forced: true, label: 'Français (Forcé)' },
+        { lang: 'en', forced: false, label: 'English' },
+      ]
       const downloadedTracks: SubtitleTrack[] = []
 
-      for (const lang of languages) {
+      for (const req of requests) {
         try {
-          console.log(`[PLAYER] Téléchargement sous-titre ${lang.toUpperCase()}...`)
-          const fetchUrl = `/api/subtitles/fetch?path=${encodeURIComponent(filepath)}&lang=${lang}`
+          const langLabel = req.forced ? `${req.lang.toUpperCase()} Forced` : req.lang.toUpperCase()
+          console.log(`[PLAYER] Téléchargement sous-titre ${langLabel}...`)
+          const fetchUrl = `/api/subtitles/fetch?path=${encodeURIComponent(filepath)}&lang=${req.lang}${req.forced ? '&forced=true' : ''}`
 
           const response = await fetch(fetchUrl)
 
@@ -457,10 +462,10 @@ export function useSubtitleManager({
               try {
                 const errorData = JSON.parse(responseText)
                 const errorMsg = errorData.message || errorData.error || 'Erreur inconnue'
-                console.warn(`[PLAYER] Erreur API: ${errorMsg}`)
+                console.warn(`[PLAYER] Erreur API (${req.label}): ${errorMsg}`)
 
-                if (errorData.requiresVip || errorMsg.toLowerCase().includes('vip')) {
-                  onError('OpenSubtitles requiert un compte VIP. Cette fonctionnalité n\'est pas disponible pour le moment.')
+                if (errorData.requiresVip || errorMsg.toLowerCase().includes('vip') || errorMsg.toLowerCase().includes('limite')) {
+                  onError('Limite OpenSubtitles atteinte (20 téléchargements/jour gratuit)')
                   setTimeout(() => onError(null), 8000)
                 }
 
@@ -475,22 +480,22 @@ export function useSubtitleManager({
               continue
             }
 
-            const vttUrl = `/api/subtitles/fetch?path=${encodeURIComponent(filepath)}&lang=${lang}${subtitleOffset !== 0 ? `&offset=${subtitleOffset}` : ''}`
+            const vttUrl = `/api/subtitles/fetch?path=${encodeURIComponent(filepath)}&lang=${req.lang}${req.forced ? '&forced=true' : ''}${subtitleOffset !== 0 ? `&offset=${subtitleOffset}` : ''}`
 
             if (videoRef.current) {
               const trackElement = document.createElement('track')
               trackElement.kind = 'subtitles'
-              trackElement.label = lang === 'fr' ? 'Français' : 'English'
-              trackElement.srclang = lang
+              trackElement.label = req.label
+              trackElement.srclang = req.lang
               trackElement.src = vttUrl
               trackElement.default = false
 
               videoRef.current.appendChild(trackElement)
 
               trackElement.addEventListener('load', () => {
-                console.log(`[PLAYER] Track ${lang.toUpperCase()} chargé`)
+                console.log(`[PLAYER] Track ${req.label} chargé`)
                 const textTrack = Array.from(videoRef.current!.textTracks).find(
-                  t => t.label === (lang === 'fr' ? 'Français' : 'English')
+                  t => t.label === req.label
                 )
                 if (textTrack) {
                   const activateDownloadedTrack = () => {
@@ -541,12 +546,12 @@ export function useSubtitleManager({
                   videoRef.current?.addEventListener('play', startChecking, { once: true })
                   activateDownloadedTrack()
                 } else {
-                  console.error(`[PLAYER] Track "${lang === 'fr' ? 'Français' : 'English'}" non trouvé dans textTracks`)
+                  console.error(`[PLAYER] Track "${req.label}" non trouvé dans textTracks`)
                 }
               })
 
               trackElement.addEventListener('error', async (e) => {
-                console.error(`[PLAYER] Erreur chargement sous-titre téléchargé ${lang.toUpperCase()}:`, e)
+                console.error(`[PLAYER] Erreur chargement sous-titre téléchargé ${req.label}:`, e)
                 console.error(`[PLAYER] URL track: ${trackElement.src}`)
 
                 try {
@@ -570,15 +575,16 @@ export function useSubtitleManager({
 
               downloadedTracks.push({
                 index: subtitleTracks.length + downloadedTracks.length,
-                language: lang === 'fr' ? 'Français' : 'English',
+                language: req.label,
                 title: `Téléchargé depuis OpenSubtitles`,
+                forced: req.forced,
                 isDownloaded: true,
                 sourceUrl: vttUrl
               } as SubtitleTrack)
             }
           }
         } catch (err) {
-          console.error(`[PLAYER] Erreur téléchargement ${lang}:`, err)
+          console.error(`[PLAYER] Erreur téléchargement ${req.label}:`, err)
         }
       }
 

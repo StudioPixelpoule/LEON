@@ -1,52 +1,45 @@
 /**
- * API: Télécharger des sous-titres avec subliminal (alternative gratuite à OpenSubtitles VIP)
- * GET /api/subtitles/fetch?path=/chemin/vers/video.mp4&lang=fr
+ * API: Télécharger des sous-titres depuis OpenSubtitles REST API
+ * GET /api/subtitles/fetch?path=/chemin/vers/video.mp4&lang=fr&forced=false
  * Retourne les sous-titres en WebVTT pour affichage direct dans le lecteur
+ * 
+ * Remplace l'ancienne dépendance subliminal (Python) par l'API REST OpenSubtitles.
+ * Nécessite OPENSUBTITLES_API_KEY dans les variables d'environnement.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 
-// Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
 import path from 'path'
 import { promises as fs } from 'fs'
-import { spawn } from 'child_process'
 import { validateMediaPath } from '@/lib/path-validator'
 
-// Chemin vers subliminal (configurable via variable d'environnement)
-const SUBLIMINAL_PATH = process.env.SUBLIMINAL_PATH || 'subliminal'
+const OPENSUBTITLES_API_KEY = process.env.OPENSUBTITLES_API_KEY
+const OPENSUBTITLES_BASE = 'https://api.opensubtitles.com/api/v1'
 
-// Langues autorisées pour éviter l'injection
 const VALID_LANGS: Record<string, string> = {
-  'fr': 'fra', 'en': 'eng', 'es': 'spa', 'de': 'deu',
-  'it': 'ita', 'pt': 'por', 'nl': 'nld', 'ja': 'jpn',
-  'ko': 'kor', 'zh': 'zho', 'fra': 'fra', 'eng': 'eng',
-  'spa': 'spa', 'deu': 'deu', 'ita': 'ita', 'por': 'por',
+  'fr': 'fr', 'en': 'en', 'es': 'es', 'de': 'de',
+  'it': 'it', 'pt': 'pt-BR', 'nl': 'nl', 'ja': 'ja',
+  'ko': 'ko', 'zh': 'zh-CN',
 }
 
 /**
- * Exécute subliminal de manière sécurisée via spawn (pas de string interpolation)
+ * Extrait un titre propre depuis un nom de fichier vidéo.
+ * Ex: "Rental.Family.mkv" → "Rental Family"
  */
-function runSubliminal(args: string[], cwd: string, timeoutMs = 60000): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn(SUBLIMINAL_PATH, args, { cwd, timeout: timeoutMs })
-    let stdout = ''
-    let stderr = ''
-    proc.stdout.on('data', (data) => { stdout += data.toString() })
-    proc.stderr.on('data', (data) => { stderr += data.toString() })
-    proc.on('close', (code) => {
-      if (code === 0 || stdout.includes('Downloaded') || stdout.includes('collected')) {
-        resolve({ stdout, stderr })
-      } else {
-        resolve({ stdout, stderr }) // Résoudre quand même pour analyser la sortie
-      }
-    })
-    proc.on('error', (err) => reject(err))
-  })
+function extractTitleFromFilename(filename: string): string {
+  const basename = path.basename(filename, path.extname(filename))
+  return basename
+    .replace(/\./g, ' ')
+    .replace(/_/g, ' ')
+    .replace(/\(\d{4}\)/, '')
+    .replace(/\[\w+\]/g, '')
+    .replace(/\b(1080p|720p|2160p|4k|BluRay|BDRip|WEBRip|WEB-DL|HDRip|x264|x265|HEVC|AAC|DTS|REMUX)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
-export async function OPTIONS(request: NextRequest) {
-  // Gérer les requêtes CORS preflight
+export async function OPTIONS() {
   return new NextResponse(null, {
     status: 200,
     headers: {
@@ -62,214 +55,200 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams
     const filepathRaw = searchParams.get('path')
     const lang = searchParams.get('lang') || 'fr'
-    const offset = parseFloat(searchParams.get('offset') || '0') // Décalage en secondes pour synchroniser
-    
+    const offset = parseFloat(searchParams.get('offset') || '0')
+    const forced = searchParams.get('forced') === 'true'
+
     if (!filepathRaw) {
       return NextResponse.json({ error: 'Chemin du fichier manquant' }, { status: 400 })
     }
-    
-    // Valider le chemin contre le path traversal
+
     const validation = validateMediaPath(filepathRaw)
     if (!validation.valid) {
-      console.error('[API] Chemin non autorisé:', validation.error)
+      console.error('[SUBTITLES] Chemin non autorisé:', validation.error)
       return NextResponse.json({ error: 'Chemin non autorisé' }, { status: 403 })
     }
-    
-    // Valider la langue contre une whitelist
-    const subliminalLang = VALID_LANGS[lang]
-    if (!subliminalLang) {
+
+    const osLang = VALID_LANGS[lang]
+    if (!osLang) {
       return NextResponse.json({ error: `Langue non supportée: ${lang}` }, { status: 400 })
     }
-    
-    // Normaliser le chemin
-    const filepath = validation.normalized || filepathRaw.normalize('NFD')
+
+    const filepath = validation.normalized || filepathRaw.normalize('NFC')
     const videoDir = path.dirname(filepath)
-    const videoFilename = path.basename(filepath)
-    
-    console.log(`[API] Recherche sous-titres subliminal: ${videoFilename} (langue: ${subliminalLang})`)
-    
-    // Télécharger les sous-titres avec subliminal
-    // Utiliser plusieurs refiners pour améliorer la correspondance : hash, metadata, tmdb
-    console.log(`[SUBTITLES] Téléchargement sous-titres ${subliminalLang} avec subliminal...`)
-    
-    // ⚠️ IMPORTANT: Supprimer les anciens fichiers SRT qui pourraient être incorrects
-    // avant de télécharger de nouveaux sous-titres
     const videoBasename = path.basename(filepath, path.extname(filepath))
-    const oldSrtPaths = [
-      path.join(videoDir, `${videoBasename}.${subliminalLang}.srt`),
-      path.join(videoDir, `${videoBasename}.${lang}.srt`),
-      path.join(videoDir, `${videoBasename}.srt`),
-    ]
-    
-    for (const oldPath of oldSrtPaths) {
-      try {
-        await fs.access(oldPath)
-        console.log(`[SUBTITLES]   Suppression ancien fichier SRT: ${path.basename(oldPath)}`)
-        await fs.unlink(oldPath)
-      } catch {
-        // Fichier n'existe pas, c'est OK
-      }
-    }
-    
-    // Première tentative : hash + metadata + tmdb pour la meilleure correspondance avec score élevé
-    let subliminalArgs = ['download', '-l', subliminalLang, '--refiner', 'hash', '--refiner', 'metadata', '--refiner', 'tmdb', '--min-score', '85', videoFilename]
-    
-    let srtPath: string | null = null
-    let attempts = 0
-    const maxAttempts = 2
-    
-    while (attempts < maxAttempts && !srtPath) {
-      attempts++
-      
-      if (attempts > 1) {
-        // Deuxième tentative : score plus bas mais toujours avec hash pour éviter les mauvais résultats
-        console.log(`[API] Tentative ${attempts}: score réduit (avec hash)...`)
-        subliminalArgs = ['download', '-l', subliminalLang, '--refiner', 'hash', '--min-score', '60', videoFilename]
-      }
-      
-      try {
-        const { stdout, stderr } = await runSubliminal(subliminalArgs, videoDir)
-        
-        console.log(`[SUBTITLES] Sortie subliminal (tentative ${attempts}):`, stdout)
-        
-        if (stderr && !stderr.includes('Downloaded')) {
-          console.warn('⚠️ Avertissement:', stderr)
-        }
-        
-        // Trouver le fichier SRT téléchargé
-        const videoBasename = path.basename(filepath, path.extname(filepath))
-        const possibleSrtPaths = [
-          path.join(videoDir, `${videoBasename}.${subliminalLang}.srt`),
-          path.join(videoDir, `${videoBasename}.${lang}.srt`),
-          path.join(videoDir, `${videoBasename}.srt`),
-        ]
-        
-        for (const p of possibleSrtPaths) {
-          try {
-            await fs.access(p)
-            srtPath = p
-            console.log(`[SUBTITLES] Fichier SRT trouvé: ${path.basename(p)}`)
-            break
-          } catch {
-            // Fichier n'existe pas, continuer
-          }
-        }
-        
-        if (srtPath) {
-          break // Succès, sortir de la boucle
-        }
-        
-        // Vérifier si subliminal a indiqué qu'il n'a rien trouvé
-        if (stdout.includes('No subtitles found') || stdout.includes('0 video collected') || stdout.includes('Downloaded 0 subtitle')) {
-          if (attempts < maxAttempts) {
-            console.warn(`⚠️ Aucun sous-titre trouvé (tentative ${attempts}), réessai avec moins de restrictions...`)
-            continue // Réessayer avec moins de restrictions
-          } else {
-            console.warn('⚠️ Aucun sous-titre trouvé après toutes les tentatives')
-            console.warn(`   Le hash du fichier "${videoFilename}" ne correspond à aucun sous-titre disponible`)
-            console.warn(`   Cela signifie que les sous-titres téléchargés précédemment ne correspondent probablement pas au bon film`)
-            return NextResponse.json({ 
-              success: false, 
-              message: 'Aucun sous-titre correspondant trouvé pour ce fichier vidéo. Le hash ne correspond à aucun sous-titre disponible. Les fichiers téléchargés précédemment peuvent être incorrects.',
-              vtt: null
-            }, { status: 404 })
-          }
-        }
-      } catch (error) {
-        console.error(`❌ Erreur tentative ${attempts}:`, error)
-        if (attempts >= maxAttempts) {
-          throw error // Re-lancer l'erreur si c'est la dernière tentative
-        }
-        // Sinon, continuer pour réessayer
-      }
-    }
-    
-    if (!srtPath) {
-      console.error('❌ Fichier SRT non trouvé après toutes les tentatives')
-      return NextResponse.json({ 
-        success: false, 
-        message: 'Erreur: fichier SRT non trouvé après téléchargement',
-        vtt: null
-      }, { status: 500 })
-    }
-    
+
+    // Vérifier si un SRT existe déjà sur le disque (cache local)
+    const suffix = forced ? `.${lang}.forced.srt` : `.${lang}.srt`
+    const cachedSrtPath = path.join(videoDir, `${videoBasename}${suffix}`)
+
     try {
-      
-      // Lire le fichier SRT
-      const srtContent = await fs.readFile(srtPath, 'utf-8')
-      
-      // Vérifier que le contenu est valide
-      const trimmedContent = srtContent.trim()
-      if (trimmedContent.length < 50) {
-        console.error(`   ❌ Contenu trop court (${trimmedContent.length} chars)`)
-        return NextResponse.json({ 
-          success: false, 
-          message: 'Fichier SRT trop court ou corrompu',
-          vtt: null
-        }, { status: 500 })
+      await fs.access(cachedSrtPath)
+      const srtContent = await fs.readFile(cachedSrtPath, 'utf-8')
+      if (srtContent.trim().length > 50) {
+        console.log(`[SUBTITLES] SRT local trouvé: ${path.basename(cachedSrtPath)}`)
+        return new NextResponse(convertSRTtoWebVTT(srtContent, offset), {
+          headers: {
+            'Content-Type': 'text/vtt; charset=utf-8',
+            'Cache-Control': 'public, max-age=3600',
+            'Access-Control-Allow-Origin': '*',
+          }
+        })
       }
-      
-      if (!/^(\d+|WEBVTT)/i.test(trimmedContent)) {
-        console.error(`   ❌ Format invalide (ne commence pas par un numéro ou WEBVTT)`)
-        console.error(`   Début: ${trimmedContent.substring(0, 200)}`)
-        return NextResponse.json({ 
-          success: false, 
-          message: 'Format de fichier SRT invalide',
-          vtt: null
-        }, { status: 500 })
-      }
-      
-      // Afficher un échantillon du contenu pour vérifier que ce sont les bons sous-titres
-      const lines = trimmedContent.split('\n')
-      const firstSubtitleText = lines.find((line, idx) => {
-        // Chercher la première ligne de texte (après un numéro et un timecode)
-        return idx > 1 && !/^\d+$/.test(line.trim()) && !line.includes('-->') && line.trim().length > 0
-      }) || lines.slice(0, 3).join(' ')
-      
-      console.log(`[SUBTITLES]   Contenu SRT valide: ${trimmedContent.length} caractères`)
-      console.log(`[SUBTITLES]   Échantillon (première ligne de sous-titre): ${firstSubtitleText.substring(0, 100)}...`)
-      
-      // Convertir SRT en WebVTT avec offset si nécessaire
-      const vttContent = convertSRTtoWebVTT(srtContent, offset)
-      
-      if (offset !== 0) {
-        console.log(`[SUBTITLES] Sous-titre ${lang.toUpperCase()} téléchargé et converti en WebVTT avec offset de ${offset}s (${vttContent.length} caractères)`)
-      } else {
-        console.log(`[SUBTITLES] Sous-titre ${lang.toUpperCase()} téléchargé et converti en WebVTT (${vttContent.length} caractères)`)
-      }
-      
-      // Retourner le WebVTT directement
-      return new NextResponse(vttContent, {
-        headers: {
-          'Content-Type': 'text/vtt; charset=utf-8',
-          'Cache-Control': 'public, max-age=3600',
-          'Access-Control-Allow-Origin': '*',
-        }
-      })
-      
-    } catch (error) {
-      console.error(`❌ Erreur exécution subliminal:`, error)
-      
-      // Vérifier si c'est un timeout
-      if (error instanceof Error && error.message.includes('timeout')) {
-        return NextResponse.json({ 
-          success: false, 
-          message: 'Délai d\'attente dépassé (> 60s)',
-          vtt: null
-        }, { status: 504 })
-      }
-      
-      return NextResponse.json({ 
-        success: false, 
-        message: error instanceof Error ? error.message : 'Erreur lors du téléchargement',
+    } catch {
+      // Pas de cache local
+    }
+
+    // Vérifier la clé API
+    if (!OPENSUBTITLES_API_KEY) {
+      console.error('[SUBTITLES] OPENSUBTITLES_API_KEY non configurée')
+      return NextResponse.json({
+        success: false,
+        message: 'Clé API OpenSubtitles non configurée. Ajoutez OPENSUBTITLES_API_KEY dans votre .env (gratuit sur opensubtitles.com/consumers)',
         vtt: null
       }, { status: 500 })
     }
-    
+
+    const headers = {
+      'Api-Key': OPENSUBTITLES_API_KEY,
+      'Content-Type': 'application/json',
+      'User-Agent': 'LEON v1.0',
+    }
+
+    // Recherche sur OpenSubtitles
+    const title = extractTitleFromFilename(filepath)
+    console.log(`[SUBTITLES] Recherche OpenSubtitles: "${title}" (${osLang}, forced=${forced})`)
+
+    const searchUrl = new URL(`${OPENSUBTITLES_BASE}/subtitles`)
+    searchUrl.searchParams.set('query', title)
+    searchUrl.searchParams.set('languages', osLang)
+    if (forced) {
+      searchUrl.searchParams.set('foreign_parts_only', 'include')
+    } else {
+      searchUrl.searchParams.set('foreign_parts_only', 'exclude')
+    }
+
+    const searchResponse = await fetch(searchUrl.toString(), { headers })
+
+    if (!searchResponse.ok) {
+      const errorBody = await searchResponse.text()
+      console.error(`[SUBTITLES] Erreur recherche (${searchResponse.status}):`, errorBody.slice(0, 300))
+
+      if (searchResponse.status === 401) {
+        return NextResponse.json({
+          success: false,
+          message: 'Clé API OpenSubtitles invalide. Vérifiez OPENSUBTITLES_API_KEY dans votre .env',
+          vtt: null
+        }, { status: 401 })
+      }
+
+      return NextResponse.json({
+        success: false,
+        message: `Erreur recherche OpenSubtitles (${searchResponse.status})`,
+        vtt: null
+      }, { status: 502 })
+    }
+
+    const searchData = await searchResponse.json()
+
+    if (!searchData.data || searchData.data.length === 0) {
+      console.warn(`[SUBTITLES] Aucun résultat pour "${title}" (${osLang}, forced=${forced})`)
+      return NextResponse.json({
+        success: false,
+        message: `Aucun sous-titre ${forced ? 'forcé ' : ''}${lang.toUpperCase()} trouvé pour "${title}"`,
+        vtt: null
+      }, { status: 404 })
+    }
+
+    // Prendre le meilleur résultat (trié par pertinence par OpenSubtitles)
+    const bestResult = searchData.data[0]
+    const fileId = bestResult.attributes?.files?.[0]?.file_id
+
+    if (!fileId) {
+      return NextResponse.json({
+        success: false,
+        message: 'Aucun fichier de sous-titres disponible dans les résultats',
+        vtt: null
+      }, { status: 404 })
+    }
+
+    console.log(`[SUBTITLES] Meilleur résultat: file_id=${fileId}, release="${bestResult.attributes?.release || 'N/A'}"`)
+
+    // Télécharger le sous-titre
+    const downloadResponse = await fetch(`${OPENSUBTITLES_BASE}/download`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ file_id: fileId }),
+    })
+
+    if (!downloadResponse.ok) {
+      const errorBody = await downloadResponse.text()
+      console.error(`[SUBTITLES] Erreur download (${downloadResponse.status}):`, errorBody.slice(0, 300))
+
+      if (downloadResponse.status === 406) {
+        return NextResponse.json({
+          success: false,
+          message: 'Limite de téléchargement OpenSubtitles atteinte (20/jour gratuit). Réessayez demain ou passez VIP.',
+          requiresVip: true,
+          vtt: null
+        }, { status: 429 })
+      }
+
+      return NextResponse.json({
+        success: false,
+        message: `Erreur téléchargement (${downloadResponse.status})`,
+        vtt: null
+      }, { status: 502 })
+    }
+
+    const downloadData = await downloadResponse.json()
+    const downloadLink = downloadData.link
+
+    if (!downloadLink) {
+      return NextResponse.json({
+        success: false,
+        message: 'Lien de téléchargement manquant dans la réponse',
+        vtt: null
+      }, { status: 502 })
+    }
+
+    console.log(`[SUBTITLES] Téléchargement: remaining=${downloadData.remaining}`)
+
+    // Récupérer le contenu SRT
+    const srtResponse = await fetch(downloadLink)
+    const srtContent = await srtResponse.text()
+
+    if (srtContent.trim().length < 50) {
+      return NextResponse.json({
+        success: false,
+        message: 'Fichier SRT vide ou trop court',
+        vtt: null
+      }, { status: 500 })
+    }
+
+    // Sauvegarder le SRT pour cache local
+    try {
+      await fs.writeFile(cachedSrtPath, srtContent, 'utf-8')
+      console.log(`[SUBTITLES] SRT sauvegardé: ${path.basename(cachedSrtPath)}`)
+    } catch (writeError) {
+      console.warn(`[SUBTITLES] Impossible de sauvegarder le cache SRT:`, writeError)
+    }
+
+    // Convertir en WebVTT et retourner
+    const vttContent = convertSRTtoWebVTT(srtContent, offset)
+    console.log(`[SUBTITLES] ${forced ? 'Forced ' : ''}${lang.toUpperCase()} téléchargé (${vttContent.length} chars, remaining=${downloadData.remaining})`)
+
+    return new NextResponse(vttContent, {
+      headers: {
+        'Content-Type': 'text/vtt; charset=utf-8',
+        'Cache-Control': 'public, max-age=3600',
+        'Access-Control-Allow-Origin': '*',
+      }
+    })
+
   } catch (error) {
     console.error('❌ Erreur API sous-titres:', error)
-    return NextResponse.json({ 
-      success: false, 
+    return NextResponse.json({
+      success: false,
       message: error instanceof Error ? error.message : 'Erreur serveur',
       vtt: null
     }, { status: 500 })
@@ -280,31 +259,25 @@ export async function GET(request: NextRequest) {
  * Convertit un fichier SRT en WebVTT avec option d'offset temporel
  */
 function convertSRTtoWebVTT(srtContent: string, offsetSeconds: number = 0): string {
-  // Remplacer les timecodes SRT (00:00:00,000) par WebVTT (00:00:00.000)
   let vtt = srtContent.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2')
-  
-  // Appliquer l'offset si nécessaire
+
   if (offsetSeconds !== 0) {
-    // Parser chaque timecode et ajouter l'offset
-    vtt = vtt.replace(/(\d{2}):(\d{2}):(\d{2})\.(\d{3})/g, (match, hours, minutes, seconds, milliseconds) => {
-      // Convertir en secondes totales
+    vtt = vtt.replace(/(\d{2}):(\d{2}):(\d{2})\.(\d{3})/g, (_match, hours, minutes, seconds, milliseconds) => {
       const totalSeconds = parseInt(hours) * 3600 + parseInt(minutes) * 60 + parseInt(seconds) + parseInt(milliseconds) / 1000
-      const newTotalSeconds = Math.max(0, totalSeconds + offsetSeconds) // Ne pas aller en négatif
-      
-      // Convertir back en HH:MM:SS.mmm
+      const newTotalSeconds = Math.max(0, totalSeconds + offsetSeconds)
+
       const newHours = Math.floor(newTotalSeconds / 3600)
       const newMinutes = Math.floor((newTotalSeconds % 3600) / 60)
       const newSeconds = Math.floor(newTotalSeconds % 60)
       const newMilliseconds = Math.floor((newTotalSeconds % 1) * 1000)
-      
+
       return `${String(newHours).padStart(2, '0')}:${String(newMinutes).padStart(2, '0')}:${String(newSeconds).padStart(2, '0')}.${String(newMilliseconds).padStart(3, '0')}`
     })
   }
-  
-  // Ajouter l'en-tête WebVTT si absent
+
   if (!vtt.trim().startsWith('WEBVTT')) {
     vtt = 'WEBVTT\n\n' + vtt
   }
-  
+
   return vtt
 }
