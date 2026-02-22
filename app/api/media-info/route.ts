@@ -4,6 +4,7 @@ import { existsSync } from 'fs'
 import { readFile } from 'fs/promises'
 import path from 'path'
 import { validateMediaPath } from '@/lib/path-validator'
+import { findLocalSubtitles } from '@/lib/localScanner'
 
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
@@ -188,6 +189,31 @@ export async function GET(request: NextRequest) {
         }]
       }
       
+      // Détecter les SRT externes (téléchargés par OpenSubtitles)
+      const externalSubs = await findLocalSubtitles(filepath)
+      if (externalSubs.length > 0) {
+        const existingLanguages = new Set(
+          subtitleTracks.map(t => `${t.language}-${!!t.forced}`)
+        )
+        for (const sub of externalSubs) {
+          const lang = sub.language || 'Inconnu'
+          const mappedLang = languageMap[lang.toLowerCase()] || lang
+          const isForced = !!sub.forced
+          const key = `${mappedLang}-${isForced}`
+          if (!existingLanguages.has(key)) {
+            subtitleTracks.push({
+              index: subtitleTracks.length,
+              language: mappedLang,
+              title: isForced ? `${mappedLang} (Forcé)` : mappedLang,
+              codec: path.extname(sub.filename).slice(1),
+              forced: isForced,
+            })
+            existingLanguages.add(key)
+          }
+        }
+        console.log(`[MEDIA-INFO] ${externalSubs.length} SRT externe(s) détecté(s)`)
+      }
+
       return NextResponse.json({
         audioTracks,
         subtitleTracks,
@@ -237,6 +263,31 @@ export async function GET(request: NextRequest) {
           forced: isForced
         }
       })
+
+    // Détecter les SRT externes (téléchargés par OpenSubtitles)
+    const externalSubs = await findLocalSubtitles(filepath)
+    if (externalSubs.length > 0) {
+      const existingLanguages = new Set(
+        subtitleTracks.map(t => `${t.language}-${!!t.forced}`)
+      )
+      for (const sub of externalSubs) {
+        const lang = sub.language || 'Inconnu'
+        const mappedLang = languageMap[lang.toLowerCase()] || lang
+        const isForced = !!sub.forced
+        const key = `${mappedLang}-${isForced}`
+        if (!existingLanguages.has(key)) {
+          subtitleTracks.push({
+            index: subtitleTracks.length + 100,
+            language: mappedLang,
+            title: isForced ? `${mappedLang} (Forcé)` : mappedLang,
+            codec: path.extname(sub.filename).slice(1),
+            forced: isForced,
+          })
+          existingLanguages.add(key)
+        }
+      }
+      console.log(`[MEDIA-INFO] ${externalSubs.length} SRT externe(s) détecté(s)`)
+    }
 
     const mediaInfo: MediaInfo = {
       audioTracks,

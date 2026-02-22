@@ -182,7 +182,10 @@ export default function SimpleVideoPlayer({
     callbacks: {
       onAudioTracksDiscovered: (tracks) => { setAudioTracks(tracks); audioTracksRef.current = tracks },
       onInitialAudioSet: (idx) => { setSelectedAudio(idx); selectedAudioRef.current = idx },
-      onSubtitleTracksDiscovered: (tracks) => setSubtitleTracks(tracks),
+      onSubtitleTracksDiscovered: (tracks) => setSubtitleTracks(prev => {
+        const downloaded = prev.filter(t => t.isDownloaded)
+        return downloaded.length > 0 ? [...tracks, ...downloaded] : tracks
+      }),
       onInitialSubtitleSet: (idx) => { setSelectedSubtitle(idx !== null ? idx : null); if (idx !== null) pendingSubtitleApplyRef.current = idx },
       checkNextEpisode: (ct, d) => checkNextEpisodeRef.current(ct, d),
       setIsLoading,

@@ -424,17 +424,20 @@ export function useSubtitleManager({
     }
   }, [subtitleTracks, getFilepath, src, subtitleOffset, videoRef, onError, onCloseSettings])
 
-  // Appliquer les sous-titres préférés après chargement des pistes
+  // Appliquer les sous-titres après chargement des pistes (initial ou download)
   useEffect(() => {
     if (pendingSubtitleApplyRef.current !== null && subtitleTracks.length > 0 && videoRef.current) {
       const idx = pendingSubtitleApplyRef.current
       pendingSubtitleApplyRef.current = null
 
       if (idx >= 0 && idx < subtitleTracks.length) {
+        const track = subtitleTracks[idx]
+        // Delai court pour les tracks telecharges (video deja prete), long pour le chargement initial
+        const delay = track?.isDownloaded ? 300 : 1500
         const timer = setTimeout(() => {
-          console.log(`[PLAYER] Application sous-titres préférés: piste ${idx} (${subtitleTracks[idx]?.language})`)
+          console.log(`[PLAYER] Application sous-titres: piste ${idx} (${track?.language})`)
           handleSubtitleChange(idx)
-        }, 1500)
+        }, delay)
         return () => clearTimeout(timer)
       }
     }
@@ -484,6 +487,7 @@ export function useSubtitleManager({
         { lang: 'en', forced: false, label: 'English' },
       ]
       const downloadedTracks: SubtitleTrack[] = []
+      let firstFrenchIdx = -1
 
       for (const req of requests) {
         try {
@@ -493,135 +497,55 @@ export function useSubtitleManager({
 
           const response = await fetch(fetchUrl)
 
-          if (response.ok) {
-            const contentType = response.headers.get('content-type') || ''
-            const responseText = await response.text()
+          if (!response.ok) {
+            if (response.status === 404) {
+              console.warn(`[PLAYER] Pas de sous-titre ${langLabel} disponible`)
+            } else {
+              console.warn(`[PLAYER] Erreur ${response.status} pour ${langLabel}`)
+            }
+            continue
+          }
 
-            if (contentType.includes('application/json') || responseText.trim().startsWith('{')) {
-              try {
-                const errorData = JSON.parse(responseText)
-                const errorMsg = errorData.message || errorData.error || 'Erreur inconnue'
-                console.warn(`[PLAYER] Erreur API (${req.label}): ${errorMsg}`)
+          const contentType = response.headers.get('content-type') || ''
+          const responseText = await response.text()
 
-                if (errorData.requiresVip || errorMsg.toLowerCase().includes('vip') || errorMsg.toLowerCase().includes('limite')) {
-                  onError('Limite OpenSubtitles atteinte (20 téléchargements/jour gratuit)')
-                  setTimeout(() => onError(null), 8000)
-                }
-
-                continue
-              } catch {
-                // Pas du JSON valide, continuer
+          if (contentType.includes('application/json') || responseText.trim().startsWith('{')) {
+            try {
+              const errorData = JSON.parse(responseText)
+              const errorMsg = errorData.message || errorData.error || 'Erreur inconnue'
+              console.warn(`[PLAYER] Erreur API (${req.label}): ${errorMsg}`)
+              if (errorData.requiresVip || errorMsg.toLowerCase().includes('limite')) {
+                onError('Limite OpenSubtitles atteinte (20/jour gratuit)')
+                setTimeout(() => onError(null), 8000)
               }
-            }
-
-            if (!responseText.trim().startsWith('WEBVTT')) {
-              console.warn(`[PLAYER] Réponse ne semble pas être du WebVTT valide`)
               continue
-            }
-
-            const vttUrl = `/api/subtitles/fetch?path=${encodeURIComponent(filepath)}&lang=${req.lang}${req.forced ? '&forced=true' : ''}${subtitleOffset !== 0 ? `&offset=${subtitleOffset}` : ''}`
-
-            if (videoRef.current) {
-              const trackElement = document.createElement('track')
-              trackElement.kind = 'subtitles'
-              trackElement.label = req.label
-              trackElement.srclang = req.lang
-              trackElement.src = vttUrl
-              trackElement.default = false
-
-              videoRef.current.appendChild(trackElement)
-
-              trackElement.addEventListener('load', () => {
-                console.log(`[PLAYER] Track ${req.label} chargé`)
-                const textTrack = Array.from(videoRef.current!.textTracks).find(
-                  t => t.label === req.label
-                )
-                if (textTrack) {
-                  const activateDownloadedTrack = () => {
-                    const currentCuesCount = textTrack.cues ? textTrack.cues.length : 0
-
-                    if (currentCuesCount > 0) {
-                      textTrack.mode = 'showing'
-                      console.log(`[PLAYER] Track activé (mode=showing), ${currentCuesCount} cues disponibles`)
-                    } else {
-                      console.warn(`[PLAYER] Aucun cue chargé, réessai dans 500ms...`)
-                      setTimeout(() => {
-                        const retryCuesCount = textTrack.cues ? textTrack.cues.length : 0
-                        textTrack.mode = 'showing'
-                        if (retryCuesCount > 0) {
-                          console.log(`[PLAYER] Track activé après délai, ${retryCuesCount} cues disponibles`)
-                        } else {
-                          console.warn(`[PLAYER] Track activé sans cues (ils arriveront plus tard)`)
-                        }
-                      }, 500)
-                    }
-                  }
-
-                  const cueChangeHandler = () => {
-                    // Détection des cues actifs
-                  }
-                  textTrack.addEventListener('cuechange', cueChangeHandler)
-
-                  let checkInterval: NodeJS.Timeout | null = null
-                  const startChecking = () => {
-                    if (checkInterval) return
-
-                    checkInterval = setInterval(() => {
-                      const activeCuesCount = textTrack.activeCues ? textTrack.activeCues.length : 0
-                      const currentVideoTime = videoRef.current?.currentTime || 0
-
-                      if (activeCuesCount > 0) {
-                        console.log(`[PLAYER] Cues actifs détectés: ${activeCuesCount} cues au temps ${currentVideoTime.toFixed(1)}s`)
-                        if (checkInterval) {
-                          clearInterval(checkInterval)
-                          checkInterval = null
-                        }
-                      } else if (currentVideoTime > 5 && textTrack.mode === 'showing') {
-                        console.warn(`[PLAYER] Aucun cue actif après ${currentVideoTime.toFixed(1)}s malgré le track en mode 'showing'`)
-                      }
-                    }, 1000)
-                  }
-
-                  videoRef.current?.addEventListener('play', startChecking, { once: true })
-                  activateDownloadedTrack()
-                } else {
-                  console.error(`[PLAYER] Track "${req.label}" non trouvé dans textTracks`)
-                }
-              })
-
-              trackElement.addEventListener('error', async (e) => {
-                console.error(`[PLAYER] Erreur chargement sous-titre téléchargé ${req.label}:`, e)
-                console.error(`[PLAYER] URL track: ${trackElement.src}`)
-
-                try {
-                  const testResponse = await fetch(trackElement.src)
-                  const testData = await testResponse.text()
-                  console.error(`[PLAYER] Réponse API (${testResponse.status}):`, testData.substring(0, 200))
-                } catch (err) {
-                  console.error(`[PLAYER] Erreur test API:`, err)
-                }
-
-                trackElement.remove()
-              })
-
-              setTimeout(() => {
-                if (trackElement.parentNode) {
-                  const currentSrc = trackElement.src
-                  trackElement.src = ''
-                  trackElement.src = currentSrc
-                }
-              }, 100)
-
-              downloadedTracks.push({
-                index: subtitleTracks.length + downloadedTracks.length,
-                language: req.label,
-                title: `Téléchargé depuis OpenSubtitles`,
-                forced: req.forced,
-                isDownloaded: true,
-                sourceUrl: vttUrl
-              } as SubtitleTrack)
+            } catch {
+              // Pas du JSON valide
             }
           }
+
+          if (!responseText.trim().startsWith('WEBVTT')) {
+            console.warn(`[PLAYER] Réponse ${langLabel} non WebVTT valide`)
+            continue
+          }
+
+          const sourceUrl = `/api/subtitles/fetch?path=${encodeURIComponent(filepath)}&lang=${req.lang}${req.forced ? '&forced=true' : ''}`
+          const trackIdx = subtitleTracks.length + downloadedTracks.length
+
+          if (req.lang === 'fr' && !req.forced && firstFrenchIdx === -1) {
+            firstFrenchIdx = trackIdx
+          }
+
+          downloadedTracks.push({
+            index: trackIdx,
+            language: req.label,
+            title: 'Téléchargé depuis OpenSubtitles',
+            forced: req.forced,
+            isDownloaded: true,
+            sourceUrl,
+          } as SubtitleTrack)
+
+          console.log(`[PLAYER] ${langLabel} validé`)
         } catch (err) {
           console.error(`[PLAYER] Erreur téléchargement ${req.label}:`, err)
         }
@@ -630,60 +554,11 @@ export function useSubtitleManager({
       if (downloadedTracks.length > 0) {
         setSubtitleTracks(prev => [...prev, ...downloadedTracks])
 
-        let activationAttempts = 0
-        const maxAttempts = 5
+        // Activer le FR via le mécanisme pendingSubtitleApply
+        const activateIdx = firstFrenchIdx !== -1 ? firstFrenchIdx : subtitleTracks.length
+        pendingSubtitleApplyRef.current = activateIdx
 
-        const tryActivateTrack = () => {
-          if (!videoRef.current) return
-
-          const allTextTracks = Array.from(videoRef.current.textTracks)
-
-          const frenchTrack = allTextTracks.find(t =>
-            t.label === 'Français' || t.language === 'fr' || t.language?.toLowerCase().startsWith('fr')
-          )
-
-          if (frenchTrack) {
-            const cuesCount = frenchTrack.cues ? frenchTrack.cues.length : 0
-
-            if (cuesCount > 0) {
-              frenchTrack.mode = 'showing'
-              console.log(`[PLAYER] Track français activé: mode="${frenchTrack.mode}", cues=${cuesCount}`)
-              setSelectedSubtitle(subtitleTracks.length)
-              return true
-            } else if (activationAttempts < maxAttempts - 1) {
-              activationAttempts++
-              setTimeout(tryActivateTrack, 500)
-              return false
-            } else {
-              frenchTrack.mode = 'showing'
-              console.log(`[PLAYER] Track français activé sans cues (dernière tentative)`)
-              setSelectedSubtitle(subtitleTracks.length)
-              return true
-            }
-          } else {
-            console.warn(`[PLAYER] Track français non trouvé, activation du premier track téléchargé`)
-            const firstDownloadedIdx = subtitleTracks.length
-            if (firstDownloadedIdx < allTextTracks.length) {
-              const track = allTextTracks[firstDownloadedIdx]
-              const cuesCount = track.cues ? track.cues.length : 0
-
-              if (cuesCount > 0 || activationAttempts >= maxAttempts - 1) {
-                track.mode = 'showing'
-                console.log(`[PLAYER] Premier track activé (index ${firstDownloadedIdx}), cues=${cuesCount}`)
-                setSelectedSubtitle(firstDownloadedIdx)
-                return true
-              } else {
-                activationAttempts++
-                setTimeout(tryActivateTrack, 500)
-                return false
-              }
-            }
-          }
-          return false
-        }
-
-        setTimeout(tryActivateTrack, 1000)
-        console.log(`[PLAYER] ${downloadedTracks.length} sous-titre(s) téléchargé(s) depuis OpenSubtitles`)
+        console.log(`[PLAYER] ${downloadedTracks.length} sous-titre(s) téléchargé(s), activation piste ${activateIdx}`)
       } else {
         onError('Aucun sous-titre trouvé sur OpenSubtitles')
         setTimeout(() => onError(null), 5000)
@@ -695,7 +570,7 @@ export function useSubtitleManager({
     } finally {
       setIsDownloadingSubtitles(false)
     }
-  }, [isDownloadingSubtitles, getFilepath, subtitleOffset, subtitleTracks, videoRef, onError, onCloseSettings])
+  }, [isDownloadingSubtitles, getFilepath, subtitleTracks.length, onError, onCloseSettings])
 
   return {
     subtitleTracks,

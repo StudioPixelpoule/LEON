@@ -3,16 +3,19 @@
  * GET /api/subtitles/fetch?path=/chemin/vers/video.mp4&lang=fr&forced=false
  * Retourne les sous-titres en WebVTT pour affichage direct dans le lecteur
  * 
- * Remplace l'ancienne dépendance subliminal (Python) par l'API REST OpenSubtitles.
- * Nécessite OPENSUBTITLES_API_KEY dans les variables d'environnement.
+ * Stratégie de recherche (du plus précis au moins précis) :
+ * 1. Hash du fichier (correspondance exacte, synchro garantie)
+ * 2. TMDB ID depuis la base Supabase (correspondance par film)
+ * 3. Titre extrait du nom de fichier (fallback)
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 
 export const dynamic = 'force-dynamic'
 import path from 'path'
-import { promises as fs } from 'fs'
+import { promises as fs, createReadStream } from 'fs'
 import { validateMediaPath } from '@/lib/path-validator'
+import { supabase } from '@/lib/supabase'
 
 const OPENSUBTITLES_API_KEY = process.env.OPENSUBTITLES_API_KEY
 const OPENSUBTITLES_BASE = 'https://api.opensubtitles.com/api/v1'
@@ -24,9 +27,44 @@ const VALID_LANGS: Record<string, string> = {
 }
 
 /**
- * Extrait un titre propre depuis un nom de fichier vidéo.
- * Ex: "Rental.Family.mkv" → "Rental Family"
+ * Calcule le hash OpenSubtitles d'un fichier vidéo.
+ * Algorithme : taille du fichier + somme des premiers et derniers 64KB (little-endian uint64).
  */
+async function computeOpenSubtitlesHash(filepath: string): Promise<{ hash: string; bytesize: number } | null> {
+  try {
+    const stat = await fs.stat(filepath)
+    const bytesize = stat.size
+    const CHUNK_SIZE = 65536 // 64KB
+
+    if (bytesize < CHUNK_SIZE * 2) return null
+
+    const readChunk = (start: number, size: number): Promise<Buffer> => {
+      return new Promise((resolve, reject) => {
+        const chunks: Buffer[] = []
+        const stream = createReadStream(filepath, { start, end: start + size - 1 })
+        stream.on('data', (chunk: string | Buffer) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)))
+        stream.on('end', () => resolve(Buffer.concat(chunks)))
+        stream.on('error', reject)
+      })
+    }
+
+    const head = await readChunk(0, CHUNK_SIZE)
+    const tail = await readChunk(bytesize - CHUNK_SIZE, CHUNK_SIZE)
+
+    let hash = BigInt(bytesize)
+    for (let i = 0; i < CHUNK_SIZE; i += 8) {
+      hash += head.readBigUInt64LE(i)
+      hash += tail.readBigUInt64LE(i)
+      hash = hash & BigInt('0xFFFFFFFFFFFFFFFF')
+    }
+
+    return { hash: hash.toString(16).padStart(16, '0'), bytesize }
+  } catch (error) {
+    console.warn('[SUBTITLES] Impossible de calculer le hash:', error)
+    return null
+  }
+}
+
 function extractTitleFromFilename(filename: string): string {
   const basename = path.basename(filename, path.extname(filename))
   return basename
@@ -37,6 +75,126 @@ function extractTitleFromFilename(filename: string): string {
     .replace(/\b(1080p|720p|2160p|4k|BluRay|BDRip|WEBRip|WEB-DL|HDRip|x264|x265|HEVC|AAC|DTS|REMUX)\b/gi, '')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+/**
+ * Cherche le TMDB ID dans la base Supabase à partir du chemin du fichier.
+ */
+async function findTmdbId(filepath: string): Promise<number | null> {
+  try {
+    const filename = path.basename(filepath)
+    const { data } = await supabase
+      .from('media')
+      .select('tmdb_id')
+      .ilike('title', `%${extractTitleFromFilename(filepath)}%`)
+      .not('tmdb_id', 'is', null)
+      .limit(1)
+      .maybeSingle()
+
+    if (data?.tmdb_id) return data.tmdb_id
+
+    // Fallback : chercher par nom de fichier dans le chemin
+    const { data: byPath } = await supabase
+      .from('media')
+      .select('tmdb_id')
+      .ilike('pcloud_link', `%${filename}%`)
+      .not('tmdb_id', 'is', null)
+      .limit(1)
+      .maybeSingle()
+
+    return byPath?.tmdb_id || null
+  } catch {
+    return null
+  }
+}
+
+interface SearchResult {
+  fileId: number | null
+  method: string
+  release: string
+}
+
+/**
+ * Recherche OpenSubtitles avec fallback progressif : hash → TMDB → titre.
+ */
+async function searchOpenSubtitles(
+  filepath: string,
+  osLang: string,
+  forced: boolean,
+  headers: Record<string, string>
+): Promise<SearchResult> {
+  const foreignParts = forced ? 'include' : 'exclude'
+
+  // 1) Recherche par hash (la plus précise)
+  const hashData = await computeOpenSubtitlesHash(filepath)
+  if (hashData) {
+    console.log(`[SUBTITLES] Recherche par hash: ${hashData.hash} (${(hashData.bytesize / 1e9).toFixed(2)} GB)`)
+    const url = new URL(`${OPENSUBTITLES_BASE}/subtitles`)
+    url.searchParams.set('moviehash', hashData.hash)
+    url.searchParams.set('languages', osLang)
+    url.searchParams.set('foreign_parts_only', foreignParts)
+
+    try {
+      const res = await fetch(url.toString(), { headers })
+      if (res.ok) {
+        const data = await res.json()
+        const fileId = data.data?.[0]?.attributes?.files?.[0]?.file_id
+        if (fileId) {
+          const release = data.data[0].attributes?.release || 'N/A'
+          console.log(`[SUBTITLES] Match par hash: file_id=${fileId}, release="${release}"`)
+          return { fileId, method: 'hash', release }
+        }
+      }
+    } catch (error) {
+      console.warn('[SUBTITLES] Erreur recherche par hash:', error)
+    }
+  }
+
+  // 2) Recherche par TMDB ID
+  const tmdbId = await findTmdbId(filepath)
+  if (tmdbId) {
+    console.log(`[SUBTITLES] Recherche par TMDB ID: ${tmdbId}`)
+    const url = new URL(`${OPENSUBTITLES_BASE}/subtitles`)
+    url.searchParams.set('tmdb_id', String(tmdbId))
+    url.searchParams.set('languages', osLang)
+    url.searchParams.set('foreign_parts_only', foreignParts)
+
+    try {
+      const res = await fetch(url.toString(), { headers })
+      if (res.ok) {
+        const data = await res.json()
+        const fileId = data.data?.[0]?.attributes?.files?.[0]?.file_id
+        if (fileId) {
+          const release = data.data[0].attributes?.release || 'N/A'
+          console.log(`[SUBTITLES] Match par TMDB: file_id=${fileId}, release="${release}"`)
+          return { fileId, method: 'tmdb', release }
+        }
+      }
+    } catch (error) {
+      console.warn('[SUBTITLES] Erreur recherche par TMDB:', error)
+    }
+  }
+
+  // 3) Recherche par titre (fallback)
+  const title = extractTitleFromFilename(filepath)
+  console.log(`[SUBTITLES] Recherche par titre: "${title}"`)
+  const url = new URL(`${OPENSUBTITLES_BASE}/subtitles`)
+  url.searchParams.set('query', title)
+  url.searchParams.set('languages', osLang)
+  url.searchParams.set('foreign_parts_only', foreignParts)
+
+  const res = await fetch(url.toString(), { headers })
+  if (res.ok) {
+    const data = await res.json()
+    const fileId = data.data?.[0]?.attributes?.files?.[0]?.file_id
+    if (fileId) {
+      const release = data.data[0].attributes?.release || 'N/A'
+      console.log(`[SUBTITLES] Match par titre: file_id=${fileId}, release="${release}"`)
+      return { fileId, method: 'title', release }
+    }
+  }
+
+  return { fileId: null, method: 'none', release: '' }
 }
 
 export async function OPTIONS() {
@@ -77,7 +235,7 @@ export async function GET(request: NextRequest) {
     const videoDir = path.dirname(filepath)
     const videoBasename = path.basename(filepath, path.extname(filepath))
 
-    // Vérifier si un SRT existe déjà sur le disque (cache local)
+    // Vérifier le cache SRT local
     const suffix = forced ? `.${lang}.forced.srt` : `.${lang}.srt`
     const cachedSrtPath = path.join(videoDir, `${videoBasename}${suffix}`)
 
@@ -85,7 +243,7 @@ export async function GET(request: NextRequest) {
       await fs.access(cachedSrtPath)
       const srtContent = await fs.readFile(cachedSrtPath, 'utf-8')
       if (srtContent.trim().length > 50) {
-        console.log(`[SUBTITLES] SRT local trouvé: ${path.basename(cachedSrtPath)}`)
+        console.log(`[SUBTITLES] Cache local: ${path.basename(cachedSrtPath)}`)
         return new NextResponse(convertSRTtoWebVTT(srtContent, offset), {
           headers: {
             'Content-Type': 'text/vtt; charset=utf-8',
@@ -95,15 +253,13 @@ export async function GET(request: NextRequest) {
         })
       }
     } catch {
-      // Pas de cache local
+      // Pas de cache
     }
 
-    // Vérifier la clé API
     if (!OPENSUBTITLES_API_KEY) {
-      console.error('[SUBTITLES] OPENSUBTITLES_API_KEY non configurée')
       return NextResponse.json({
         success: false,
-        message: 'Clé API OpenSubtitles non configurée. Ajoutez OPENSUBTITLES_API_KEY dans votre .env (gratuit sur opensubtitles.com/consumers)',
+        message: 'Clé API OpenSubtitles non configurée. Ajoutez OPENSUBTITLES_API_KEY dans .env',
         vtt: null
       }, { status: 500 })
     }
@@ -114,64 +270,18 @@ export async function GET(request: NextRequest) {
       'User-Agent': 'LEON v1.0',
     }
 
-    // Recherche sur OpenSubtitles
-    const title = extractTitleFromFilename(filepath)
-    console.log(`[SUBTITLES] Recherche OpenSubtitles: "${title}" (${osLang}, forced=${forced})`)
+    console.log(`[SUBTITLES] Recherche: ${path.basename(filepath)} (${osLang}, forced=${forced})`)
 
-    const searchUrl = new URL(`${OPENSUBTITLES_BASE}/subtitles`)
-    searchUrl.searchParams.set('query', title)
-    searchUrl.searchParams.set('languages', osLang)
-    if (forced) {
-      searchUrl.searchParams.set('foreign_parts_only', 'include')
-    } else {
-      searchUrl.searchParams.set('foreign_parts_only', 'exclude')
-    }
+    const { fileId, method, release } = await searchOpenSubtitles(filepath, osLang, forced, headers)
 
-    const searchResponse = await fetch(searchUrl.toString(), { headers })
-
-    if (!searchResponse.ok) {
-      const errorBody = await searchResponse.text()
-      console.error(`[SUBTITLES] Erreur recherche (${searchResponse.status}):`, errorBody.slice(0, 300))
-
-      if (searchResponse.status === 401) {
-        return NextResponse.json({
-          success: false,
-          message: 'Clé API OpenSubtitles invalide. Vérifiez OPENSUBTITLES_API_KEY dans votre .env',
-          vtt: null
-        }, { status: 401 })
-      }
-
-      return NextResponse.json({
-        success: false,
-        message: `Erreur recherche OpenSubtitles (${searchResponse.status})`,
-        vtt: null
-      }, { status: 502 })
-    }
-
-    const searchData = await searchResponse.json()
-
-    if (!searchData.data || searchData.data.length === 0) {
-      console.warn(`[SUBTITLES] Aucun résultat pour "${title}" (${osLang}, forced=${forced})`)
+    if (!fileId) {
+      const title = extractTitleFromFilename(filepath)
       return NextResponse.json({
         success: false,
         message: `Aucun sous-titre ${forced ? 'forcé ' : ''}${lang.toUpperCase()} trouvé pour "${title}"`,
         vtt: null
       }, { status: 404 })
     }
-
-    // Prendre le meilleur résultat (trié par pertinence par OpenSubtitles)
-    const bestResult = searchData.data[0]
-    const fileId = bestResult.attributes?.files?.[0]?.file_id
-
-    if (!fileId) {
-      return NextResponse.json({
-        success: false,
-        message: 'Aucun fichier de sous-titres disponible dans les résultats',
-        vtt: null
-      }, { status: 404 })
-    }
-
-    console.log(`[SUBTITLES] Meilleur résultat: file_id=${fileId}, release="${bestResult.attributes?.release || 'N/A'}"`)
 
     // Télécharger le sous-titre
     const downloadResponse = await fetch(`${OPENSUBTITLES_BASE}/download`, {
@@ -187,7 +297,7 @@ export async function GET(request: NextRequest) {
       if (downloadResponse.status === 406) {
         return NextResponse.json({
           success: false,
-          message: 'Limite de téléchargement OpenSubtitles atteinte (20/jour gratuit). Réessayez demain ou passez VIP.',
+          message: 'Limite de téléchargement OpenSubtitles atteinte (20/jour gratuit)',
           requiresVip: true,
           vtt: null
         }, { status: 429 })
@@ -206,12 +316,10 @@ export async function GET(request: NextRequest) {
     if (!downloadLink) {
       return NextResponse.json({
         success: false,
-        message: 'Lien de téléchargement manquant dans la réponse',
+        message: 'Lien de téléchargement manquant',
         vtt: null
       }, { status: 502 })
     }
-
-    console.log(`[SUBTITLES] Téléchargement: remaining=${downloadData.remaining}`)
 
     // Récupérer le contenu SRT
     const srtResponse = await fetch(downloadLink)
@@ -230,12 +338,11 @@ export async function GET(request: NextRequest) {
       await fs.writeFile(cachedSrtPath, srtContent, 'utf-8')
       console.log(`[SUBTITLES] SRT sauvegardé: ${path.basename(cachedSrtPath)}`)
     } catch (writeError) {
-      console.warn(`[SUBTITLES] Impossible de sauvegarder le cache SRT:`, writeError)
+      console.warn('[SUBTITLES] Impossible de sauvegarder le cache:', writeError)
     }
 
-    // Convertir en WebVTT et retourner
     const vttContent = convertSRTtoWebVTT(srtContent, offset)
-    console.log(`[SUBTITLES] ${forced ? 'Forced ' : ''}${lang.toUpperCase()} téléchargé (${vttContent.length} chars, remaining=${downloadData.remaining})`)
+    console.log(`[SUBTITLES] ${forced ? 'Forced ' : ''}${lang.toUpperCase()} OK (${method}, "${release}", ${vttContent.length} chars, remaining=${downloadData.remaining})`)
 
     return new NextResponse(vttContent, {
       headers: {
@@ -246,7 +353,7 @@ export async function GET(request: NextRequest) {
     })
 
   } catch (error) {
-    console.error('❌ Erreur API sous-titres:', error)
+    console.error('[SUBTITLES] Erreur:', error)
     return NextResponse.json({
       success: false,
       message: error instanceof Error ? error.message : 'Erreur serveur',
@@ -255,9 +362,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/**
- * Convertit un fichier SRT en WebVTT avec option d'offset temporel
- */
 function convertSRTtoWebVTT(srtContent: string, offsetSeconds: number = 0): string {
   let vtt = srtContent.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2')
 

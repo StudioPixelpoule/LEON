@@ -98,15 +98,17 @@ export function usePlayerPreferences(userId?: string) {
    * Fusionne les préférences sauvegardées avec des valeurs par défaut
    */
   const getInitialPreferences = useCallback((): PlayerPreferences => {
+    // Lire via ref pour garder le callback stable (pas de re-render cascade)
+    const current = preferencesRef.current
     return {
-      audioTrackIndex: preferences?.audioTrackIndex ?? 0,
-      audioStreamIndex: preferences?.audioStreamIndex,
-      audioLanguage: preferences?.audioLanguage,
-      subtitleTrackIndex: preferences?.subtitleTrackIndex ?? null,
-      wasFullscreen: preferences?.wasFullscreen ?? false,
-      volume: preferences?.volume ?? 1
+      audioTrackIndex: current?.audioTrackIndex ?? 0,
+      audioStreamIndex: current?.audioStreamIndex,
+      audioLanguage: current?.audioLanguage,
+      subtitleTrackIndex: current?.subtitleTrackIndex ?? null,
+      wasFullscreen: current?.wasFullscreen ?? false,
+      volume: current?.volume ?? 1
     }
-  }, [preferences])
+  }, [])
 
   return {
     preferences,

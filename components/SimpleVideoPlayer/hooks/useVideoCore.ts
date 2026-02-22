@@ -281,7 +281,7 @@ export function useVideoCore({
       })
       .catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [getFilepath, src, getInitialPreferences])
+  }, [getFilepath, src])
 
   // MP4 direct : pistes audio natives et sous-titres natifs
   useEffect(() => {
