@@ -317,6 +317,45 @@ export function useSubtitleManager({
         return
       }
 
+      // Tracks téléchargés depuis OpenSubtitles : utiliser le sourceUrl directement
+      if (track.isDownloaded && track.sourceUrl) {
+        let trackUrl = track.sourceUrl
+        if (subtitleOffset !== 0) {
+          trackUrl = trackUrl.includes('&offset=')
+            ? trackUrl.replace(/&offset=[-\d.]+/, `&offset=${subtitleOffset}`)
+            : `${trackUrl}&offset=${subtitleOffset}`
+        }
+
+        const trackElement = document.createElement('track')
+        trackElement.kind = 'subtitles'
+        trackElement.label = track.language
+        trackElement.srclang = track.language.toLowerCase().slice(0, 2)
+        trackElement.src = trackUrl
+        trackElement.default = true
+
+        video.appendChild(trackElement)
+
+        trackElement.addEventListener('load', () => {
+          const textTrack = Array.from(video.textTracks).find(
+            t => t.label === track.language
+          )
+          if (textTrack) {
+            textTrack.mode = 'showing'
+            console.log(`[PLAYER] Track téléchargé HLS activé: ${track.language}, cues=${textTrack.cues?.length || 0}`)
+          }
+        })
+
+        trackElement.addEventListener('error', () => {
+          console.error(`[PLAYER] Erreur chargement track téléchargé HLS: ${track.language}`)
+          trackElement.remove()
+          onError(`Impossible de charger les sous-titres "${track.language}"`)
+          setSelectedSubtitle(null)
+          setTimeout(() => onError(null), 5000)
+        })
+
+        return
+      }
+
       // Pour les fichiers pré-transcodés avec VTT, utiliser l'API dédiée
       let subtitleUrl: string
       if (track.vttFile) {
