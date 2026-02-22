@@ -6,6 +6,7 @@
 import fs from 'fs/promises'
 import path from 'path'
 import { supabase } from '@/lib/supabase'
+import { invalidateMediaCaches } from '@/lib/cache-invalidation'
 import type { TmdbEpisodeData, TmdbSeriesDetails, TmdbGenre, Episode } from './types'
 import { getScanStateRef, completeScan } from './scan-state'
 import { scanSeriesFolder } from './series-parser'
@@ -564,8 +565,9 @@ export async function runScan(): Promise<void> {
     console.log(`[SCAN] Nouveaux épisodes: ${stats.newEpisodes}`)
     console.log(`[SCAN] Épisodes enrichis: ${stats.enrichedEpisodes}`)
 
-    // Marquer le scan comme terminé
+    // Marquer le scan comme terminé et rafraîchir les caches
     completeScan()
+    invalidateMediaCaches()
     console.log('[SCAN] Scan terminé avec succès')
 
   } catch (error) {

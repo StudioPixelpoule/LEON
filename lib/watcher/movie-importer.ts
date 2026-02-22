@@ -135,6 +135,7 @@ export async function forceMarkAsTranscoded(filepath: string): Promise<void> {
   const filename = path.basename(filepath)
   try {
     const { supabase } = await import('../supabase')
+    const { invalidateMediaCaches } = await import('../cache-invalidation')
     const isSeries = filepath.includes('/series/') || /S\d{1,2}E\d{1,2}/i.test(filename)
 
     if (isSeries) {
@@ -188,6 +189,7 @@ export async function forceMarkAsTranscoded(filepath: string): Promise<void> {
         }
       }
     }
+    invalidateMediaCaches()
   } catch (error) {
     console.error(`[WATCHER] Erreur forceMarkAsTranscoded ${filename}:`, error)
   }
