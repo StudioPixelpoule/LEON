@@ -423,17 +423,22 @@ export async function transcodeFile(
   const sourceCodec = await detectVideoCodec(job.filepath)
   const isHEVC = sourceCodec === 'hevc' || sourceCodec === 'h265'
 
-  if (isHEVC) {
-    console.log(`[TRANSCODE] Source HEVC détectée - décodage software (CPU) + encodage hardware (GPU)`)
-  }
+  // Fallback CPU pour HEVC (chemin éprouvé : decode CPU + encode GPU)
+  const cpuDecoderArgs = ['-init_hw_device', 'vaapi=va:/dev/dri/renderD128', '-filter_hw_device', 'va']
+  const cpuVideoFilter = 'format=nv12,hwupload'
 
   let decoderArgs: string[] = []
   let videoFilter: string
+  let hevcHwDecode = false
 
   if (hardware.acceleration === 'vaapi') {
     if (isHEVC) {
-      decoderArgs = ['-init_hw_device', 'vaapi=va:/dev/dri/renderD128', '-filter_hw_device', 'va']
-      videoFilter = 'format=nv12,hwupload'
+      // Pipeline full VAAPI : decode GPU + encode GPU (Apollo Lake supporte HEVC decode)
+      // Si le driver ne le supporte pas, fallback automatique sur decode CPU
+      decoderArgs = hardware.decoderArgs
+      videoFilter = 'format=nv12|vaapi,hwupload'
+      hevcHwDecode = true
+      console.log('[TRANSCODE] HEVC: tentative décodage GPU (full VAAPI pipeline)')
     } else {
       decoderArgs = hardware.decoderArgs
       videoFilter = 'format=nv12|vaapi,hwupload'
@@ -446,9 +451,9 @@ export async function transcodeFile(
   // Helper pour exécuter FFmpeg et suivre la progression
   const runFFmpeg = (args: string[], label: string, progressWeight: number, progressOffset: number): Promise<void> => {
     return new Promise((resolve, reject) => {
-      console.log(`[TRANSCODE] FFmpeg ${label}: nice -n 19 ffmpeg`, args.join(' ').slice(0, 300) + '...')
+      console.log(`[TRANSCODE] FFmpeg ${label}: nice -n 10 ffmpeg`, args.join(' ').slice(0, 300) + '...')
 
-      const ffmpeg = spawn('nice', ['-n', '19', 'ionice', '-c', '3', 'ffmpeg', ...args], {
+      const ffmpeg = spawn('nice', ['-n', '10', 'ionice', '-c', '2', '-n', '5', 'ffmpeg', ...args], {
         stdio: ['ignore', 'pipe', 'pipe']
       })
 
@@ -550,9 +555,7 @@ export async function transcodeFile(
         singlePassSuccess = true
         console.log(`[TRANSCODE] ✅ Single-pass réussi`)
       } catch (singlePassError) {
-        console.warn(`[TRANSCODE] ⚠️ Single-pass échoué, passage en mode séquentiel:`, singlePassError instanceof Error ? singlePassError.message.slice(0, 200) : singlePassError)
-
-        // Nettoyage des fichiers partiels du single-pass
+        // Nettoyage des fichiers partiels
         try {
           const partialFiles = await readdir(job.outputDir)
           for (const f of partialFiles) {
@@ -561,6 +564,57 @@ export async function transcodeFile(
             }
           }
         } catch { /* Ignore */ }
+
+        // HEVC hardware échoué → retry avec décodage CPU (chemin éprouvé)
+        if (isHEVC && hevcHwDecode) {
+          console.warn('[TRANSCODE] HEVC hardware decode échoué, basculement sur décodage CPU')
+          hevcHwDecode = false
+          decoderArgs = cpuDecoderArgs
+          videoFilter = cpuVideoFilter
+
+          const cpuSinglePassArgs: string[] = [
+            ...decoderArgs,
+            '-i', job.filepath,
+            '-map', '0:v:0',
+            '-map_metadata', '-1',
+            '-vf', videoFilter,
+            ...hardware.encoderArgs,
+            '-g', String(gopSize),
+            '-keyint_min', String(keyintMin),
+            '-sc_threshold', '0',
+            '-force_key_frames', `expr:gte(t,n_forced*${SEGMENT_DURATION})`,
+            ...hlsArgs('video_segment', 'video.m3u8'),
+          ]
+
+          for (let i = 0; i < streamInfo.audioCount; i++) {
+            cpuSinglePassArgs.push(
+              '-map', `0:a:${i}`,
+              '-c:a', 'aac',
+              '-b:a', '192k',
+              '-ac', '2',
+              '-ar', '48000',
+              ...hlsArgs(`audio_${i}_segment`, `audio_${i}.m3u8`)
+            )
+          }
+
+          try {
+            await runFFmpeg(cpuSinglePassArgs, 'Single-pass CPU fallback', 95, 0)
+            singlePassSuccess = true
+            console.log('[TRANSCODE] ✅ Single-pass réussi (décodage CPU)')
+          } catch (cpuError) {
+            console.warn('[TRANSCODE] ⚠️ Single-pass CPU échoué, passage en séquentiel:', cpuError instanceof Error ? cpuError.message.slice(0, 200) : cpuError)
+            try {
+              const partialFiles2 = await readdir(job.outputDir)
+              for (const f of partialFiles2) {
+                if (f.endsWith('.ts') || f.endsWith('.m3u8')) {
+                  await unlink(path.join(job.outputDir, f)).catch(() => {})
+                }
+              }
+            } catch { /* Ignore */ }
+          }
+        } else {
+          console.warn('[TRANSCODE] ⚠️ Single-pass échoué, passage en séquentiel:', singlePassError instanceof Error ? singlePassError.message.slice(0, 200) : singlePassError)
+        }
       }
     }
 
@@ -573,28 +627,52 @@ export async function transcodeFile(
       const audioWeight = streamInfo.audioCount > 0 ? 25 / streamInfo.audioCount : 0
 
       // PASS 1 : Vidéo
-      const videoArgs = [
-        ...decoderArgs,
-        '-i', job.filepath,
-        '-map', '0:v:0',
-        '-an',
-        '-map_metadata', '-1',
-        '-vf', videoFilter,
-        ...hardware.encoderArgs,
-        '-g', String(gopSize),
-        '-keyint_min', String(keyintMin),
-        '-sc_threshold', '0',
-        '-force_key_frames', `expr:gte(t,n_forced*${SEGMENT_DURATION})`,
-        ...hlsArgs('video_segment', 'video.m3u8'),
-      ]
+      const buildVideoArgs = () => {
+        const args = [
+          ...decoderArgs,
+          '-i', job.filepath,
+          '-map', '0:v:0',
+          '-an',
+          '-map_metadata', '-1',
+          '-vf', videoFilter,
+          ...hardware.encoderArgs,
+          '-g', String(gopSize),
+          '-keyint_min', String(keyintMin),
+          '-sc_threshold', '0',
+          '-force_key_frames', `expr:gte(t,n_forced*${SEGMENT_DURATION})`,
+          ...hlsArgs('video_segment', 'video.m3u8'),
+        ]
 
-      // Si pas d'audio, mapper l'audio optionnel
-      if (streamInfo.audioCount === 0) {
-        videoArgs.splice(videoArgs.indexOf('-an'), 1)
-        videoArgs.splice(videoArgs.indexOf('-map'), 0, '-map', '0:a?')
+        if (streamInfo.audioCount === 0) {
+          args.splice(args.indexOf('-an'), 1)
+          args.splice(args.indexOf('-map'), 0, '-map', '0:a?')
+        }
+        return args
       }
 
-      await runFFmpeg(videoArgs, 'Vidéo (séquentiel)', videoWeight, 0)
+      try {
+        await runFFmpeg(buildVideoArgs(), 'Vidéo (séquentiel)', videoWeight, 0)
+      } catch (videoError) {
+        if (isHEVC && hevcHwDecode) {
+          console.warn('[TRANSCODE] HEVC hardware decode échoué (séquentiel), basculement sur décodage CPU')
+          hevcHwDecode = false
+          decoderArgs = cpuDecoderArgs
+          videoFilter = cpuVideoFilter
+
+          try {
+            const partialVideoFiles = await readdir(job.outputDir)
+            for (const f of partialVideoFiles) {
+              if ((f.startsWith('video_segment') && f.endsWith('.ts')) || f === 'video.m3u8') {
+                await unlink(path.join(job.outputDir, f)).catch(() => {})
+              }
+            }
+          } catch { /* Ignore */ }
+
+          await runFFmpeg(buildVideoArgs(), 'Vidéo CPU fallback', videoWeight, 0)
+        } else {
+          throw videoError
+        }
+      }
 
       // PASS 2+N : Audio(s)
       for (let i = 0; i < streamInfo.audioCount; i++) {
