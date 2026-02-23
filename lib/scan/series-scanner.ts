@@ -30,21 +30,30 @@ async function fetchTmdbEpisode(
   if (!TMDB_API_KEY) return null
 
   try {
-    // Essayer d'abord en français
-    const response = await fetch(
-      `${TMDB_BASE_URL}/tv/${tmdbSeriesId}/season/${seasonNumber}/episode/${episodeNumber}?api_key=${TMDB_API_KEY}&language=fr-FR`
-    )
+    const baseUrl = `${TMDB_BASE_URL}/tv/${tmdbSeriesId}/season/${seasonNumber}/episode/${episodeNumber}?api_key=${TMDB_API_KEY}`
 
-    if (!response.ok) {
-      // Fallback en anglais
-      const responseEn = await fetch(
-        `${TMDB_BASE_URL}/tv/${tmdbSeriesId}/season/${seasonNumber}/episode/${episodeNumber}?api_key=${TMDB_API_KEY}&language=en-US`
-      )
-      if (!responseEn.ok) return null
-      return await responseEn.json()
+    const response = await fetch(`${baseUrl}&language=fr-FR`)
+    let dataFr: TmdbEpisodeData | null = null
+
+    if (response.ok) {
+      dataFr = await response.json()
+      if (dataFr && (dataFr.overview || dataFr.still_path)) {
+        return dataFr
+      }
     }
 
-    return await response.json()
+    // Fallback anglais si FR echoue ou si les donnees FR sont incompletes
+    const responseEn = await fetch(`${baseUrl}&language=en-US`)
+    if (!responseEn.ok) return dataFr
+
+    const dataEn: TmdbEpisodeData = await responseEn.json()
+
+    // Merger : titre FR prioritaire, donnees EN pour le reste
+    if (dataFr?.name) {
+      return { ...dataEn, name: dataFr.name }
+    }
+
+    return dataEn
   } catch {
     return null
   }
@@ -441,7 +450,7 @@ async function saveEpisodesWithTmdb(
   for (const ep of episodes) {
     const { data: existingEp } = await supabase
       .from('episodes')
-      .select('id, still_url, overview')
+      .select('id, title, still_url, overview')
       .eq('series_id', seriesId)
       .eq('season_number', ep.season)
       .eq('episode_number', ep.episode)
@@ -488,7 +497,7 @@ async function saveEpisodesWithTmdb(
       // Petite pause pour éviter le rate limiting TMDB
       if (tmdbData?.id) await new Promise(r => setTimeout(r, 50))
     } else if (tmdbData?.id && (!existingEp.still_url || !existingEp.overview)) {
-      // Mettre à jour les épisodes existants sans métadonnées TMDB
+      // Enrichir les episodes existants sans metadonnees TMDB
       const tmdbEpisode = await fetchTmdbEpisode(tmdbData.id, ep.season, ep.episode)
 
       if (tmdbEpisode) {
@@ -499,6 +508,10 @@ async function saveEpisodesWithTmdb(
         }
         if (!existingEp.overview && tmdbEpisode.overview) {
           updateData.overview = tmdbEpisode.overview
+        }
+        // Mettre a jour le titre si c'est un nom de fichier brut
+        if (tmdbEpisode.name && existingEp.title?.includes('.')) {
+          updateData.title = tmdbEpisode.name
         }
         if (tmdbEpisode.air_date) updateData.air_date = tmdbEpisode.air_date
         if (tmdbEpisode.vote_average) updateData.rating = tmdbEpisode.vote_average
@@ -511,7 +524,7 @@ async function saveEpisodesWithTmdb(
             .eq('id', existingEp.id)
 
           if (!updateError) {
-            console.log(`[SCAN] S${ep.season}E${ep.episode}: métadonnées enrichies`)
+            console.log(`[SCAN] S${ep.season}E${ep.episode}: métadonnées enrichies (${Object.keys(updateData).join(', ')})`)
             episodesUpdated++
           }
         }

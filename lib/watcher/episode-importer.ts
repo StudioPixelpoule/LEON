@@ -23,21 +23,29 @@ export async function fetchTmdbEpisodeMetadata(
   if (!TMDB_API_KEY) return null
 
   try {
-    // Essayer en français d'abord
-    const response = await fetch(
-      `${TMDB_BASE_URL}/tv/${tmdbSeriesId}/season/${seasonNumber}/episode/${episodeNumber}?api_key=${TMDB_API_KEY}&language=fr-FR`
-    )
+    const baseUrl = `${TMDB_BASE_URL}/tv/${tmdbSeriesId}/season/${seasonNumber}/episode/${episodeNumber}?api_key=${TMDB_API_KEY}`
 
-    if (!response.ok) {
-      // Fallback en anglais
-      const responseEn = await fetch(
-        `${TMDB_BASE_URL}/tv/${tmdbSeriesId}/season/${seasonNumber}/episode/${episodeNumber}?api_key=${TMDB_API_KEY}&language=en-US`
-      )
-      if (!responseEn.ok) return null
-      return await responseEn.json()
+    const response = await fetch(`${baseUrl}&language=fr-FR`)
+    let dataFr: TmdbEpisodeMetadata | null = null
+
+    if (response.ok) {
+      dataFr = await response.json()
+      if (dataFr && (dataFr.overview || dataFr.still_path)) {
+        return dataFr
+      }
     }
 
-    return await response.json()
+    // Fallback anglais si FR echoue ou donnees FR incompletes
+    const responseEn = await fetch(`${baseUrl}&language=en-US`)
+    if (!responseEn.ok) return dataFr
+
+    const dataEn: TmdbEpisodeMetadata = await responseEn.json()
+
+    if (dataFr?.name) {
+      return { ...dataEn, name: dataFr.name }
+    }
+
+    return dataEn
   } catch {
     return null
   }
