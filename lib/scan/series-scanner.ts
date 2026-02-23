@@ -74,6 +74,53 @@ async function fetchWithRetry(url: string, maxRetries = 3): Promise<Response> {
   throw new Error(`TMDB rate limit dépassé après ${maxRetries} tentatives`)
 }
 
+/**
+ * Récupérer les détails d'une série directement par son TMDB ID
+ * Utilisé en fallback quand la recherche par nom échoue mais que la série a un tmdb_id en base
+ */
+async function fetchSeriesDetailsByTmdbId(tmdbId: number): Promise<TmdbSeriesDetails | null> {
+  if (!TMDB_API_KEY) return null
+
+  try {
+    const detailsUrl = `${TMDB_BASE_URL}/tv/${tmdbId}?api_key=${TMDB_API_KEY}&language=fr-FR&append_to_response=videos`
+    const detailsResponse = await fetchWithRetry(detailsUrl)
+
+    if (!detailsResponse.ok) {
+      console.error(`[SCAN] TMDB details HTTP ${detailsResponse.status} pour ID ${tmdbId}`)
+      return null
+    }
+
+    const detailsData: TmdbSeriesDetails = await detailsResponse.json()
+    if (!detailsData?.id) return null
+
+    let trailer = detailsData.videos?.results?.find((v) =>
+      v.type === 'Trailer' && v.site === 'YouTube'
+    )
+
+    if (!trailer) {
+      try {
+        const enVideosUrl = `${TMDB_BASE_URL}/tv/${tmdbId}/videos?api_key=${TMDB_API_KEY}&language=en-US`
+        const enVideosResponse = await fetchWithRetry(enVideosUrl)
+        const enVideosData = await enVideosResponse.json()
+        trailer = enVideosData.results?.find((v: { type: string; site: string }) =>
+          v.type === 'Trailer' && v.site === 'YouTube'
+        )
+      } catch {
+        // Ignore
+      }
+    }
+
+    if (trailer) {
+      detailsData.trailer_url = `https://www.youtube.com/watch?v=${trailer.key}`
+    }
+
+    return detailsData
+  } catch (error) {
+    console.error(`[SCAN] Erreur récupération TMDB ID ${tmdbId}:`, error)
+    return null
+  }
+}
+
 async function searchSeriesOnTMDB(seriesName: string): Promise<TmdbSeriesDetails | null> {
   if (!TMDB_API_KEY) return null
 
@@ -537,10 +584,24 @@ export async function runScan(): Promise<void> {
 
       // 3. Rechercher la série sur TMDB
       console.log(`[SCAN] Recherche TMDB pour: "${seriesName}"`)
-      const tmdbData = await searchSeriesOnTMDB(seriesName)
+      let tmdbData = await searchSeriesOnTMDB(seriesName)
+
+      // Fallback : si la recherche par nom échoue, utiliser le tmdb_id existant en base
+      if (!tmdbData) {
+        const { data: existingWithTmdb } = await supabase
+          .from('series')
+          .select('tmdb_id')
+          .eq('local_folder_path', seriesPath)
+          .limit(1)
+          .maybeSingle()
+
+        if (existingWithTmdb?.tmdb_id) {
+          console.log(`[SCAN] Recherche par nom échouée, utilisation du TMDB ID existant: ${existingWithTmdb.tmdb_id}`)
+          tmdbData = await fetchSeriesDetailsByTmdbId(existingWithTmdb.tmdb_id)
+        }
+      }
 
       if (!tmdbData) {
-        // Sans données TMDB
         console.log(`[SCAN] Non trouvé sur TMDB, création sans métadonnées...`)
 
         const seriesId = await saveSeriesWithoutTmdb(seriesName, seriesPath, stats)
