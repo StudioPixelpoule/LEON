@@ -5,7 +5,7 @@
 
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import Header from '@/components/Header/Header'
 import HeroSection from '@/components/HeroSection/HeroSection'
 import MovieRow from '@/components/MovieRow/MovieRow'
@@ -41,38 +41,49 @@ export default function SeriesPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [filteredSeries, setFilteredSeries] = useState<SeriesData[]>([])
   
-  useEffect(() => {
-    async function loadSeries() {
-      try {
-        setLoading(true)
-        
-        const response = await fetch('/api/series/list')
-        const result = await response.json()
-        
-        if (!response.ok || !result.success) {
-          throw new Error('Erreur chargement séries')
-        }
-        
-        const seriesList: SeriesData[] = result.series || []
-        console.log(`✅ ${seriesList.length} séries chargées`)
-        
-        setSeries(seriesList)
-        
-        // Sélectionner une série aléatoire avec backdrop pour le hero
+  const loadSeries = useCallback(async (silent = false) => {
+    try {
+      if (!silent) setLoading(true)
+      
+      const response = await fetch(`/api/series/list?nocache=true`)
+      const result = await response.json()
+      
+      if (!response.ok || !result.success) {
+        throw new Error('Erreur chargement séries')
+      }
+      
+      const seriesList: SeriesData[] = result.series || []
+      if (!silent) console.log(`✅ ${seriesList.length} séries chargées`)
+      
+      setSeries(seriesList)
+      
+      if (!silent) {
         const withBackdrop = seriesList.filter(s => s.backdrop_url)
         if (withBackdrop.length > 0) {
           const randomIndex = Math.floor(Math.random() * withBackdrop.length)
           setHeroSeries(withBackdrop[randomIndex])
         }
-      } catch (error) {
-        console.error('❌ Erreur chargement séries:', error)
-      } finally {
-        setLoading(false)
+      }
+    } catch (error) {
+      if (!silent) console.error('❌ Erreur chargement séries:', error)
+    } finally {
+      if (!silent) setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadSeries()
+  }, [loadSeries])
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        loadSeries(true)
       }
     }
-    
-    loadSeries()
-  }, [])
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [loadSeries])
 
   useEffect(() => {
     async function loadTrailer() {

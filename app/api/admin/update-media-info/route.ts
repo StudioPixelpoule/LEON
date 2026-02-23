@@ -108,7 +108,11 @@ export async function PATCH(request: NextRequest) {
           }
         }
       } catch (tmdbError) {
-        console.error('[UPDATE-MEDIA-INFO] ⚠️ Erreur TMDB:', tmdbError)
+        console.error('[UPDATE-MEDIA-INFO] ❌ Erreur TMDB:', tmdbError)
+        return NextResponse.json({
+          success: false,
+          error: `Impossible de récupérer les métadonnées TMDB : ${tmdbError instanceof Error ? tmdbError.message : 'Erreur inconnue'}`
+        }, { status: 502 })
       }
     }
 
@@ -151,6 +155,12 @@ export async function PATCH(request: NextRequest) {
 
     if (error) {
       console.error('[UPDATE-MEDIA-INFO] ❌ Erreur Supabase:', error)
+      if (error.code === '23505' && error.message?.includes('tmdb_id')) {
+        return NextResponse.json({ 
+          success: false, 
+          error: 'Ce TMDB ID est déjà utilisé par un autre média. Vérifiez l\'ID et réessayez.'
+        }, { status: 409 })
+      }
       return NextResponse.json({ 
         success: false, 
         error: error.message 

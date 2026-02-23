@@ -78,15 +78,16 @@ export function usePosterUpdate({ loadMovies, loadSeries }: UsePosterUpdateDeps)
   const updatePoster = useCallback(async (tmdbId: number, type: 'movie' | 'series') => {
     setSaving(true)
     try {
-      const endpoint = type === 'movie'
-        ? '/api/admin/update-media-info'
-        : '/api/admin/update-series-metadata'
-      const body = type === 'movie'
-        ? { id: selectedMovie?.id, type: 'movie', tmdb_id: tmdbId, refreshFromTmdb: true }
-        : { seriesId: selectedSeries?.id, tmdbId }
+      const mediaId = type === 'movie' ? selectedMovie?.id : selectedSeries?.id
+      const body = {
+        id: mediaId,
+        type,
+        tmdb_id: tmdbId,
+        refreshFromTmdb: true,
+      }
 
-      const response = await fetch(endpoint, {
-        method: type === 'movie' ? 'PATCH' : 'POST',
+      const response = await fetch('/api/admin/update-media-info', {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
         credentials: 'include',

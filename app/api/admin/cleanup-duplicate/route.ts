@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 import { createSupabaseAdmin } from '@/lib/supabase'
+import { invalidateMediaCaches } from '@/lib/cache-invalidation'
 
 export const dynamic = 'force-dynamic'
 
@@ -45,6 +46,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: delSeriesError.message }, { status: 500 })
     }
     
+    invalidateMediaCaches()
     return NextResponse.json({ success: true, message: 'Série et épisodes supprimés' })
   } catch (error) {
     console.error('Erreur:', error)

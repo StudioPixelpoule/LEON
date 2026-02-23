@@ -63,7 +63,7 @@ export function useMediaEdit({ selectedMedia, setSelectedMedia, setResults }: Us
 
     setSaving(true)
     try {
-      const payload: Record<string, string | number | null> = {
+      const payload: Record<string, string | number | boolean | null> = {
         id: selectedMedia.id,
         type: selectedMedia.type
       }
@@ -74,6 +74,9 @@ export function useMediaEdit({ selectedMedia, setSelectedMedia, setResults }: Us
       }
       if (editTmdbId !== (selectedMedia.tmdb_id?.toString() || '')) {
         payload.tmdb_id = editTmdbId ? parseInt(editTmdbId, 10) : null
+        if (editTmdbId) {
+          payload.refreshFromTmdb = true
+        }
       }
       if (editPosterUrl !== (selectedMedia.poster_url || '')) {
         payload.poster_url = editPosterUrl || null
@@ -136,8 +139,10 @@ export function useMediaEdit({ selectedMedia, setSelectedMedia, setResults }: Us
         setSelectedMedia(updatedMedia)
         setEditTitle(data.media.title || '')
         setEditYear(data.media.year?.toString() || '')
+        setEditTmdbId(data.media.tmdb_id?.toString() || '')
         setEditPosterUrl(data.media.poster_url || '')
         setEditBackdropUrl(data.media.backdrop_url || '')
+        setEditTrailerUrl(data.media.trailer_url || '')
         setResults(prev => prev.map(r => r.id === selectedMedia.id ? updatedMedia : r))
       } else {
         addToast('error', 'Erreur', data.error || 'Import TMDB échoué')

@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
       console.log(`[ADMIN] Métadonnées récupérées: ${tmdbData.name}`)
       
       // Mettre à jour la série
-      const { error: updateError } = await supabase
+      const { data: updatedData, error: updateError } = await supabase
         .from('series')
         .update({
           tmdb_id: tmdbData.id,
@@ -62,14 +62,22 @@ export async function POST(request: NextRequest) {
           backdrop_url: tmdbData.backdrop_path ? `https://image.tmdb.org/t/p/original${tmdbData.backdrop_path}` : null,
           rating: tmdbData.vote_average,
           first_air_date: tmdbData.first_air_date,
-          genres: tmdbData.genres?.map((g: any) => g.name) || [],
+          genres: tmdbData.genres?.map((g: { name: string }) => g.name) || [],
           status: tmdbData.status,
           updated_at: new Date().toISOString()
         })
         .eq('id', seriesId)
+        .select()
+        .single()
       
       if (updateError) {
         console.error('❌ Erreur mise à jour série:', updateError)
+        if (updateError.code === '23505' && updateError.message?.includes('tmdb_id')) {
+          return NextResponse.json(
+            { error: 'Ce TMDB ID est déjà utilisé par une autre série' },
+            { status: 409 }
+          )
+        }
         return NextResponse.json(
           { error: 'Erreur lors de la mise à jour' },
           { status: 500 }
@@ -81,7 +89,8 @@ export async function POST(request: NextRequest) {
       
       return NextResponse.json({
         success: true,
-        message: 'Série validée avec succès'
+        message: 'Série validée avec succès',
+        media: updatedData
       })
     }
     
@@ -96,10 +105,12 @@ export async function POST(request: NextRequest) {
         updateData.title = correctedTitle
       }
       
-      const { error: updateError } = await supabase
+      const { data: updatedData, error: updateError } = await supabase
         .from('series')
         .update(updateData)
         .eq('id', seriesId)
+        .select()
+        .single()
       
       if (updateError) {
         console.error('❌ Erreur mise à jour série:', updateError)
@@ -114,7 +125,8 @@ export async function POST(request: NextRequest) {
       
       return NextResponse.json({
         success: true,
-        message: 'Série validée avec jaquette personnalisée'
+        message: 'Série validée avec jaquette personnalisée',
+        media: updatedData
       })
     }
     

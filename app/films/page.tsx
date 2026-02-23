@@ -4,7 +4,7 @@
 
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import Header from '@/components/Header/Header'
 import HeroSection from '@/components/HeroSection/HeroSection'
 import MovieRow from '@/components/MovieRow/MovieRow'
@@ -31,46 +31,57 @@ export default function FilmsPage() {
   const [searchQuery, setSearchQuery] = useState('')
   const [filteredMovies, setFilteredMovies] = useState<GroupedMedia[]>([])
   
-  useEffect(() => {
-    async function loadMovies() {
-      try {
-        setLoading(true)
-        
-        const response = await fetch('/api/media/grouped?type=movie')
-        const result = await response.json()
-        
-        if (!response.ok || !result.success) {
-          throw new Error('Erreur chargement films')
-        }
-        
-        const movieList: GroupedMedia[] = result.media || []
-        console.log(`✅ ${movieList.length} films chargés`)
-        
-        setMovies(movieList)
-        
-        // Hero: Sélectionner parmi les 10 derniers films ajoutés
+  const loadMovies = useCallback(async (silent = false) => {
+    try {
+      if (!silent) setLoading(true)
+      
+      const response = await fetch('/api/media/grouped?type=movie&nocache=true')
+      const result = await response.json()
+      
+      if (!response.ok || !result.success) {
+        throw new Error('Erreur chargement films')
+      }
+      
+      const movieList: GroupedMedia[] = result.media || []
+      if (!silent) console.log(`✅ ${movieList.length} films chargés`)
+      
+      setMovies(movieList)
+      
+      if (!silent) {
         const recentWithBackdrop = movieList
           .filter(m => m.backdrop_url)
           .sort((a, b) => {
             const dateA = new Date(a.created_at || 0).getTime()
             const dateB = new Date(b.created_at || 0).getTime()
-            return dateB - dateA // Plus récent en premier
+            return dateB - dateA
           })
-          .slice(0, 10) // Top 10 derniers ajouts
+          .slice(0, 10)
         
         if (recentWithBackdrop.length > 0) {
           const randomIndex = Math.floor(Math.random() * recentWithBackdrop.length)
           setHeroMovie(recentWithBackdrop[randomIndex])
         }
-      } catch (error) {
-        console.error('❌ Erreur chargement films:', error)
-      } finally {
-        setLoading(false)
+      }
+    } catch (error) {
+      if (!silent) console.error('❌ Erreur chargement films:', error)
+    } finally {
+      if (!silent) setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    loadMovies()
+  }, [loadMovies])
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        loadMovies(true)
       }
     }
-    
-    loadMovies()
-  }, []) // Charger une seule fois au montage
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [loadMovies])
 
   useEffect(() => {
     if (!heroMovie) {

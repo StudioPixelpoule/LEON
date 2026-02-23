@@ -291,12 +291,44 @@ export async function POST(request: NextRequest) {
             trailer_url: mediaDetails?.videos?.results?.[0]?.key ? `https://youtube.com/watch?v=${mediaDetails.videos.results[0].key}` : null,
           }
           
-          // Si existe déjà, UPDATE, sinon INSERT
+          // Si existe déjà, UPDATE avec protection des champs admin, sinon INSERT
           let upsertError = null
           if (existing) {
+            const { data: currentData } = await supabase
+              .from('media')
+              .select('title, original_title, poster_url, backdrop_url, trailer_url, tmdb_id, overview, genres, movie_cast, director, rating, vote_count, year, tagline, release_date')
+              .eq('id', existing.id)
+              .maybeSingle()
+
+            const safePayload = {
+              pcloud_fileid: mediaData.pcloud_fileid,
+              file_size: mediaData.file_size,
+              quality: mediaData.quality,
+              duration: mediaData.duration,
+              formatted_runtime: mediaData.formatted_runtime,
+              subtitles: mediaData.subtitles,
+              title: currentData?.title || mediaData.title,
+              original_title: currentData?.original_title || mediaData.original_title,
+              poster_url: currentData?.poster_url || mediaData.poster_url,
+              backdrop_url: currentData?.backdrop_url || mediaData.backdrop_url,
+              trailer_url: currentData?.trailer_url || mediaData.trailer_url,
+              tmdb_id: currentData?.tmdb_id ?? mediaData.tmdb_id,
+              overview: currentData?.overview || mediaData.overview,
+              genres: (currentData?.genres && Array.isArray(currentData.genres) && currentData.genres.length > 0)
+                ? currentData.genres
+                : mediaData.genres,
+              movie_cast: currentData?.movie_cast || mediaData.movie_cast,
+              director: currentData?.director || mediaData.director,
+              rating: currentData?.rating ?? mediaData.rating,
+              vote_count: currentData?.vote_count ?? mediaData.vote_count,
+              year: currentData?.year ?? mediaData.year,
+              tagline: currentData?.tagline || mediaData.tagline,
+              release_date: currentData?.release_date || mediaData.release_date,
+            }
+
             const { error } = await supabase
               .from('media')
-              .update(mediaData)
+              .update(safePayload)
               .eq('id', existing.id)
             upsertError = error
           } else {
