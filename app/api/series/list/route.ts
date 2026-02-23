@@ -63,9 +63,7 @@ export async function GET(request: Request) {
       )
     }
 
-    // Transformer les données — affichage par saison complète
-    // Une saison est visible seulement quand TOUS ses épisodes sont transcodés
-    // La série reste visible tant qu'au moins une saison est complète
+    // Transformer les données — affichage par saison dès qu'un épisode est transcodé
     const seriesWithEpisodes = (series || [])
       .map((serie: any) => {
         const allEpisodes = serie.episodes || []
@@ -82,37 +80,36 @@ export async function GET(request: Request) {
           }
         })
 
-        // Ne garder que les saisons entièrement transcodées
-        const readySeasons = Object.entries(seasonMap)
-          .filter(([, counts]) => counts.transcoded === counts.total && counts.total > 0)
+        // Saisons visibles : au moins 1 épisode transcodé
+        const visibleSeasons = Object.entries(seasonMap)
+          .filter(([, counts]) => counts.transcoded > 0)
           .map(([season, counts]) => ({
             season: parseInt(season),
-            episodeCount: counts.transcoded
+            episodeCount: counts.transcoded,
+            total: counts.total,
+            complete: counts.transcoded === counts.total
           }))
           .sort((a, b) => a.season - b.season)
 
-        // Saisons en cours de transcodage (au moins un épisode non transcodé)
+        // Saisons sans aucun épisode transcodé
         const pendingSeasons = Object.entries(seasonMap)
-          .filter(([, counts]) => counts.transcoded < counts.total)
+          .filter(([, counts]) => counts.transcoded === 0)
           .map(([season, counts]) => ({
             season: parseInt(season),
-            ready: counts.transcoded,
+            ready: 0,
             total: counts.total
           }))
 
-        // Si aucune saison n'est prête, cacher la série
-        if (readySeasons.length === 0) return null
+        if (visibleSeasons.length === 0) return null
 
-        const totalReadyEpisodes = readySeasons.reduce((acc, s) => acc + s.episodeCount, 0)
+        const totalReadyEpisodes = visibleSeasons.reduce((acc, s) => acc + s.episodeCount, 0)
 
-        // Supprimer les épisodes détaillés pour alléger la réponse
         const { episodes: _, ...serieWithoutEpisodes } = serie
 
         return {
           ...serieWithoutEpisodes,
-          seasons: readySeasons,
+          seasons: visibleSeasons,
           totalEpisodes: totalReadyEpisodes,
-          // Info optionnelle pour l'interface (saisons en préparation)
           ...(pendingSeasons.length > 0 ? { pendingSeasons } : {})
         }
       })

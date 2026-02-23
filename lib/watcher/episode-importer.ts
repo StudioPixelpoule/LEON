@@ -8,6 +8,7 @@
 import path from 'path'
 import { TMDB_API_KEY, TMDB_BASE_URL, SERIES_DIR } from './types'
 import { cleanEpisodeTitle } from './filename-parser'
+import { invalidateMediaCaches } from '@/lib/cache-invalidation'
 import type { TmdbEpisodeMetadata } from './types'
 
 /**
@@ -210,9 +211,9 @@ async function addEpisodeToExistingSeries(
     console.error(`[WATCHER] Erreur ajout épisode:`, epError.message)
   } else {
     console.log(`[WATCHER] Épisode importé: ${existingSeries.title} S${seasonNumber}E${episodeNumber} — is_transcoded: ${alreadyTranscoded}`)
+    invalidateMediaCaches()
   }
 
-  // Programmer un scan d'enrichissement différé
   onEnrichmentNeeded()
 }
 
@@ -318,7 +319,7 @@ async function createSeriesAndAddEpisode(
       is_transcoded: epAlreadyTranscoded
     })
 
-    // Programmer un scan d'enrichissement différé (pour récupérer les métadonnées TMDB)
+    invalidateMediaCaches()
     onEnrichmentNeeded()
   } catch (scanError) {
     console.error(`[WATCHER] Erreur lors du scan:`, scanError)

@@ -46,40 +46,36 @@ export async function GET(
       )
     }
 
-    // Grouper par saison et déterminer le statut de chaque saison
-    const seasonGrouped: Record<number, { episodes: any[]; allTranscoded: boolean }> = {}
+    // Grouper par saison
+    const seasonGrouped: Record<number, { episodes: any[] }> = {}
     for (const ep of (allEpisodes || [])) {
       const s = ep.season_number
       if (!seasonGrouped[s]) {
-        seasonGrouped[s] = { episodes: [], allTranscoded: true }
+        seasonGrouped[s] = { episodes: [] }
       }
       seasonGrouped[s].episodes.push(ep)
-      if (ep.is_transcoded !== true) {
-        seasonGrouped[s].allTranscoded = false
-      }
     }
 
-    // Ne retourner que les saisons entièrement transcodées
+    // Saisons visibles : au moins 1 épisode transcodé (ne retourne que les épisodes transcodés)
     const readySeasons = Object.entries(seasonGrouped)
-      .filter(([, data]) => data.allTranscoded && data.episodes.length > 0)
+      .filter(([, data]) => data.episodes.some((ep: any) => ep.is_transcoded === true))
       .map(([season, data]) => ({
         season: parseInt(season),
-        episodes: data.episodes
+        episodes: data.episodes.filter((ep: any) => ep.is_transcoded === true)
       }))
       .sort((a, b) => a.season - b.season)
 
-    // Info sur les saisons en cours de transcodage
+    // Saisons entièrement en attente de transcodage
     const pendingSeasons = Object.entries(seasonGrouped)
-      .filter(([, data]) => !data.allTranscoded)
+      .filter(([, data]) => !data.episodes.some((ep: any) => ep.is_transcoded === true))
       .map(([season, data]) => ({
         season: parseInt(season),
-        ready: data.episodes.filter((ep: any) => ep.is_transcoded === true).length,
+        ready: 0,
         total: data.episodes.length
       }))
 
-    // Si aucune saison n'est prête, renvoyer 503
     if (readySeasons.length === 0) {
-      const totalPending = pendingSeasons.reduce((acc, s) => acc + (s.total - s.ready), 0)
+      const totalPending = (allEpisodes || []).filter((ep: any) => ep.is_transcoded !== true).length
       return NextResponse.json(
         { 
           error: 'Série en cours de transcodage',

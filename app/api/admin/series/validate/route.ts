@@ -9,6 +9,7 @@ import { requireAdmin, authErrorResponse } from '@/lib/api-auth'
 // Forcer le rendu dynamique (évite le prerendering statique)
 export const dynamic = 'force-dynamic'
 import { createSupabaseAdmin } from '@/lib/supabase'
+import { invalidateMediaCaches } from '@/lib/cache-invalidation'
 
 const TMDB_API_KEY = process.env.TMDB_API_KEY
 
@@ -76,6 +77,7 @@ export async function POST(request: NextRequest) {
       }
       
       console.log(`[ADMIN] Série validée: ${seriesId}`)
+      invalidateMediaCaches()
       
       return NextResponse.json({
         success: true,
@@ -108,6 +110,7 @@ export async function POST(request: NextRequest) {
       }
       
       console.log(`[ADMIN] Série validée avec jaquette personnalisée: ${seriesId}`)
+      invalidateMediaCaches()
       
       return NextResponse.json({
         success: true,

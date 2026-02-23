@@ -66,6 +66,7 @@ export interface ScanStats {
   totalEpisodes: number
   newSeries: number
   updatedSeries: number
+  enrichedSeries: number
   newEpisodes: number
   enrichedEpisodes: number
 }

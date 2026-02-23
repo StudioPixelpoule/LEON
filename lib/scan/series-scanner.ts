@@ -268,10 +268,8 @@ async function saveSeriesWithTmdb(
   seriesPath: string,
   seriesName: string,
   tmdbData: TmdbSeriesDetails,
-  stats: { newSeries: number; updatedSeries: number }
+  stats: { newSeries: number; updatedSeries: number; enrichedSeries: number }
 ): Promise<string | null> {
-  // Chercher d'abord par chemin local (plus fiable pour les rescans)
-  // .limit(1) + maybeSingle() résiste aux doublons éventuels en base
   const { data: seriesByPath } = await supabase
     .from('series')
     .select('id')
@@ -282,7 +280,6 @@ async function saveSeriesWithTmdb(
   let existingSeries: { id: string } | null = seriesByPath || null
 
   if (!existingSeries) {
-    // Sinon chercher par tmdb_id (prend la première occurrence)
     const { data: seriesByTmdb } = await supabase
       .from('series')
       .select('id')
@@ -313,20 +310,31 @@ async function saveSeriesWithTmdb(
   }
 
   if (existingSeries) {
-    // Récupérer les valeurs actuelles pour ne pas écraser les modifications admin
+    // Récupérer TOUS les champs pour ne pas écraser les modifications admin
     const { data: currentData } = await supabase
       .from('series')
-      .select('poster_url, backdrop_url, trailer_url')
+      .select('title, original_title, overview, poster_url, backdrop_url, trailer_url, rating, first_air_date, genres, tmdb_id')
       .eq('id', existingSeries.id)
       .limit(1)
       .maybeSingle()
 
-    // Préserver les valeurs déjà définies (possiblement modifiées par l'admin)
+    const wasEnriched = !currentData?.tmdb_id && seriesPayload.tmdb_id
+
+    // Ne jamais écraser un champ déjà renseigné (protège les modifications admin)
     const safePayload = {
-      ...seriesPayload,
+      title: currentData?.title || seriesPayload.title,
+      original_title: currentData?.original_title || seriesPayload.original_title,
+      overview: currentData?.overview || seriesPayload.overview,
       poster_url: currentData?.poster_url || seriesPayload.poster_url,
       backdrop_url: currentData?.backdrop_url || seriesPayload.backdrop_url,
       trailer_url: currentData?.trailer_url || seriesPayload.trailer_url,
+      rating: currentData?.rating ?? seriesPayload.rating,
+      first_air_date: currentData?.first_air_date || seriesPayload.first_air_date,
+      genres: (currentData?.genres && Array.isArray(currentData.genres) && currentData.genres.length > 0)
+        ? currentData.genres
+        : seriesPayload.genres,
+      tmdb_id: currentData?.tmdb_id ?? seriesPayload.tmdb_id,
+      local_folder_path: seriesPath,
       updated_at: new Date().toISOString()
     }
 
@@ -341,8 +349,13 @@ async function saveSeriesWithTmdb(
       return null
     }
 
-    console.log(`[SCAN] Série mise à jour (ID: ${existingSeries.id})`)
-    stats.updatedSeries++
+    if (wasEnriched) {
+      stats.enrichedSeries++
+      console.log(`[SCAN] Série enrichie avec TMDB (ID: ${existingSeries.id})`)
+    } else {
+      stats.updatedSeries++
+      console.log(`[SCAN] Série mise à jour (ID: ${existingSeries.id})`)
+    }
     return existingSeries.id
   }
 
@@ -560,6 +573,7 @@ export async function runScan(): Promise<void> {
     console.log('[SCAN] RÉSUMÉ DU SCAN SÉRIES')
     console.log(`[SCAN] Total séries: ${stats.totalSeries}`)
     console.log(`[SCAN] Nouvelles: ${stats.newSeries}`)
+    console.log(`[SCAN] Enrichies (TMDB): ${stats.enrichedSeries}`)
     console.log(`[SCAN] Mises à jour: ${stats.updatedSeries}`)
     console.log(`[SCAN] Total épisodes: ${stats.totalEpisodes}`)
     console.log(`[SCAN] Nouveaux épisodes: ${stats.newEpisodes}`)

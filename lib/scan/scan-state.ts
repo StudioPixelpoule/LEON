@@ -20,6 +20,7 @@ const scanState: ScanState = {
     totalEpisodes: 0,
     newSeries: 0,
     updatedSeries: 0,
+    enrichedSeries: 0,
     newEpisodes: 0,
     enrichedEpisodes: 0
   },
@@ -45,7 +46,7 @@ export function resetScanState(): void {
   scanState.progress = { totalSeries: 0, processedSeries: 0, currentEpisode: null }
   scanState.stats = {
     totalSeries: 0, totalEpisodes: 0, newSeries: 0,
-    updatedSeries: 0, newEpisodes: 0, enrichedEpisodes: 0
+    updatedSeries: 0, enrichedSeries: 0, newEpisodes: 0, enrichedEpisodes: 0
   }
   scanState.error = null
   scanState.completedAt = null
