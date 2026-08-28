@@ -26,15 +26,7 @@ const createClient = (): SupabaseClient | null => {
     return null
   }
   
-  return createBrowserClient(supabaseUrl, supabaseAnonKey, {
-    cookieOptions: {
-      path: '/',
-      sameSite: 'lax',
-      secure: true,
-      maxAge: 60 * 60 * 24 * 7,
-    },
-    cookieEncoding: 'raw',
-  })
+  return createBrowserClient(supabaseUrl, supabaseAnonKey)
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {

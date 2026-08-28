@@ -36,7 +36,6 @@ export async function middleware(req: NextRequest) {
     supabaseUrl,
     supabaseAnonKey,
     {
-      cookieEncoding: 'raw',
       cookies: {
         get(name: string) {
           return req.cookies.get(name)?.value

@@ -15,15 +15,7 @@ export const createBrowserClient = () => {
     throw new Error('Variables NEXT_PUBLIC_SUPABASE_URL et NEXT_PUBLIC_SUPABASE_ANON_KEY requises')
   }
   
-  return createSupabaseBrowserClient(supabaseUrl, supabaseAnonKey, {
-    cookieOptions: {
-      path: '/',
-      sameSite: 'lax',
-      secure: true,
-      maxAge: 60 * 60 * 24 * 7,
-    },
-    cookieEncoding: 'raw',
-  })
+  return createSupabaseBrowserClient(supabaseUrl, supabaseAnonKey)
 }
 
 // Client pour les Server Components et API Routes
